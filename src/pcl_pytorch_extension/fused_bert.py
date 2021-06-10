@@ -6,19 +6,11 @@ from torch.nn import init
 from torch.autograd import Function
 from pcl_pytorch_extension.utils.blocked_layout import BlockedParameter, BlockedModule, BlockedTensor
 from pcl_pytorch_extension.utils import blocked_layout
-from pcl_pytorch_extension._C import _fused_bert as pcl_bert_ext
+from pcl_pytorch_extension._C import _fused_bert as fused_bert_cpp
 import time
 from contextlib import contextmanager
 
-pcl_bert_ext.reset_debug_timers()
-
 USE_BF16_PARAMS = True
-
-def reset_debug_timers():
-    pcl_bert_ext.reset_debug_timers()
-
-def print_debug_timers(tid=0):
-    pcl_bert_ext.print_debug_timers(tid)
 
 class DummyLinear(BlockedModule):
     def __init__(self, in_features, out_features, bias=True):
@@ -46,7 +38,7 @@ class BertSelfAttentionFunction(torch.autograd.Function):
     def forward(ctx, p, training, need_attention_output, *inputs):
         #print("FWD Called")
         #print("BSAFWD:", [t.shape if isinstance(t, torch.Tensor) else t for t in inputs[6:]])
-        context_layer, attention_probs_out, hs_t, ehs_t, ql_t, kl_tv, vl_tv, ap, apd_t, ap_dp_mask = pcl_bert_ext.fused_self_attention_fwd(p, inputs, training)
+        context_layer, attention_probs_out, hs_t, ehs_t, ql_t, kl_tv, vl_tv, ap, apd_t, ap_dp_mask = fused_bert_cpp.fused_self_attention_fwd(p, inputs, training)
         (qw, qb, kw, kb, vw, vb, hs, am, hm, ehs, eam) = inputs
         ctx.save_for_backward(qw, kw, vw, hs_t, hm, ehs_t, ql_t, kl_tv, vl_tv, ap, apd_t, ap_dp_mask)
         ctx.p = p
@@ -71,7 +63,7 @@ class BertSelfAttentionFunction(torch.autograd.Function):
         if len(inputs) == 1: inputs.append(inputs[0].new_empty(0))
         inputs += ctx.saved_tensors
         p = ctx.p
-        (dqw, dqb, dkw, dkb, dvw, dvb, dhs, dehs) = pcl_bert_ext.fused_self_attention_bwd(p, inputs)
+        (dqw, dqb, dkw, dkb, dvw, dvb, dhs, dehs) = fused_bert_cpp.fused_self_attention_bwd(p, inputs)
         ehs = inputs[7]
         if ehs is None: dehs = None
         #print("Returning from BWD")
@@ -163,7 +155,7 @@ class BertSelfAttention(BlockedModule):
         inputs.append(encoder_hidden_states if encoder_hidden_states is not None else torch.Tensor())
         inputs.append(encoder_attention_mask if encoder_attention_mask is not None else torch.Tensor())
 
-        # context_layer, attention_probs = pcl_bert_ext.forward(self.handle.handle, inputs)
+        # context_layer, attention_probs = fused_bert_cpp.forward(self.handle.handle, inputs)
         p = self.attention_probs_dropout_prob if self.training else 0.0
         if self.use_bf16:
             inputs = [i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs ]
@@ -196,7 +188,7 @@ class BertOutputBaseFunction(torch.autograd.Function):
     def forward(ctx, p, eps, training, *inputs):
         (inp, inp2, wt, bias, gamma, beta) = inputs
         #print("A")
-        outputs = pcl_bert_ext.fused_dense_dropout_layernorm_fwd(p, eps, inputs, training)
+        outputs = fused_bert_cpp.fused_dense_dropout_layernorm_fwd(p, eps, inputs, training)
         #print("B")
         (out, dout, mean, var, dp_mask) = outputs
         ctx.save_for_backward(inp, wt, gamma, mean, var, dout, dp_mask)
@@ -208,7 +200,7 @@ class BertOutputBaseFunction(torch.autograd.Function):
     def backward(ctx, *grad_outs):
         inputs = list(grad_outs)
         inputs += ctx.saved_tensors
-        grad_inp, grad_inp2, grad_wt, grad_bias, grad_gamma, grad_beta = pcl_bert_ext.fused_dense_dropout_layernorm_bwd(ctx.p, inputs) 
+        grad_inp, grad_inp2, grad_wt, grad_bias, grad_gamma, grad_beta = fused_bert_cpp.fused_dense_dropout_layernorm_bwd(ctx.p, inputs) 
         return (None, None, None, grad_inp, grad_inp2, grad_wt, grad_bias, grad_gamma, grad_beta)
 
 class BertOutputBase(BlockedModule):
@@ -276,7 +268,7 @@ class BertIntermediateFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight, bias, act, training):
         #assert act == "gelu_new", "%s activation type is not supported" % act
-        gelu_in, output = pcl_bert_ext.fused_dense_gelu_fwd(input, weight, bias, training)
+        gelu_in, output = fused_bert_cpp.fused_dense_gelu_fwd(input, weight, bias, training)
         ctx.save_for_backward(input, weight, gelu_in)
         ctx.act = act
         return output
@@ -285,7 +277,7 @@ class BertIntermediateFunction(torch.autograd.Function):
     def backward(ctx, grad_out):
         (input, weight, gelu_in) = ctx.saved_tensors
         grad_out = grad_out.contiguous()
-        grad_inp, grad_wt, grad_bias = pcl_bert_ext.fused_dense_gelu_bwd(grad_out, gelu_in, input, weight) 
+        grad_inp, grad_wt, grad_bias = fused_bert_cpp.fused_dense_gelu_bwd(grad_out, gelu_in, input, weight) 
         return (grad_inp, grad_wt, grad_bias, None, None)
 
 class BertIntermediate(BlockedModule):
@@ -331,7 +323,7 @@ class BertEmbeddingsFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, training, prob, eps, head_size, pad_id, *inputs):
         (ii, pi, ti, ie, g, b, we, pe, te) = inputs
-        (out, eout, mean, var, msk) = pcl_bert_ext.fused_embedding_layernorm_dropout_fwd(prob, eps, head_size, pad_id, inputs, training)
+        (out, eout, mean, var, msk) = fused_bert_cpp.fused_embedding_layernorm_dropout_fwd(prob, eps, head_size, pad_id, inputs, training)
         ctx.save_for_backward(ii, pi, ti, ie, g, we, pe, te, mean, var, eout, msk)
         ctx.prob = prob
         ctx.pad_id = pad_id
@@ -344,7 +336,7 @@ class BertEmbeddingsFunction(torch.autograd.Function):
       inputs = []
       inputs += grad_outs
       inputs += ctx.saved_tensors
-      (die, dg, db, dwe, dpe, dte) = pcl_bert_ext.fused_embedding_layernorm_dropout_bwd(prob, pad_id, inputs)
+      (die, dg, db, dwe, dpe, dte) = fused_bert_cpp.fused_embedding_layernorm_dropout_bwd(prob, pad_id, inputs)
       grad_inps = (None, None, None, die, dg, db, dwe, dpe, dte,)
       return (None, None, None, None, None) + grad_inps
 

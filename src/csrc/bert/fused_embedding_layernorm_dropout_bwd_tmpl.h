@@ -1,6 +1,4 @@
 RECORD_FUNCTION("bert_bwd", std::vector<c10::IValue>());
-globalPass = BWD;
-MasterScopedTimer _mt(globalPass);
 int i = 0;
 auto t_grad_out = inputs[i++]; // [B][S1][N][S2][H]
 auto t_in_ids = inputs[i++]; // [B][S]
@@ -59,7 +57,7 @@ auto layer_norm_bwd_tpp = SCOPEIT(LayerNormBwdTPP<T>(N, S2, H), LAYER_NORM);
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
 
 {
-  RECORD_SCOPE(st_other, {t_grad_out, t_word_emb});
+  RECORD_SCOPE(db_emb, {t_grad_out, t_word_emb});
 #if 0
     t_grad_gamma.zero_();
     t_grad_beta.zero_();
@@ -109,7 +107,7 @@ auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
   }
 }
 {
-  RECORD_SCOPE(st_other, {t_grad_out, t_word_emb});
+  RECORD_SCOPE(db_emb, {t_grad_out, t_word_emb});
   if (in_emb_null)
     t_grad_word_emb.zero_();
 

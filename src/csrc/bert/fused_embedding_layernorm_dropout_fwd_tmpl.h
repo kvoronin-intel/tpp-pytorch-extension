@@ -1,6 +1,4 @@
 RECORD_FUNCTION("bert_fwd", std::vector<c10::IValue>());
-globalPass = FWD;
-MasterScopedTimer _mt(globalPass);
 int i = 0;
 auto t_in_ids = inputs[i++]; // [B][S]
 auto t_pos_ids = inputs[i++]; // [1][S]
@@ -71,7 +69,7 @@ auto layer_norm_fwd_tpp =
 auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(N * S2 * H, p), DROPOUT);
 
 {
-  RECORD_SCOPE(st_other, {t_out, t_word_emb});
+  RECORD_SCOPE(b_emb, {t_out, t_word_emb});
   {
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)

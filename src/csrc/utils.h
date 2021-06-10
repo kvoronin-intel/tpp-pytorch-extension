@@ -83,18 +83,22 @@ class SafePrint {
   template <typename... Types>
   int operator()(Types... vars) {
     if (len < maxlen) {
-      int l = snprintf(&buf[len], maxlen - len, vars...);
+      int l = snprintf(&buf[len], 2*maxlen - len, vars...);
       len += l;
+      if (len > maxlen) {
+        print();
+      }
       return l;
     }
     return 0;
   }
   void print() {
     printf("%s", buf);
+    len = 0;
   }
 
  private:
-  char buf[maxlen];
+  char buf[2*maxlen];
   int len = 0;
 };
 

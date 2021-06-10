@@ -72,6 +72,8 @@ inline at::Tensor wt_tensor_trans_v2v(
 #endif
 }
 
+USING_SCOPE(w_vnni);
+
 inline at::Tensor wt_tensor_for_fwd(
     long Nk,
     long Hk,
@@ -89,6 +91,8 @@ inline at::Tensor wt_tensor_for_fwd(
     return input;
   }
 }
+
+USING_SCOPE(w_xpose);
 
 inline at::Tensor wt_tensor_for_bwd(
     long Nk,
@@ -122,6 +126,8 @@ inline at::Tensor wt_tensor_for_bwd(
   }
 }
 
+USING_SCOPE(a_xpose);
+
 inline at::Tensor act_tensor_trans(
     long B,
     long S1,
@@ -148,6 +154,8 @@ inline at::Tensor act_tensor_trans(
   return output;
 #endif
 }
+
+USING_SCOPE(a_vnni);
 
 inline at::Tensor act_tensor_n2v(
     long B,
@@ -176,11 +184,13 @@ inline at::Tensor act_tensor_n2v(
 #endif
 }
 
+USING_SCOPE(zero);
+
 inline void tensor_set_zero(long N, long sz, at::Tensor& input) {
 #if 0
   input.zero_();
 #else
-  RECORD_FUNCTION("zero_", std::vector<c10::IValue>({input}));
+  RECORD_SCOPE(zero, {input});
   if (input.dtype() == at::kFloat) {
     DECL_VLA_PTR_PT(float, in, [sz], input);
     auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(sz), EW_ZERO);

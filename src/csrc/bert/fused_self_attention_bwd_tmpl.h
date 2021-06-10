@@ -1,6 +1,4 @@
 RECORD_FUNCTION("bert_bwd", std::vector<c10::IValue>());
-globalPass = BWD;
-MasterScopedTimer _mt(globalPass);
 int i = 0;
 auto t_dCL = inputs[i++];
 auto t_dAPO = inputs[i++];

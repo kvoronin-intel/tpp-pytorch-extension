@@ -37,126 +37,92 @@ static const char* DebugTimerNames[] = {
     "REDUCE",
     "OPTIM",
     "LAST_TIMER"};
-enum PassType { FWD, BWD };
-
-enum ScopeType {
-  q_gemm,
-  k_gemm,
-  v_gemm,
-  a_gemm,
-  c_gemm,
-  i_gemm,
-  o_gemm,
-  diq_gemm,
-  dik_gemm,
-  div_gemm,
-  // dia_gemm,
-  // dic_gemm,
-  dica_gemm,
-  dii_gemm,
-  dio_gemm,
-  dwqkv_gemm,
-  // dwq_gemm,
-  // dwk_gemm,
-  // dwv_gemm,
-  dwa_gemm,
-  dwc_gemm,
-  dwi_gemm,
-  dwo_gemm,
-  dqkv_bias,
-  di_bias,
-  do_bias,
-  w_vnni,
-  a_vnni,
-  w_xpose,
-  a_xpose,
-  st_other,
-  NUM_SCOPES
-};
-
-static const char* ScopeNames[] = {
-    "q_gemm",
-    "k_gemm",
-    "v_gemm",
-    "a_gemm",
-    "c_gemm",
-    "i_gemm",
-    "o_gemm",
-    "diq_gemm",
-    "dik_gemm",
-    "div_gemm",
-    //"dia_gemm",
-    //"dic_gemm",
-    "dica_gemm",
-    "dii_gemm",
-    "dio_gemm",
-    "dwqkv_gemm",
-    //"dwq_gemm",
-    //"dwk_gemm",
-    //"dwv_gemm",
-    "dwa_gemm",
-    "dwc_gemm",
-    "dwi_gemm",
-    "dwo_gemm",
-    "dqkv_bias",
-    "di_bias",
-    "do_bias",
-    "w_vnni",
-    "a_vnni",
-    "w_xpose",
-    "a_xpose",
-    "other",
-    "NUM_SCOPES"};
+enum PassType { OTH, FWD, BWD, UPD };
 
 extern PassType globalPass;
-extern ScopeType globalScope;
+extern int globalScope;
 constexpr int NUM_TIMERS = ((LAST_TIMER + 7) / 8) * 8;
-constexpr int NUM_ALIGNED_SCOPES = ((NUM_SCOPES + 7) / 8) * 8;
-extern double debug_timers[MAX_THREADS][2][NUM_TIMERS];
-extern double scope_timers[MAX_THREADS][NUM_SCOPES][NUM_TIMERS];
-extern double master_scope_timers[NUM_SCOPES];
-extern double scope_flops[MAX_THREADS][NUM_ALIGNED_SCOPES];
+extern double pass_timers[MAX_THREADS][3][NUM_TIMERS];
+extern double master_pass_timers[3];
+struct Scope {
+  Scope(std::string const& name) : name(name) {}
+  const std::string name;
+  double master_timer;
+  double detailed_timers[MAX_THREADS][NUM_TIMERS];
+  double flops[MAX_THREADS][8];
+};
+
+// Defined in init.cpp
+extern std::vector<Scope> _scope_list;
+extern std::vector<Scope> _pass_list;
+inline int register_scope(std::string name) {
+  _scope_list.emplace_back(name);
+  int idx = _scope_list.size() - 1;
+  printf("Registering %s scope @%d\n", name.c_str(), idx);
+  return idx;
+}
+
+#define REGISTER_SCOPE(id, name) int sc_##id = register_scope(name)
+#define USING_SCOPE(id) extern int sc_##id
+
 class ScopedTimer {
  public:
-  ScopedTimer(DebugTimer t, PassType p, long f = 0)
-      : type(t), pass(p), flops(f), start(getTime()) {}
+  ScopedTimer(DebugTimer t, long f = 0) : type(t), flops(f), start(getTime()) {}
   ~ScopedTimer() {
     auto time = getTime() - start;
     int tid = omp_get_thread_num();
-    debug_timers[tid][pass][type] += time;
-    scope_timers[tid][globalScope][type] += time;
+    auto& pass = _pass_list[globalPass];
+    pass.detailed_timers[tid][type] += time;
     if (type == BRGEMM)
-      scope_flops[tid][globalScope] += flops;
+      pass.flops[tid][0] += flops;
+    if (globalPass == 0 && tid == 0)
+      pass.master_timer += time;
+
+    auto& scope = _scope_list[globalScope];
+    scope.detailed_timers[tid][type] += time;
+    if (type == BRGEMM)
+      scope.flops[tid][0] += flops;
+    if (globalScope == 0 && tid == 0)
+      scope.master_timer += time;
   }
   DebugTimer type;
-  PassType pass;
   long flops;
   double start;
 };
 
 class GlobalScope {
  public:
-  GlobalScope(ScopeType t) : oldScope(globalScope), start(getTime()) {
+  GlobalScope(int t) : oldScope(globalScope), start(getTime()) {
+    PCL_ASSERT(t < (int)_scope_list.size(), "Invalid scope initialized");
     globalScope = t;
   }
   ~GlobalScope() {
-    auto time = getTime() - start;
-    master_scope_timers[globalScope] += time;
+    if (oldScope == 0) {
+      // Record time only for outermost scope
+      auto time = getTime() - start;
+      auto& scope = _scope_list[globalScope];
+      scope.master_timer += time;
+    }
     globalScope = oldScope;
   }
-  ScopeType oldScope;
+  int oldScope;
   double start;
 };
 
-extern double master_debug_timers[2];
-class MasterScopedTimer {
+class GlobalPass {
  public:
-  MasterScopedTimer(PassType p) : pass(p), start(getTime()) {}
-  ~MasterScopedTimer() {
-    auto time = getTime() - start;
-    master_debug_timers[pass] += time;
+  GlobalPass(PassType p) : oldPass(globalPass), start(getTime()) {
+    globalPass = p;
   }
-  PassType pass;
+  ~GlobalPass() {
+    if (oldPass == 0) {
+      auto time = getTime() - start;
+      auto& pass = _pass_list[globalPass];
+      pass.master_timer += time;
+    }
+    globalPass = oldPass;
+  }
+  PassType oldPass;
   double start;
 };
 #define PURE_GEMM_TIME
@@ -168,7 +134,7 @@ class ScopedGEMMTPP {
   template <typename Tin, typename Tout>
   void operator()(Tin* A, Tin* B, Tout* C, long count) {
 #ifndef PURE_GEMM_TIME
-    ScopedTimer _t(t, globalPass, 2 * count * flops);
+    ScopedTimer _t(t, 2 * count * flops);
 #endif
     if (impl == 0) {
       func(A, B, C, count);
@@ -192,7 +158,7 @@ class ScopedTPP {
   ScopedTPP(T func, DebugTimer t) : func(std::move(func)), t(t) {}
   template <typename... Types>
   void operator()(Types... vars) {
-    ScopedTimer _t(t, globalPass);
+    ScopedTimer _t(t);
     if (impl == 0) {
       func(vars...);
     } else if (impl == 1) {
@@ -218,6 +184,6 @@ class ScopedTPP {
 #endif
 
 #define RECORD_SCOPE(scope, ...) \
-  GlobalScope gs_(scope);        \
+  GlobalScope gs_(sc_##scope);   \
   RECORD_FUNCTION(#scope, std::vector<c10::IValue>(__VA_ARGS__))
 #endif //_BERT_TIMING_H_

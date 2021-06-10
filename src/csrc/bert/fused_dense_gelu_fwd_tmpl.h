@@ -1,6 +1,4 @@
 RECORD_FUNCTION("bert_fwd", std::vector<c10::IValue>());
-globalPass = FWD;
-MasterScopedTimer _mt(globalPass);
 auto in_sizes = t_in.sizes();
 auto wt_sizes = t_wt.sizes();
 auto B = in_sizes[0];

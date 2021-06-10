@@ -1,6 +1,4 @@
 RECORD_FUNCTION("bert_fwd", std::vector<c10::IValue>());
-globalPass = FWD;
-MasterScopedTimer _mt(globalPass);
 // B - Batch size
 // S - Max seq len
 // N - Number of attention heads

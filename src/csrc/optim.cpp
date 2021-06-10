@@ -4,6 +4,10 @@
 
 using namespace pcl;
 
+REGISTER_SCOPE(fused_adamw, "fused_adamw");
+REGISTER_SCOPE(splt_adamw, "splt_adamw");
+REGISTER_SCOPE(grad_norm, "grad_norm");
+
 void fused_adamw(
     at::Tensor& t_data,
     at::Tensor& t_grad,
@@ -15,7 +19,8 @@ void fused_adamw(
     float lr,
     float weight_decay,
     float eps) {
-  RECORD_FUNCTION("fused_adamw", std::vector<c10::IValue>({t_data}));
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(fused_adamw, {t_data});
   typedef float T;
   auto data = t_data.data_ptr<T>();
   auto grad = t_grad.data_ptr<T>();
@@ -51,7 +56,8 @@ void fused_split_adamw(
     float lr,
     float weight_decay,
     float eps) {
-  RECORD_FUNCTION("fused_split_adamw", std::vector<c10::IValue>({t_data_hi}));
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(splt_adamw, {t_data_hi});
   typedef bfloat16 T;
   auto data_hi = t_data_hi.data_ptr<T>();
   auto data_lo = t_data_lo.data_ptr<T>();
@@ -123,7 +129,8 @@ void tensor_scale(T* ptr, long N, float scale) {
 }
 
 at::Tensor clip_grad_norm(std::vector<at::Tensor>& grads, float max_norm) {
-  RECORD_FUNCTION("clip_grad_norm", std::vector<c10::IValue>());
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(grad_norm);
   float total_norm = 0.0;
   int N = grads.size();
 
