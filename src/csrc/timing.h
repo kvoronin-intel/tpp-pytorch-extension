@@ -21,22 +21,21 @@ enum DebugTimer {
   LAST_TIMER
 };
 
-static const char* DebugTimerNames[] = {
-    "BRGEMM",
-    "XPOSE",
-    "DROPOUT",
-    "LYR_NRM",
-    "SOFTMAX",
-    "GELU",
-    "BIAS",
-    "VNNI",
-    "COPY",
-    "ADD",
-    "SCALE",
-    "ZERO",
-    "REDUCE",
-    "OPTIM",
-    "LAST_TIMER"};
+static const char* DebugTimerNames[] = {"BRGEMM",
+                                        "XPOSE",
+                                        "DROPOUT",
+                                        "LYR_NRM",
+                                        "SOFTMAX",
+                                        "GELU",
+                                        "BIAS",
+                                        "VNNI",
+                                        "COPY",
+                                        "ADD",
+                                        "SCALE",
+                                        "ZERO",
+                                        "REDUCE",
+                                        "OPTIM",
+                                        "LAST_TIMER"};
 enum PassType { OTH, FWD, BWD, UPD };
 
 extern PassType globalPass;

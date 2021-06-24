@@ -1,12 +1,190 @@
 #include "init.h"
+#include "rtm.h"
 #include "timing.h"
 #include "xsmm_functors.h"
 
 using namespace pcl;
 
+REGISTER_SCOPE(split_sgd_sparse, "splitsgd_s");
+REGISTER_SCOPE(split_sgd_dense, "splitsgd_d");
+REGISTER_SCOPE(dense_sparse_add, "sprse_add");
 REGISTER_SCOPE(fused_adamw, "fused_adamw");
 REGISTER_SCOPE(splt_adamw, "splt_adamw");
 REGISTER_SCOPE(grad_norm, "grad_norm");
+
+static int sparse_add_use_lock_free() {
+  static int lock_free = -1;
+  if (lock_free != -1)
+    return lock_free;
+  char* str = getenv("PCL_USE_RTM_UPDATE");
+  if (str && atoi(str) > 0) {
+    lock_free = 0;
+    printf("PCL_SPARSE_ADD: Using RTM Based Update\n");
+  } else {
+    lock_free = 1;
+    printf("PCL_SPARSE_ADD: Using Lock Free Update\n");
+  }
+  return lock_free;
+}
+
+template <typename scalar_t>
+void dense_sparse_add_tmpl(
+    torch::Tensor t_dense,
+    torch::Tensor t_sparse,
+    float alpha) {
+  auto NS = t_sparse._nnz();
+  auto M = t_dense.size(0);
+  auto E = t_dense.size(1);
+  auto t_values = t_sparse._values();
+  auto t_indices = t_sparse._indices();
+
+  PCL_ASSERT(t_dense.is_contiguous(), "dense tensor must be contiguous\n");
+  // Not using below due to spurious compiler warnings
+  // DECL_VLA_PTR_PT(scalar_t, dense, [E], t_dense);
+  // DECL_VLA_PTR_PT(scalar_t, values, [E], t_values);
+  auto dense = t_dense.data_ptr<scalar_t>();
+  auto values = t_values.data_ptr<scalar_t>();
+  auto indices = t_indices.data_ptr<long>();
+  auto lr = alpha;
+
+  auto embbag_upd = ScaleAddTPP<scalar_t, scalar_t>(E);
+
+  int max_thr = omp_get_max_threads();
+  int use_lock_free = sparse_add_use_lock_free();
+  if (use_lock_free) {
+    int nthr = max_thr;
+    if (M < nthr)
+      nthr = M;
+#pragma omp parallel num_threads(nthr)
+    {
+      int tid = omp_get_thread_num();
+      long j_begin = (tid * M) / nthr;
+      long j_end = ((tid + 1) * M) / nthr;
+      for (long i = 0; i < NS; i++) {
+        auto ind = indices[i];
+        if (ind >= j_begin && ind < j_end) {
+          auto wa = &dense[ind * E];
+          auto va = &values[i * E];
+          embbag_upd(va, wa, lr);
+        }
+      }
+    }
+  } else {
+    SimpleSpinLock fallBackLock;
+#pragma omp parallel for
+    for (int i = 0; i < NS; i++) {
+      auto ind = indices[i];
+      auto wa = &dense[ind * E];
+      auto va = &values[i * E];
+      {
+        TransactionScope guard(fallBackLock, 100);
+        embbag_upd(va, wa, lr);
+      }
+    }
+  }
+}
+
+void dense_sparse_add_(
+    torch::Tensor dense,
+    torch::Tensor sparse,
+    /*torch::Scalar*/ float alpha) {
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(dense_sparse_add, {dense, sparse, alpha});
+  if (dense.dtype() == at::kFloat) {
+    dense_sparse_add_tmpl<float>(dense, sparse, alpha);
+    //} else if (dense.dtype() == at::kBFloat16) {
+    //  dense_sparse_add_tmpl<bfloat16>(dense, sparse, alpha);
+    //} else if (dense.dtype() == at::kHalf) {
+    //  dense_sparse_add_tmpl<half>(dense, sparse, alpha);
+  } else {
+    PCL_ASSERT(0, "This datatype is not supported\n");
+  }
+}
+
+void bf16_split_add_(
+    torch::Tensor hi_bits,
+    torch::Tensor lo_bits,
+    torch::Tensor grad,
+    float lr) {
+  GlobalPass _gp(UPD);
+  MYASSERT(hi_bits.is_contiguous() && lo_bits.is_contiguous());
+  grad = grad.contiguous();
+  if (grad.is_sparse()) {
+    RECORD_SCOPE(split_sgd_sparse, {hi_bits});
+    auto sparse = grad;
+    auto NS = sparse._nnz();
+    auto M = hi_bits.size(0);
+    auto E = hi_bits.size(1);
+    auto values_tensor = sparse._values();
+    auto indices = sparse._indices();
+    auto indices_data = indices.data_ptr<long>();
+    auto split_sgd_kernel = SplitSGDTPP(E);
+
+    auto hi_data = (unsigned short*)hi_bits.data_ptr();
+    auto lo_data = (unsigned short*)lo_bits.data_ptr();
+    auto values_data = values_tensor.data_ptr<at::BFloat16>();
+    int max_thr = omp_get_max_threads();
+    int use_lock_free = sparse_add_use_lock_free();
+    if (use_lock_free) {
+      int nthr = max_thr;
+      if (M < nthr)
+        nthr = M;
+#pragma omp parallel num_threads(nthr)
+      {
+        int tid = omp_get_thread_num();
+        long j_begin = (tid * M) / nthr;
+        long j_end = ((tid + 1) * M) / nthr;
+        for (long i = 0; i < NS; i++) {
+          auto ind = indices_data[i];
+          if (ind >= j_begin && ind < j_end) {
+            auto ha = &hi_data[ind * E];
+            auto la = &lo_data[ind * E];
+            auto va = &values_data[i * E];
+            split_sgd_kernel((at::BFloat16*)ha, (at::BFloat16*)la, va, lr);
+          }
+        }
+      }
+    } else {
+      SimpleSpinLock fallBackLock;
+#pragma omp parallel for
+      for (long i = 0; i < NS; i++) {
+        auto ind = indices_data[i];
+        auto ha = &hi_data[ind * E];
+        auto la = &lo_data[ind * E];
+        auto va = &values_data[i * E];
+        {
+          TransactionScope guard(fallBackLock, 100);
+          split_sgd_kernel((at::BFloat16*)ha, (at::BFloat16*)la, va, lr);
+        }
+      }
+    }
+  } else {
+    RECORD_SCOPE(split_sgd_dense, {hi_bits});
+    auto hi_ptr = (unsigned short*)hi_bits.data_ptr();
+    auto lo_ptr = (unsigned short*)lo_bits.data_ptr();
+    auto grad_ptr = grad.data_ptr<at::BFloat16>();
+    long sz = hi_bits.numel();
+    constexpr int block_size = 64;
+    auto split_sgd_kernel = SplitSGDTPP(block_size);
+    long i = 0;
+#pragma omp parallel for lastprivate(i)
+    for (i = 0; i < ALIGNDOWN(sz, block_size); i += block_size) {
+      split_sgd_kernel(
+          (at::BFloat16*)(hi_ptr + i),
+          (at::BFloat16*)(lo_ptr + i),
+          grad_ptr + i,
+          lr);
+    }
+    if (i < sz) {
+      auto split_sgd_kernel = SplitSGDTPP(sz - i);
+      split_sgd_kernel(
+          (at::BFloat16*)(hi_ptr + i),
+          (at::BFloat16*)(lo_ptr + i),
+          grad_ptr + i,
+          lr);
+    }
+  }
+}
 
 void fused_adamw(
     at::Tensor& t_data,
@@ -163,6 +341,8 @@ at::Tensor clip_grad_norm(std::vector<at::Tensor>& grads, float max_norm) {
 }
 
 REGISTER_SUBMODULE(_optim, m) {
+  m.def("dense_sparse_add_", &dense_sparse_add_, "Pcl pcl_dense_sparse_add");
+  m.def("bf16_split_add_", &bf16_split_add_, "Pcl pcl_bf16_update");
   m.def("fused_adamw", &fused_adamw, "Fused AdamW optimizer");
   m.def(
       "fused_split_adamw",

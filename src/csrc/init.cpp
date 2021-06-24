@@ -10,7 +10,10 @@ std::vector<std::pair<std::string, submodule_init_func>> _submodule_list;
 
 // Declared in timing.h
 std::vector<Scope> _scope_list{Scope("Reserved")};
-std::vector<Scope> _pass_list{Scope("OTH"), Scope("FWD"), Scope("BWD"), Scope("UPD")};
+std::vector<Scope> _pass_list{Scope("OTH"),
+                              Scope("FWD"),
+                              Scope("BWD"),
+                              Scope("UPD")};
 
 double ifreq = 1.0 / getFreq();
 
@@ -23,7 +26,6 @@ REGISTER_SCOPE(a_vnni, "a_vnni");
 REGISTER_SCOPE(zero, "zero");
 
 int globalScope = 0;
-//int globalPass = OTH;
 
 void reset_debug_timers() {
 #pragma omp parallel
@@ -73,7 +75,7 @@ void print_debug_timers(int tid) {
   printf(" %8s  %8s\n", "Total", "MTotal");
   for (int i = 0; i < max_threads; i++) {
     if (tid == -1 || tid == i) {
-      auto print_scope = [&](const Scope &scope) {
+      auto print_scope = [&](const Scope& scope) {
         if (scope.master_timer == 0.0)
           return;
         double total = 0.0;
@@ -97,8 +99,10 @@ void print_debug_timers(int tid) {
           printf(" %8.1f  %8.1f\n", total * 1e3, scope.master_timer * 1e3);
         }
       };
-      for (auto& scope : _pass_list) print_scope(scope);
-      //for (auto& scope : _scope_list) print_scope(scope);
+      for (auto& scope : _pass_list)
+        print_scope(scope);
+      for (auto& scope : _scope_list)
+        print_scope(scope);
     }
   }
   printf.print();

@@ -13,20 +13,6 @@ using namespace pcl;
 #define out_scalar_t scalar_t
 #endif
 
-static int emb_update_use_lock_free() {
-  int lock_free = 1;
-  char* str = getenv("PCL_USE_RTM_UPDATE");
-  if (str && atoi(str) > 0) {
-    lock_free = 0;
-    printf("PCL_EMBEDDING_BAG: Using RTM Based Update\n");
-  } else {
-    printf("PCL_EMBEDDING_BAG: Using Lock Free Update\n");
-  }
-  return lock_free;
-}
-
-static int use_lock_free = emb_update_use_lock_free();
-
 template <typename scalar_t>
 void embedding_bag_forward_tmpl(
     torch::Tensor t_weight,

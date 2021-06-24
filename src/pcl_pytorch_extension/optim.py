@@ -4,6 +4,100 @@ import torch
 from torch.optim import Optimizer
 from pcl_pytorch_extension._C import _optim as optim_cpp
 
+
+class SGD(Optimizer):
+    r"""Implements low precision stochastic gradient descent with extra state."""
+
+    def __init__(
+        self,
+        params,
+        lr=required,
+        momentum=0,
+        dampening=0,
+        weight_decay=0,
+        nesterov=False,
+    ):
+        if not is_available():
+            raise ValueError("Module function 'bf16_update' not available for SplitSGD")
+        if lr is not required and lr < 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if momentum != 0.0:
+            raise ValueError("Invalid momentum value: {}".format(momentum))
+        if weight_decay != 0.0:
+            raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            dampening=dampening,
+            weight_decay=weight_decay,
+            nesterov=nesterov,
+        )
+        if nesterov and (momentum <= 0 or dampening != 0):
+            raise ValueError("Nesterov momentum requires a momentum and zero dampening")
+        super(SplitSGD, self).__init__(params, defaults)
+        print("Using SplitSGD")
+
+    def __setstate__(self, state):
+        super(SplitSGD, self).__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault("nesterov", False)
+
+    def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            weight_decay = group["weight_decay"]
+            momentum = group["momentum"]
+            dampening = group["dampening"]
+            nesterov = group["nesterov"]
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                d_p = p.grad.data
+                if p.dtype == torch.bfloat16:
+                    param_state = self.state[p]
+                    if "low_bits" not in param_state:
+                        buf = param_state["low_bits"] = torch.zeros_like(
+                            p.data, dtype=torch.short
+                        )
+                    else:
+                        buf = param_state["low_bits"]
+                # if weight_decay != 0:
+                #     d_p = d_p.add(weight_decay, p.data)
+                # if momentum != 0:
+                #     param_state = self.state[p]
+                #     if 'momentum_buffer' not in param_state:
+                #         buf = param_state['momentum_buffer'] = torch.clone(d_p).detach()
+                #     else:
+                #         buf = param_state['momentum_buffer']
+                #         buf.mul_(momentum).add_(1 - dampening, d_p)
+                #     if nesterov:
+                #         d_p = d_p.add(momentum, buf)
+                #     else:
+                #         d_p = buf
+
+                # p.data.add_(-group['lr'], d_p)
+                if p.dtype == torch.bfloat16:
+                    optim_cpp.bf16_split_add_(p.data, buf, d_p, -group["lr"])
+                else:
+                    if d_p.is_sparse:
+                        optim_cpp.dense_sparse_add(p.data, d_p, -group["lr"])
+                    else:
+                        p.data.add_(d_p, alpha=-group["lr"])
+
+        return loss
+
+
 class AdamW(Optimizer):
     """
     Implements Adam algorithm with weight decay fix as introduced in `Decoupled Weight Decay Regularization
@@ -36,12 +130,22 @@ class AdamW(Optimizer):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {} - should be >= 0.0".format(lr))
         if not 0.0 <= betas[0] < 1.0:
-            raise ValueError("Invalid beta parameter: {} - should be in [0.0, 1.0[".format(betas[0]))
+            raise ValueError(
+                "Invalid beta parameter: {} - should be in [0.0, 1.0[".format(betas[0])
+            )
         if not 0.0 <= betas[1] < 1.0:
-            raise ValueError("Invalid beta parameter: {} - should be in [0.0, 1.0[".format(betas[1]))
+            raise ValueError(
+                "Invalid beta parameter: {} - should be in [0.0, 1.0[".format(betas[1])
+            )
         if not 0.0 <= eps:
             raise ValueError("Invalid epsilon value: {} - should be >= 0.0".format(eps))
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, correct_bias=correct_bias)
+        defaults = dict(
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            correct_bias=correct_bias,
+        )
         super().__init__(params, defaults)
 
     def step(self, closure: Callable = None):
@@ -61,7 +165,9 @@ class AdamW(Optimizer):
                     continue
                 grad = p.grad.data
                 if grad.is_sparse:
-                    raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
+                    raise RuntimeError(
+                        "Adam does not support sparse gradients, please consider SparseAdam instead"
+                    )
 
                 state = self.state[p]
 
@@ -76,9 +182,9 @@ class AdamW(Optimizer):
                     if p.data.dtype == torch.bfloat16:
                         state["low_bits"] = torch.zeros_like(p.data)
 
-
                 exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
-                if p.data.dtype == torch.bfloat16: low_bits = state["low_bits"]
+                if p.data.dtype == torch.bfloat16:
+                    low_bits = state["low_bits"]
                 beta1, beta2 = group["betas"]
 
                 state["step"] += 1
@@ -93,7 +199,9 @@ class AdamW(Optimizer):
                 if group["correct_bias"]:  # No bias correction for Bert
                     bias_correction1 = 1.0 - beta1 ** state["step"]
                     bias_correction2 = 1.0 - beta2 ** state["step"]
-                    step_size = step_size * math.sqrt(bias_correction2) / bias_correction1
+                    step_size = (
+                        step_size * math.sqrt(bias_correction2) / bias_correction1
+                    )
 
                 # p.data.addcdiv_(exp_avg, denom, value=-step_size)
 
@@ -109,12 +217,34 @@ class AdamW(Optimizer):
                 #     p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
 
                 if p.data.dtype == torch.bfloat16:
-                    optim_cpp.fused_split_adamw(p.data, low_bits, grad.contiguous(), exp_avg, exp_avg_sq, beta1, beta2, step_size, group["lr"], group["weight_decay"], group["eps"])
+                    optim_cpp.fused_split_adamw(
+                        p.data,
+                        low_bits,
+                        grad.contiguous(),
+                        exp_avg,
+                        exp_avg_sq,
+                        beta1,
+                        beta2,
+                        step_size,
+                        group["lr"],
+                        group["weight_decay"],
+                        group["eps"],
+                    )
                 else:
-                    optim_cpp.fused_adamw(p.data, grad.contiguous(), exp_avg, exp_avg_sq, beta1, beta2, step_size, group["lr"], group["weight_decay"], group["eps"])
+                    optim_cpp.fused_adamw(
+                        p.data,
+                        grad.contiguous(),
+                        exp_avg,
+                        exp_avg_sq,
+                        beta1,
+                        beta2,
+                        step_size,
+                        group["lr"],
+                        group["weight_decay"],
+                        group["eps"],
+                    )
 
         return loss
-
 
 
 def clip_grad_norm_(parameters, max_norm, norm_type=2):
@@ -134,13 +264,14 @@ def clip_grad_norm_(parameters, max_norm, norm_type=2):
         Total norm of the parameters (viewed as a single vector).
     """
     from torch._six import inf
+
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
     parameters = list(filter(lambda p: p.grad is not None, parameters))
     max_norm = float(max_norm)
     norm_type = float(norm_type)
     if len(parameters) == 0:
-        return torch.tensor(0.)
+        return torch.tensor(0.0)
     device = parameters[0].grad.device
     if norm_type == 2:
         return optim_cpp.clip_grad_norm([p.grad.detach() for p in parameters], max_norm)
@@ -148,7 +279,12 @@ def clip_grad_norm_(parameters, max_norm, norm_type=2):
     if norm_type == inf:
         total_norm = max(p.grad.detach().abs().max().to(device) for p in parameters)
     else:
-        total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), norm_type).to(device) for p in parameters]), norm_type)
+        total_norm = torch.norm(
+            torch.stack(
+                [torch.norm(p.grad.detach(), norm_type).to(device) for p in parameters]
+            ),
+            norm_type,
+        )
     clip_coef = max_norm / (total_norm + 1e-6)
     if clip_coef < 1:
         for p in parameters:

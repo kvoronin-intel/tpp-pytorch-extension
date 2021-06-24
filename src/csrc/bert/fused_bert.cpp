@@ -174,7 +174,7 @@ std::vector<at::Tensor> fused_self_attention_fwd(
     float p,
     std::vector<at::Tensor> inputs,
     bool training) {
-      GlobalPass _gp(FWD);
+  GlobalPass _gp(FWD);
   if (inputs[6].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_self_attention_fwd_tmpl.h"
@@ -187,7 +187,7 @@ std::vector<at::Tensor> fused_self_attention_fwd(
 std::vector<at::Tensor> fused_self_attention_bwd(
     float p,
     std::vector<at::Tensor> inputs) {
-      GlobalPass _gp(BWD);
+  GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_self_attention_bwd_tmpl.h"
@@ -202,7 +202,7 @@ std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
     float eps,
     std::vector<at::Tensor> inputs,
     bool training) {
-      GlobalPass _gp(FWD);
+  GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
@@ -215,7 +215,7 @@ std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
 std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
     float p,
     std::vector<at::Tensor> inputs) {
-      GlobalPass _gp(BWD);
+  GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
@@ -230,7 +230,7 @@ std::vector<at::Tensor> fused_dense_gelu_fwd(
     at::Tensor t_wt,
     at::Tensor t_bias,
     bool training) {
-      GlobalPass _gp(FWD);
+  GlobalPass _gp(FWD);
   if (t_in.dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_gelu_fwd_tmpl.h"
@@ -245,7 +245,7 @@ std::vector<at::Tensor> fused_dense_gelu_bwd(
     at::Tensor t_gelu_in,
     at::Tensor t_in,
     at::Tensor t_wt) {
-      GlobalPass _gp(BWD);
+  GlobalPass _gp(BWD);
   if (t_grad_out.dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_gelu_bwd_tmpl.h"
@@ -262,7 +262,7 @@ std::vector<at::Tensor> fused_embedding_layernorm_dropout_fwd(
     long pad_id,
     std::vector<at::Tensor>& inputs,
     bool training) {
-      GlobalPass _gp(FWD);
+  GlobalPass _gp(FWD);
   if (inputs[4].dtype() == at::kFloat && inputs[6].dtype() == at::kFloat) {
     typedef float T;
     typedef float ET;
@@ -292,7 +292,7 @@ std::vector<at::Tensor> fused_embedding_layernorm_dropout_bwd(
     float p,
     long pad_id,
     std::vector<at::Tensor>& inputs) {
-      GlobalPass _gp(BWD);
+  GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat && inputs[6].dtype() == at::kFloat) {
     typedef float T;
     typedef float ET;

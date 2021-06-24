@@ -6,9 +6,12 @@ from torch.nn import init
 from torch.autograd import Function
 import pcl_mlp_ext
 
+
 class XsmmHandle:
     def __init__(self, N, C, K, bn, bc, bk, dtype, fuse_bias, act_type):
-        self.handle = pcl_mlp_ext.create_handle(N, C, K, bn, bc, bk, 1 if dtype == torch.float32 else 2, fuse_bias, act_type)
+        self.handle = pcl_mlp_ext.create_handle(
+            N, C, K, bn, bc, bk, 1 if dtype == torch.float32 else 2, fuse_bias, act_type
+        )
         self.N = N
         self.C = C
         self.K = K
@@ -19,51 +22,63 @@ class XsmmHandle:
         self.act_type = act_type
 
     def __del__(self):
-        if self.handle: 
+        if self.handle:
             pcl_mlp_ext.destroy_handle(self.handle)
             self.handle = None
+
 
 class XsmmFC(Function):
     @staticmethod
     def forward(ctx, input, weight, bias, handle):
-        #print("Inside XsmmFCForward")
-        #t1 = time.time()
+        # print("Inside XsmmFCForward")
+        # t1 = time.time()
         input = input.contiguous()
         weight = weight.contiguous()
         bias = bias.contiguous()
         output = pcl_mlp_ext.forward(handle.handle, input, weight, bias)
-        #t2 = time.time()
-        #print("XsmmFCFWD: q=%.3f" % ((t2-t1)*1000.0))
+        # t2 = time.time()
+        # print("XsmmFCFWD: q=%.3f" % ((t2-t1)*1000.0))
         ctx.xsmm_handle = handle
         ctx.save_for_backward(input, weight)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        #print("Inside XsmmFCBackward")
+        # print("Inside XsmmFCBackward")
         handle = ctx.xsmm_handle
         del ctx.xsmm_handle
         input, weight = ctx.saved_variables
-        #t1 = time.time()
+        # t1 = time.time()
         grad_output = grad_output.contiguous()
-        grad_input, grad_weight, grad_bias = pcl_mlp_ext.backward(handle.handle, grad_output, input, weight)
-        #t2 = time.time()
-        #print("XsmmFCBWD: q=%.3f w=%.3f" % ((t2-t1)*1000.0, (t3-t2)*1000.0))
+        grad_input, grad_weight, grad_bias = pcl_mlp_ext.backward(
+            handle.handle, grad_output, input, weight
+        )
+        # t2 = time.time()
+        # print("XsmmFCBWD: q=%.3f w=%.3f" % ((t2-t1)*1000.0, (t3-t2)*1000.0))
         return (grad_input, grad_weight, grad_bias, None)
+
 
 class XsmmLinear(nn.Module):
     r"""PCL Linear module for using libxsmm blocked GEMM"""
 
-    __constants__ = ['bias', 'C', 'K']
+    __constants__ = ["bias", "C", "K"]
 
-    def __init__(self, C, K, bias=True, act_type=None, output_stays_blocked=True, default_blocking=None):
+    def __init__(
+        self,
+        C,
+        K,
+        bias=True,
+        act_type=None,
+        output_stays_blocked=True,
+        default_blocking=None,
+    ):
         super(XsmmLinear, self).__init__()
         self.C = C
         self.K = K
-        self.bc = 0 #self.get_blocking_factor(C, default_blocking) # 64 if C % 64 == 0 else C
-        self.bk = 0 #self.get_blocking_factor(K, default_blocking) # 64 if K % 64 == 0 else K
-        self.nbc = 0 # C // self.bc
-        self.nbk = 0 # K // self.bk
+        self.bc = 0  # self.get_blocking_factor(C, default_blocking) # 64 if C % 64 == 0 else C
+        self.bk = 0  # self.get_blocking_factor(K, default_blocking) # 64 if K % 64 == 0 else K
+        self.nbc = 0  # C // self.bc
+        self.nbk = 0  # K // self.bk
         self.C_pad = 0
         self.padded_C = self.C
         self.N = 0
@@ -78,15 +93,15 @@ class XsmmLinear(nn.Module):
         if bias:
             self.bias = Parameter(torch.Tensor(K))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def set_activation_type(self, act_type):
         if not act_type:
             self.act_type = 0
-        elif act_type == 'relu':
+        elif act_type == "relu":
             self.act_type = 1
-        elif act_type == 'sigmoid':
+        elif act_type == "sigmoid":
             self.act_type = 2
         else:
             raise RuntimeError("XsmmLinear: Unknown activation type %s" % act_type)
@@ -96,10 +111,10 @@ class XsmmLinear(nn.Module):
         if default_blocking:
             blocking_prio_list = [default_blocking] + blocking_prio_list
         for bs in blocking_prio_list:
-            if dim_size % bs == 0: 
-                #print("Returning block size of %d for dim_size of %d" % ( bs, dim_size))
+            if dim_size % bs == 0:
+                # print("Returning block size of %d for dim_size of %d" % ( bs, dim_size))
                 return bs
-        #print("Returning block size of %d for dim_size of %d" % ( dim_size, dim_size))
+        # print("Returning block size of %d for dim_size of %d" % ( dim_size, dim_size))
         return dim_size
 
     def is_dtype_supported(self, dtype):
@@ -112,7 +127,9 @@ class XsmmLinear(nn.Module):
 
     def maybe_pad_input(self, input):
         if input.dim() == 2 and input.size(1) != self.padded_C:
-            input = torch.cat([input, input.new_zeros([input.size(0), self.C_pad])], dim=1)
+            input = torch.cat(
+                [input, input.new_zeros([input.size(0), self.C_pad])], dim=1
+            )
         return input
 
     def maybe_pad_weight(self, weight):
@@ -145,7 +162,9 @@ class XsmmLinear(nn.Module):
                 l_perm = [0, 2, 3, 1]
                 new_weight = weight.view(l_view).permute(l_perm).contiguous()
             else:
-                raise RuntimeError("Invalid datatype for blocking: %s" % block_for_dtype)
+                raise RuntimeError(
+                    "Invalid datatype for blocking: %s" % block_for_dtype
+                )
         elif weight.dim() == 4:
             if block_for_dtype == torch.bfloat16:
                 l_view = [self.nbk, self.nbc, self.bc // 2, 2, self.bk]
@@ -155,7 +174,9 @@ class XsmmLinear(nn.Module):
                 # We are already in correct format, do nothing
                 new_weight = weight
             else:
-                raise RuntimeError("Invalid datatype for blocking: %s" % block_for_dtype)
+                raise RuntimeError(
+                    "Invalid datatype for blocking: %s" % block_for_dtype
+                )
         elif weight.dim() == 5:
             if block_for_dtype == torch.bfloat16:
                 # We are already in correct format, do nothing
@@ -165,7 +186,9 @@ class XsmmLinear(nn.Module):
                 l_perm = [0, 1, 2, 4, 3]
                 new_weight = weight.permute(l_perm).view(l_view).contiguous()
             else:
-                raise RuntimeError("Invalid datatype for blocking: %s" % block_for_dtype)
+                raise RuntimeError(
+                    "Invalid datatype for blocking: %s" % block_for_dtype
+                )
 
         return new_weight
 
@@ -174,17 +197,20 @@ class XsmmLinear(nn.Module):
             self.C_pad = 32 - self.padded_C % 32
             self.padded_C = self.C + self.C_pad
         self.bc = self.get_blocking_factor(self.padded_C, self.default_blocking)
-        if dtype == torch.bfloat16 and self.bc % 2 != 0: self.bc *= 2
+        if dtype == torch.bfloat16 and self.bc % 2 != 0:
+            self.bc *= 2
         self.nbc = self.padded_C // self.bc
         self.bk = self.get_blocking_factor(self.K, self.default_blocking)
         self.nbk = self.K // self.bk
 
     def reset_weight_shape(self, block_for_dtype=None):
-        #if not self.is_dtype_supported(block_for_dtype):
+        # if not self.is_dtype_supported(block_for_dtype):
         #    block_for_dtype = torch.float32
-        #self.update_bc(block_for_dtype)
-        self.weight = Parameter(self.get_blocked_weight(block_for_dtype=block_for_dtype))
-        
+        # self.update_bc(block_for_dtype)
+        self.weight = Parameter(
+            self.get_blocked_weight(block_for_dtype=block_for_dtype)
+        )
+
     def reset_parameters(self):
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
@@ -193,45 +219,63 @@ class XsmmLinear(nn.Module):
 
     def forward(self, input):
         input_type = input.dtype
-        #if not self.is_dtype_supported(input_type):
+        # if not self.is_dtype_supported(input_type):
         #    input = input.to(torch.float32)
         if self.bc == 0 or self.bk == 0:
             self.update_blocking(input_type)
         input = self.maybe_pad_input(input)
         if input.dtype == torch.bfloat16:
-            if self.bc % 2 != 0: raise RuntimeError("Bfloat16 requires even bc")
+            if self.bc % 2 != 0:
+                raise RuntimeError("Bfloat16 requires even bc")
 
         if input.dim() == 2:
             N = input.size(0)
-            bn = self.get_blocking_factor(N, 48) #64 if N % 64 == 0 else N
-            input = input.view(N//bn, bn, self.nbc, self.bc).permute(0,2,1,3)
+            bn = self.get_blocking_factor(N, 48)  # 64 if N % 64 == 0 else N
+            input = input.view(N // bn, bn, self.nbc, self.bc).permute(0, 2, 1, 3)
         elif input.dim() == 4:
             N = input.size(0) * input.size(2)
             bn = input.size(2)
         else:
             print("Invalid Input dimensions (%d)" % input.dim())
 
-        input = input.contiguous()    
+        input = input.contiguous()
 
         if N != self.N or bn != self.bn:
-            print("Create handle: ", N, self.padded_C, self.K, bn, self.bc, self.bk, input.dtype, 0 if self.bias is None else 1, self.act_type)
-            self.xsmm_handle = XsmmHandle(N, self.padded_C, self.K, bn, self.bc, self.bk, input.dtype, 0 if self.bias is None else 1, self.act_type)
+            print(
+                "Create handle: ",
+                N,
+                self.padded_C,
+                self.K,
+                bn,
+                self.bc,
+                self.bk,
+                input.dtype,
+                0 if self.bias is None else 1,
+                self.act_type,
+            )
+            self.xsmm_handle = XsmmHandle(
+                N,
+                self.padded_C,
+                self.K,
+                bn,
+                self.bc,
+                self.bk,
+                input.dtype,
+                0 if self.bias is None else 1,
+                self.act_type,
+            )
             self.N = N
             self.bn = bn
             self.nbn = N // bn
-        
+
         wtensor = self.get_blocked_weight(to_dtype=input.dtype)
         btensor = self.bias.to(input.dtype)
-        output =  XsmmFC.apply(input, wtensor, btensor, self.xsmm_handle)
+        output = XsmmFC.apply(input, wtensor, btensor, self.xsmm_handle)
         if not self.output_stays_blocked:
-            #output = output.permute(0, 2, 1, 3).view(self.N, self.K).contiguous()
+            # output = output.permute(0, 2, 1, 3).view(self.N, self.K).contiguous()
             output = output.permute(0, 2, 1, 3).reshape(self.N, self.K).contiguous()
         output = output.to(input_type)
         return output
 
     def extra_repr(self):
-        return 'C={}, K={}, bias={}'.format(
-            self.C, self.K, self.bias is not None
-        )
-
-
+        return "C={}, K={}, bias={}".format(self.C, self.K, self.bias is not None)

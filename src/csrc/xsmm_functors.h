@@ -1811,7 +1811,9 @@ class SoftMaxBwdTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_TERNARY_NMULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_0 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_unary_op(
             my_eqn3,
@@ -2007,7 +2009,10 @@ class LayerNormFwdTPP {
       libxsmm_matrix_eqn_push_back_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+          (libxsmm_meltw_ternary_flags)(
+              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
+              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
           LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
       libxsmm_matrix_eqn_push_back_arg(
@@ -2188,7 +2193,10 @@ class LayerNormBwdTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 0, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
@@ -2265,7 +2273,10 @@ class LayerNormBwdTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
@@ -2416,12 +2427,18 @@ class GroupNormFwdTPP {
       libxsmm_matrix_eqn_push_back_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+          (libxsmm_meltw_ternary_flags)(
+              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_1 |
+              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_2 |
+              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
           LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+          (libxsmm_meltw_ternary_flags)(
+              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
+              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
           LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
       libxsmm_matrix_eqn_push_back_arg(
@@ -2605,7 +2622,10 @@ class GroupNormBwdTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 0, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
@@ -2678,7 +2698,9 @@ class GroupNormBwdTPP {
         libxsmm_matrix_eqn_push_back_binary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            (libxsmm_meltw_binary_flags)(LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0 | LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1),
+            (libxsmm_meltw_binary_flags)(
+                LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0 |
+                LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(my_eqn5, 1, S1, 1, 6, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
@@ -2687,7 +2709,10 @@ class GroupNormBwdTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
@@ -2768,7 +2793,9 @@ class SplitSGDTPP : public BaseTPP {
     libxsmm_matrix_eqn_push_back_ternary_op(
         my_eqn0,
         LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-        (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+        (libxsmm_meltw_ternary_flags)(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
         LIBXSMM_DATATYPE_F32);
     libxsmm_matrix_eqn_push_back_arg(
         my_eqn0,
@@ -3072,7 +3099,9 @@ class FusedAdamWTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
@@ -3096,7 +3125,9 @@ class FusedAdamWTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
@@ -3377,7 +3408,9 @@ class FusedSplitAdamWTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
@@ -3401,7 +3434,9 @@ class FusedSplitAdamWTPP {
         libxsmm_matrix_eqn_push_back_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
