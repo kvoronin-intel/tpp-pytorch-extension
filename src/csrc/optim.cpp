@@ -5,6 +5,14 @@
 
 using namespace pcl;
 
+#define MYASSERT(x)                     \
+  do {                                  \
+    if (!(x)) {                         \
+      printf("Assert failed %s\n", #x); \
+      exit(1);                          \
+    }                                   \
+  } while (0)
+
 REGISTER_SCOPE(split_sgd_sparse, "splitsgd_s");
 REGISTER_SCOPE(split_sgd_dense, "splitsgd_d");
 REGISTER_SCOPE(dense_sparse_add, "sprse_add");

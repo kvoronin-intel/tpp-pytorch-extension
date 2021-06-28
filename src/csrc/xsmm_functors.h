@@ -162,7 +162,7 @@ class BaseTPP {
         fprintf(stderr, "Unable to get JIT kernel for %s\n", hash.c_str());
         exit(1);
       }
-      printf("TPP: %s @ %p\n", hash.c_str(), kernel);
+      //printf("TPP: %s @ %p\n", hash.c_str(), kernel);
       kernel_cache[hash] = kernel;
     }
     return kernel;
@@ -1325,6 +1325,120 @@ class GeluBwdTPP : public BaseTPP {
  private:
   int N = 0;
   libxsmm_matrix_eqn_function kernel = NULL;
+};
+
+template <typename T>
+class ReLUFwdTPP {
+  public:
+    ReLUFwdTPP() {}
+    ReLUFwdTPP(int N)
+      : N(N),
+      kernel(
+          1,
+          N,
+          N,
+          N,
+          XsmmDtype<T>(),
+          XsmmDtype<T>(),
+          LIBXSMM_DATATYPE_F32,
+          LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
+          LIBXSMM_MELTW_TYPE_UNARY_RELU) {}
+    void operator()(T* in, T* out, short* mask) {
+      kernel((void*)in, (void*)out, (void*)mask);
+    }
+    void ref(T* in, T* out, short* mask) {
+      kernel((void*)in, (void*)out, (void*)mask);
+    }
+
+  private:
+    int N = 0;
+    UnaryTPP kernel;
+};
+
+template <typename T>
+class ReLUBwdTPP {
+  public:
+    ReLUBwdTPP() {}
+    ReLUBwdTPP(int N)
+      : N(N),
+      kernel(
+          1,
+          N,
+          N,
+          N,
+          XsmmDtype<T>(),
+          XsmmDtype<T>(),
+          LIBXSMM_DATATYPE_F32,
+          LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
+          LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {}
+    void operator()(T* in, T* out, short* mask) {
+      kernel((void*)in, (void*)mask, (void*)NULL, (void*)out, (void*)NULL);
+    }
+    void ref(T* in, T* out, short* mask) {
+      kernel((void*)in, (void*)mask, (void*)NULL, (void*)out, (void*)NULL);
+    }
+
+  private:
+    int N = 0;
+    UnaryTPP kernel;
+};
+
+template <typename T>
+class ELUFwdTPP {
+  public:
+    ELUFwdTPP() {}
+    ELUFwdTPP(int N)
+      : N(N),
+      kernel(
+          1,
+          N,
+          N,
+          N,
+          XsmmDtype<T>(),
+          XsmmDtype<T>(),
+          LIBXSMM_DATATYPE_F32,
+          LIBXSMM_MELTW_FLAG_UNARY_NONE,
+          LIBXSMM_MELTW_TYPE_UNARY_ELU) {}
+    void operator()(T* in, T* alpha, T* out) {
+      kernel((void*)in, (void*)NULL, (void*)alpha, (void*)out, (void*)NULL);
+    }
+    void ref(T* in, T* alpha, T* out) {
+      for(int i=0; i<N; i++)
+        out[i] = in[i] > 0 ? in[i] : (*alpha)*(exp(in[i])-1);
+    }
+
+  private:
+    int N = 0;
+    UnaryTPP kernel;
+};
+
+template <typename T>
+class ELUBwdTPP {
+  public:
+    ELUBwdTPP() {}
+    ELUBwdTPP(int N)
+      : N(N),
+      kernel(
+          1,
+          N,
+          N,
+          N,
+          XsmmDtype<T>(),
+          XsmmDtype<T>(),
+          LIBXSMM_DATATYPE_F32,
+          LIBXSMM_MELTW_FLAG_UNARY_NONE,
+          LIBXSMM_MELTW_TYPE_UNARY_ELU_INV) {}
+    void operator()(T* in, T* in2, T* alpha, T* out) {
+      kernel((void*)in, (void*)in2, (void*)alpha, (void*)out, (void*)NULL);
+    }
+    void ref(T* in, T* in2, T* alpha, T* out) {
+      for(int i=0; i<N; i++)
+        out[i] = in2[i] > 0 ? in[i] : in[i]*in2[i] + (*alpha)*(in[i]);
+    }
+
+  private:
+    int N = 0;
+    UnaryTPP kernel;
 };
 
 template <typename T>

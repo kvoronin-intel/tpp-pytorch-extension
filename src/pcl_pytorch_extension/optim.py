@@ -2,6 +2,7 @@ import math
 from typing import Callable, Iterable, Tuple
 import torch
 from torch.optim import Optimizer
+from torch.optim.optimizer import required
 from pcl_pytorch_extension._C import _optim as optim_cpp
 
 
