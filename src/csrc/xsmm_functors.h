@@ -341,13 +341,17 @@ template <typename T>
 class SetZeroTPP {
  public:
   SetZeroTPP() {}
-  SetZeroTPP(int N)
-      : N(N),
+  SetZeroTPP(int N) : SetZeroTPP(1, N) {}
+  SetZeroTPP(int rows, int cols) : SetZeroTPP(rows, cols, cols) {}
+  SetZeroTPP(int rows, int cols, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldo(ldo),
         kernel(
-            1,
-            N,
-            N,
-            N,
+            rows,
+            cols,
+            ldo,
+            ldo,
             XsmmDtype<T>(),
             XsmmDtype<T>(),
             XsmmDtype<T>(),
@@ -357,13 +361,17 @@ class SetZeroTPP {
     kernel((void*)buf, (void*)buf);
   }
   void ref(T* buf) {
-    for (int i = 0; i < N; i++) {
-      buf[i] = 0;
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        buf[i * ldo + j] = 0;
+      }
     }
   }
 
  private:
-  int N = 0;
+  int rows = 0;
+  int cols = 0;
+  int ldo;
   UnaryTPP kernel;
 };
 
@@ -372,14 +380,17 @@ class ConvertTPP {
  public:
   ConvertTPP() {}
   ConvertTPP(int N) : ConvertTPP(1, N) {}
-  ConvertTPP(int rows, int cols)
+  ConvertTPP(int rows, int cols) : ConvertTPP(rows, cols, cols, cols) {}
+  ConvertTPP(int rows, int cols, int ldi, int ldo)
       : rows(rows),
         cols(cols),
+        ldi(ldi),
+        ldo(ldo),
         kernel(
-            1,
-            rows * cols,
-            rows * cols,
-            rows * cols,
+            rows,
+            cols,
+            ldi,
+            ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             XsmmDtype<Tin>() == XsmmDtype<Tout>() ? XsmmDtype<Tout>()
@@ -391,8 +402,10 @@ class ConvertTPP {
     kernel((void*)in, (void*)out);
   }
   void ref(Tin* in, Tout* out) {
-    for (int i = 0; i < rows * cols; i++) {
-      out[i] = (Tout)in[i];
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        out[i * ldo + j] = (Tout)in[i * ldi + j];
+      }
     }
   }
   bool initialized() {
@@ -402,6 +415,8 @@ class ConvertTPP {
  private:
   int rows = 0;
   int cols = 0;
+  int ldi;
+  int ldo;
   UnaryTPP kernel;
   bool init_done = false;
 };
@@ -411,14 +426,15 @@ class CpyTPP {
  public:
   CpyTPP() {}
   CpyTPP(int N) : CpyTPP(1, N) {}
-  CpyTPP(int rows, int cols)
+  CpyTPP(int rows, int cols) : CpyTPP(rows, cols, cols, cols) {}
+  CpyTPP(int rows, int cols, int ldi, int ldo)
       : rows(rows),
         cols(cols),
         kernel(
             rows,
             cols,
-            cols,
-            cols,
+            ldi,
+            ldo,
             XsmmDtype<T>(),
             XsmmDtype<T>(),
             XsmmDtype<T>(),
@@ -428,14 +444,18 @@ class CpyTPP {
     kernel((void*)in, (void*)out);
   }
   void ref(T* in, T* out) {
-    for (int i = 0; i < rows * cols; i++) {
-      out[i] = in[i];
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        out[i * ldo + j] = in[i * ldi + j];
+      }
     }
   }
 
  private:
   int rows = 0;
   int cols = 0;
+  int ldi;
+  int ldo;
   UnaryTPP kernel;
 };
 
@@ -738,18 +758,22 @@ class XformExtTPP {
  public:
   XformExtTPP() {}
   XformExtTPP(
-      /* rows and cols as for input tensor*/
+      /* rows and cols as for input tensor */
       int rows,
       int cols,
       XformTPP::XFORM_TYPE xtype,
       bool assume_padded = false)
       : rows(rows),
         cols(cols),
+        rowsp(rows),
+        colsp(cols),
         xtype(xtype),
         dtype(XsmmDtype<T>()),
         assume_padded(assume_padded),
         kernel(),
-        cvt() {
+        cvt(),
+        cpy(),
+        zero() {
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       kernel = XformTPP(
           rows,
@@ -762,9 +786,16 @@ class XformExtTPP {
       if (dtype == LIBXSMM_DATATYPE_BF16) {
         if (!assume_padded) {
           PCL_ASSERT(rows % 2 == 0, "N2VTPP: uneven number of rows\n");
+        } else {
+          rowsp = rows + rows % 2;
+          if (rows != rowsp) {
+            cpy = CpyTPP<T>(rows, cols);
+            zero = SetZeroTPP<T>(1, cols);
+            zero_offset = rows * cols;
+          }
         }
         kernel = XformTPP(
-            rows,
+            rowsp,
             cols,
             cols,
             cols,
@@ -776,12 +807,20 @@ class XformExtTPP {
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
       if (dtype == LIBXSMM_DATATYPE_BF16) {
-        /* if (!assume_padded) */ PCL_ASSERT(
-            cols % 2 == 0, "XposeN2VTPP: uneven number of cols\n");
+        if (!assume_padded) {
+          PCL_ASSERT(cols % 2 == 0, "XposeN2VTPP: uneven number of cols\n");
+        } else {
+          colsp = cols + cols % 2;
+          if (cols != colsp) {
+            cpy = CpyTPP<T>(rows, cols, cols, colsp);
+            zero = SetZeroTPP<T>(rows, 1, colsp);
+            zero_offset = cols;
+          }
+        }
         kernel = XformTPP(
             rows,
-            cols / 2,
-            cols / 2,
+            colsp / 2,
+            colsp / 2,
             rows,
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT);
@@ -797,12 +836,20 @@ class XformExtTPP {
     } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
       if (dtype == LIBXSMM_DATATYPE_BF16) {
         PCL_ASSERT(rows % 2 == 0, "XposeV2VTPP: uneven number of rows\n");
-        if (!assume_padded)
+        if (!assume_padded) {
           PCL_ASSERT(cols % 2 == 0, "XposeV2VTPP: uneven number of cols\n");
+        } else {
+          colsp = cols + cols % 2;
+          if (colsp != cols) {
+            cpy = CpyTPP<T>(rows / 2, cols * 2, cols * 2, colsp * 2);
+            zero = SetZeroTPP<T>(rows / 2, 2, colsp * 2);
+            zero_offset = cols * 2;
+          }
+        }
         kernel = XformTPP(
             rows,
-            cols,
-            cols,
+            colsp,
+            colsp,
             rows,
             dtype,
             LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI_TO_VNNIT);
@@ -820,7 +867,14 @@ class XformExtTPP {
       cvt = ConvertTPP<float, bfloat16>(rows, cols);
   }
   void operator()(T* in, T* out) {
-    kernel((void*)in, (void*)out);
+    if (rowsp != rows || colsp != cols) {
+      T tmp[rowsp * colsp];
+      cpy(in, tmp);
+      zero(tmp + zero_offset);
+      kernel((void*)tmp, (void*)out);
+    } else {
+      kernel((void*)in, (void*)out);
+    }
   }
   void ref(T* in, T* out) {
     auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
@@ -831,7 +885,7 @@ class XformExtTPP {
         }
       }
     } else if (xtype == XformTPP::XFORM_N2V_TPP) {
-      for (int i = 0; i < (rows + (BS - 1)) / BS; i++) {
+      for (int i = 0; i < rowsp / BS; i++) {
         for (int j = 0; j < cols; j++) {
           for (int k = 0; k < BS; k++) {
             if (i * BS + k < rows) {
@@ -845,7 +899,7 @@ class XformExtTPP {
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
       for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
+        for (int j = 0; j < colsp / BS; j++) {
           for (int k = 0; k < BS; k++) {
             if (j * BS + k < cols) {
               out[j * rows * BS + i * BS + k] = in[i * cols + j * BS + k];
@@ -857,7 +911,7 @@ class XformExtTPP {
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
       for (int i = 0; i < rows / BS; i++) {
-        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
+        for (int j = 0; j < colsp / BS; j++) {
           for (int k = 0; k < BS; k++) { // RBS
             for (int l = 0; l < BS; l++) { // CBS
               if (j * BS + l < cols) {
@@ -877,7 +931,14 @@ class XformExtTPP {
   void operator()(float* in, bfloat16* out) {
     bfloat16 tmp[rows * cols];
     cvt(in, tmp);
-    kernel((void*)tmp, (void*)out);
+    if (rowsp != rows || colsp != cols) {
+      T tmp2[rowsp * colsp];
+      cpy(tmp, tmp2);
+      zero(tmp2 + zero_offset);
+      kernel((void*)tmp2, (void*)out);
+    } else {
+      kernel((void*)tmp, (void*)out);
+    }
   }
   void ref(float* in, bfloat16* out) {
     auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
@@ -888,7 +949,7 @@ class XformExtTPP {
         }
       }
     } else if (xtype == XformTPP::XFORM_N2V_TPP) {
-      for (int i = 0; i < (rows + (BS - 1)) / BS; i++) {
+      for (int i = 0; i < rowsp / BS; i++) {
         for (int j = 0; j < cols; j++) {
           for (int k = 0; k < BS; k++) {
             if (i * BS + k < rows) {
@@ -902,7 +963,7 @@ class XformExtTPP {
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
       for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
+        for (int j = 0; j < colsp / BS; j++) {
           for (int k = 0; k < BS; k++) {
             if (j * BS + k < cols) {
               out[j * rows * BS + i * BS + k] = in[i * cols + j * BS + k];
@@ -914,7 +975,7 @@ class XformExtTPP {
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
       for (int i = 0; i < rows / BS; i++) {
-        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
+        for (int j = 0; j < colsp / BS; j++) {
           for (int k = 0; k < BS; k++) { // RBS
             for (int l = 0; l < BS; l++) { // CBS
               if (j * BS + l < cols) {
@@ -960,11 +1021,16 @@ class XformExtTPP {
  private:
   libxsmm_blasint rows = 0;
   libxsmm_blasint cols = 0;
+  libxsmm_blasint rowsp = 0;
+  libxsmm_blasint colsp = 0;
   XformTPP::XFORM_TYPE xtype;
   libxsmm_datatype dtype;
   bool assume_padded;
+  int zero_offset = 0;
   XformTPP kernel;
   ConvertTPP<float, bfloat16> cvt;
+  CpyTPP<T> cpy;
+  SetZeroTPP<T> zero;
 };
 
 template <typename Tin, typename Tout>
