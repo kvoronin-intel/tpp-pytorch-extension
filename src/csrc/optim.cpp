@@ -1,5 +1,7 @@
 #include "init.h"
+#ifdef ENABLE_RTM
 #include "rtm.h"
+#endif
 #include "timing.h"
 #include "xsmm_functors.h"
 
@@ -24,7 +26,11 @@ static int sparse_add_use_lock_free() {
   static int lock_free = -1;
   if (lock_free != -1)
     return lock_free;
+#ifdef ENABLE_RTM
   char* str = getenv("PCL_USE_RTM_UPDATE");
+#else
+  char* str = NULL;
+#endif
   if (str && atoi(str) > 0) {
     lock_free = 0;
     printf("PCL_SPARSE_ADD: Using RTM Based Update\n");
@@ -78,6 +84,7 @@ void dense_sparse_add_tmpl(
       }
     }
   } else {
+#ifdef ENABLE_RTM
     SimpleSpinLock fallBackLock;
 #pragma omp parallel for
     for (int i = 0; i < NS; i++) {
@@ -89,6 +96,10 @@ void dense_sparse_add_tmpl(
         embbag_upd(va, wa, lr);
       }
     }
+#else
+    printf("Please compile with ENABLE_RTM set\n");
+    exit(1);
+#endif
   }
 }
 
@@ -153,6 +164,7 @@ void bf16_split_add_(
         }
       }
     } else {
+#ifdef ENABLE_RTM
       SimpleSpinLock fallBackLock;
 #pragma omp parallel for
       for (long i = 0; i < NS; i++) {
@@ -165,6 +177,10 @@ void bf16_split_add_(
           split_sgd_kernel((at::BFloat16*)ha, (at::BFloat16*)la, va, lr);
         }
       }
+#else
+      printf("Please compile with ENABLE_RTM set\n");
+      exit(1);
+#endif
     }
   } else {
     RECORD_SCOPE(split_sgd_dense, {hi_bits});

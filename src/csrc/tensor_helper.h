@@ -10,13 +10,17 @@ inline at::Tensor wt_tensor_n2v(
     long Hc,
     at::Tensor& input) {
 #if 0
+  PCL_ASSERT(Hc % 2 == 0, "Uneven number for Hc\n");
   return input.view({Nk, Nc, Hc/2, 2, Hk}).permute({0, 1, 2, 4, 3}).contiguous();
 #else
-  auto output = input.new_empty({Nk, Nc, Hc / 2, Hk, 2});
-  DECL_VLA_PTR_PT(bfloat16, out, [Hc * Hk], output);
+  auto Hcp2 = (Hc + 1) / 2;
+  auto output = input.new_empty({Nk, Nc, Hcp2, Hk, 2});
+  DECL_VLA_PTR_PT(bfloat16, out, [Hcp2 * Hk * 2], output);
   DECL_VLA_PTR_PT(bfloat16, in, [Hc * Hk], input);
-  auto n2v_tpp =
-      SCOPEIT(XformExtTPP<bfloat16>(Hc, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
+  auto n2v_tpp = SCOPEIT(
+      XformExtTPP<bfloat16>(
+          Hc, Hk, XformTPP::XFORM_N2V_TPP, /*assume_padded=*/true),
+      VNNI);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
   for (int n = 0; n < Nk * Nc; n++) {
@@ -33,13 +37,17 @@ inline at::Tensor wt_tensor_trans_n2v(
     long Hc,
     at::Tensor& input) {
 #if 0
+  PCL_ASSERT(Hk % 2 == 0, "Uneven number for Hk\n");
   return input.view({Nk, Nc, Hc, Hk/2, 2}).permute({0, 1, 3, 2, 4}).contiguous();
 #else
-  auto output = input.new_empty({Nk, Nc, Hk / 2, Hc, 2});
-  DECL_VLA_PTR_PT(bfloat16, out, [Hk * Hc], output);
+  auto Hkp2 = (Hk + 1) / 2;
+  auto output = input.new_empty({Nk, Nc, Hkp2, Hc, 2});
+  DECL_VLA_PTR_PT(bfloat16, out, [Hkp2 * Hc * 2], output);
   DECL_VLA_PTR_PT(bfloat16, in, [Hc * Hk], input);
   auto trans_n2v_tpp = SCOPEIT(
-      XformExtTPP<bfloat16>(Hc, Hk, XformTPP::XFORM_XPOSE_N2V_TPP), XPOSE);
+      XformExtTPP<bfloat16>(
+          Hc, Hk, XformTPP::XFORM_XPOSE_N2V_TPP, /*assume_padded=*/true),
+      XPOSE);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
   for (int n = 0; n < Nk * Nc; n++) {
@@ -56,13 +64,19 @@ inline at::Tensor wt_tensor_trans_v2v(
     long Hc,
     at::Tensor& input) {
 #if 0
+  PCL_ASSERT(Hc % 2 == 0, "Uneven number for Hc\n");
+  PCL_ASSERT(Hk % 2 == 0, "Uneven number for Hk\n");
   return input.view({Nk, Nc, Hc/2, Hk/2, 2, 2}).permute({0, 1, 3, 2, 5, 4}).contiguous().view({Nk, Nc, Hk/2, Hc, 2});
 #else
-  auto output = input.new_empty({Nk, Nc, Hk / 2, Hc, 2});
-  DECL_VLA_PTR_PT(bfloat16, out, [Hk * Hc], output);
+  PCL_ASSERT(Hc % 2 == 0, "Uneven number for Hc\n");
+  auto Hkp2 = (Hk + 1) / 2;
+  auto output = input.new_empty({Nk, Nc, Hkp2, Hc, 2});
+  DECL_VLA_PTR_PT(bfloat16, out, [Hkp2 * Hc * 2], output);
   DECL_VLA_PTR_PT(bfloat16, in, [Hc * Hk], input);
   auto trans_v2v_tpp = SCOPEIT(
-      XformExtTPP<bfloat16>(Hc, Hk, XformTPP::XFORM_XPOSE_V2V_TPP), XPOSE);
+      XformExtTPP<bfloat16>(
+          Hc, Hk, XformTPP::XFORM_XPOSE_V2V_TPP, /*assume_padded=*/true),
+      XPOSE);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
   for (int n = 0; n < Nk * Nc; n++) {
@@ -165,6 +179,7 @@ inline at::Tensor act_tensor_n2v(
     long H,
     at::Tensor& input) {
   RECORD_SCOPE(a_vnni, {input});
+  PCL_ASSERT(S2 % 2 == 0, "Uneven number for S2\n");
 #if 0
   return input.view({B, S1, N, S2/2, 2, H}).permute({0,1,2,3,5,4}).contiguous();
 #else
@@ -182,6 +197,24 @@ inline at::Tensor act_tensor_n2v(
   }
   return output;
 #endif
+}
+
+inline at::Tensor get_padded_activation_for_vnni(at::Tensor& input) {
+  RECORD_SCOPE(a_vnni, {input});
+  if (input.dtype() == at::kFloat)
+    return input;
+  constexpr int align = 2;
+  auto sizes = input.sizes();
+  int ndims = input.dim();
+  PCL_ASSERT(ndims >= 2, "Invalid shape\n");
+  auto C = sizes[ndims - 1];
+  int pad = C % align;
+  if (pad == 0)
+    return input;
+  std::vector<int64_t> new_sizes(sizes.begin(), sizes.end());
+  new_sizes[ndims - 1] = align - pad;
+  auto output = at::cat({input, input.new_zeros(new_sizes)}, ndims - 1);
+  return output;
 }
 
 USING_SCOPE(zero);

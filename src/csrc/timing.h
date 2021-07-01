@@ -9,9 +9,7 @@ enum DebugTimer {
   DROPOUT,
   LAYER_NORM,
   SOFTMAX,
-  GELU,
-  RELU,
-  ELU,
+  ACT,
   BIAS,
   VNNI,
   EW_COPY,
@@ -23,24 +21,21 @@ enum DebugTimer {
   LAST_TIMER
 };
 
-static const char* DebugTimerNames[] = {
-    "BRGEMM",
-    "XPOSE",
-    "DROPOUT",
-    "LYR_NRM",
-    "SOFTMAX",
-    "GELU",
-    "RELU",
-    "ELU",
-    "BIAS",
-    "VNNI",
-    "COPY",
-    "ADD",
-    "SCALE",
-    "ZERO",
-    "REDUCE",
-    "OPTIM",
-    "LAST_TIMER"};
+static const char* DebugTimerNames[] = {"BRGEMM",
+                                        "XPOSE",
+                                        "DROPOUT",
+                                        "LYR_NRM",
+                                        "SOFTMAX",
+                                        "ACT",
+                                        "BIAS",
+                                        "VNNI",
+                                        "COPY",
+                                        "ADD",
+                                        "SCALE",
+                                        "ZERO",
+                                        "REDUCE",
+                                        "OPTIM",
+                                        "LAST_TIMER"};
 enum PassType { OTH, FWD, BWD, UPD };
 
 extern PassType globalPass;

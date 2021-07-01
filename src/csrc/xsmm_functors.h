@@ -162,7 +162,7 @@ class BaseTPP {
         fprintf(stderr, "Unable to get JIT kernel for %s\n", hash.c_str());
         exit(1);
       }
-      //printf("TPP: %s @ %p\n", hash.c_str(), kernel);
+      // printf("TPP: %s @ %p\n", hash.c_str(), kernel);
       kernel_cache[hash] = kernel;
     }
     return kernel;
@@ -738,24 +738,18 @@ class XformExtTPP {
  public:
   XformExtTPP() {}
   XformExtTPP(
+      /* rows and cols as for input tensor*/
       int rows,
       int cols,
       XformTPP::XFORM_TYPE xtype,
-      bool is_input_rc = true)
+      bool assume_padded = false)
       : rows(rows),
         cols(cols),
         xtype(xtype),
         dtype(XsmmDtype<T>()),
+        assume_padded(assume_padded),
         kernel(),
         cvt() {
-    if (is_input_rc == false &&
-        (xtype == XformTPP::XFORM_XPOSE_TPP ||
-         xtype == XformTPP::XFORM_XPOSE_N2V_TPP ||
-         xtype == XformTPP::XFORM_XPOSE_V2V_TPP)) {
-      auto tmp = rows;
-      rows = cols;
-      cols = tmp;
-    }
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       kernel = XformTPP(
           rows,
@@ -766,21 +760,24 @@ class XformExtTPP {
           LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT);
     } else if (xtype == XformTPP::XFORM_N2V_TPP) {
       if (dtype == LIBXSMM_DATATYPE_BF16) {
-        PCL_ASSERT(rows % 2 == 0, "N2VTPP: uneven number of rows\n");
+        if (!assume_padded) {
+          PCL_ASSERT(rows % 2 == 0, "N2VTPP: uneven number of rows\n");
+        }
         kernel = XformTPP(
             rows,
             cols,
             cols,
             cols,
             dtype,
-            LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI);
+            LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI_PAD);
       } else {
         kernel = XformTPP(
             rows, cols, cols, cols, dtype, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY);
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
       if (dtype == LIBXSMM_DATATYPE_BF16) {
-        PCL_ASSERT(cols % 2 == 0, "XposeN2VTPP: uneven number of cols\n");
+        /* if (!assume_padded) */ PCL_ASSERT(
+            cols % 2 == 0, "XposeN2VTPP: uneven number of cols\n");
         kernel = XformTPP(
             rows,
             cols / 2,
@@ -800,7 +797,8 @@ class XformExtTPP {
     } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
       if (dtype == LIBXSMM_DATATYPE_BF16) {
         PCL_ASSERT(rows % 2 == 0, "XposeV2VTPP: uneven number of rows\n");
-        PCL_ASSERT(cols % 2 == 0, "XposeV2VTPP: uneven number of cols\n");
+        if (!assume_padded)
+          PCL_ASSERT(cols % 2 == 0, "XposeV2VTPP: uneven number of cols\n");
         kernel = XformTPP(
             rows,
             cols,
@@ -833,28 +831,41 @@ class XformExtTPP {
         }
       }
     } else if (xtype == XformTPP::XFORM_N2V_TPP) {
-      for (int i = 0; i < rows / BS; i++) {
+      for (int i = 0; i < (rows + (BS - 1)) / BS; i++) {
         for (int j = 0; j < cols; j++) {
           for (int k = 0; k < BS; k++) {
-            out[i * cols * BS + j * BS + k] = in[i * cols * BS + k * cols + j];
+            if (i * BS + k < rows) {
+              out[i * cols * BS + j * BS + k] =
+                  in[i * cols * BS + k * cols + j];
+            } else {
+              out[i * cols * BS + j * BS + k] = 0;
+            }
           }
         }
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
       for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols / BS; j++) {
+        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
           for (int k = 0; k < BS; k++) {
-            out[j * rows * BS + i * BS + k] = in[i * cols + j * BS + k];
+            if (j * BS + k < cols) {
+              out[j * rows * BS + i * BS + k] = in[i * cols + j * BS + k];
+            } else {
+              out[j * rows * BS + i * BS + k] = 0;
+            }
           }
         }
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
       for (int i = 0; i < rows / BS; i++) {
-        for (int j = 0; j < cols / BS; j++) {
+        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
           for (int k = 0; k < BS; k++) { // RBS
             for (int l = 0; l < BS; l++) { // CBS
-              out[j * rows * BS + i * BS * BS + k * BS + l] =
-                  in[i * cols * BS + j * BS * BS + l * BS + k];
+              if (j * BS + l < cols) {
+                out[j * rows * BS + i * BS * BS + k * BS + l] =
+                    in[i * cols * BS + j * BS * BS + l * BS + k];
+              } else {
+                out[j * rows * BS + i * BS * BS + k * BS + l] = 0;
+              }
             }
           }
         }
@@ -877,28 +888,41 @@ class XformExtTPP {
         }
       }
     } else if (xtype == XformTPP::XFORM_N2V_TPP) {
-      for (int i = 0; i < rows / BS; i++) {
+      for (int i = 0; i < (rows + (BS - 1)) / BS; i++) {
         for (int j = 0; j < cols; j++) {
           for (int k = 0; k < BS; k++) {
-            out[i * cols * BS + j * BS + k] = in[i * cols * BS + k * cols + j];
+            if (i * BS + k < rows) {
+              out[i * cols * BS + j * BS + k] =
+                  in[i * cols * BS + k * cols + j];
+            } else {
+              out[i * cols * BS + j * BS + k] = 0;
+            }
           }
         }
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
       for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols / BS; j++) {
+        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
           for (int k = 0; k < BS; k++) {
-            out[j * rows * BS + i * BS + k] = in[i * cols + j * BS + k];
+            if (j * BS + k < cols) {
+              out[j * rows * BS + i * BS + k] = in[i * cols + j * BS + k];
+            } else {
+              out[j * rows * BS + i * BS + k] = 0;
+            }
           }
         }
       }
     } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
       for (int i = 0; i < rows / BS; i++) {
-        for (int j = 0; j < cols / BS; j++) {
+        for (int j = 0; j < (cols + (BS - 1)) / BS; j++) {
           for (int k = 0; k < BS; k++) { // RBS
             for (int l = 0; l < BS; l++) { // CBS
-              out[j * rows * BS + i * BS * BS + k * BS + l] =
-                  in[i * cols * BS + j * BS * BS + l * BS + k];
+              if (j * BS + l < cols) {
+                out[j * rows * BS + i * BS * BS + k * BS + l] =
+                    in[i * cols * BS + j * BS * BS + l * BS + k];
+              } else {
+                out[j * rows * BS + i * BS * BS + k * BS + l] = 0;
+              }
             }
           }
         }
@@ -938,6 +962,7 @@ class XformExtTPP {
   libxsmm_blasint cols = 0;
   XformTPP::XFORM_TYPE xtype;
   libxsmm_datatype dtype;
+  bool assume_padded;
   XformTPP kernel;
   ConvertTPP<float, bfloat16> cvt;
 };
@@ -1329,116 +1354,116 @@ class GeluBwdTPP : public BaseTPP {
 
 template <typename T>
 class ReLUFwdTPP {
-  public:
-    ReLUFwdTPP() {}
-    ReLUFwdTPP(int N)
+ public:
+  ReLUFwdTPP() {}
+  ReLUFwdTPP(int N)
       : N(N),
-      kernel(
-          1,
-          N,
-          N,
-          N,
-          XsmmDtype<T>(),
-          XsmmDtype<T>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
-          LIBXSMM_MELTW_TYPE_UNARY_RELU) {}
-    void operator()(T* in, T* out, short* mask) {
-      kernel((void*)in, (void*)out, (void*)mask);
-    }
-    void ref(T* in, T* out, short* mask) {
-      kernel((void*)in, (void*)out, (void*)mask);
-    }
+        kernel(
+            1,
+            N,
+            N,
+            N,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
+            LIBXSMM_MELTW_TYPE_UNARY_RELU) {}
+  void operator()(T* in, T* out, short* mask) {
+    kernel((void*)in, (void*)out, (void*)mask);
+  }
+  void ref(T* in, T* out, short* mask) {
+    kernel((void*)in, (void*)out, (void*)mask);
+  }
 
-  private:
-    int N = 0;
-    UnaryTPP kernel;
+ private:
+  int N = 0;
+  UnaryTPP kernel;
 };
 
 template <typename T>
 class ReLUBwdTPP {
-  public:
-    ReLUBwdTPP() {}
-    ReLUBwdTPP(int N)
+ public:
+  ReLUBwdTPP() {}
+  ReLUBwdTPP(int N)
       : N(N),
-      kernel(
-          1,
-          N,
-          N,
-          N,
-          XsmmDtype<T>(),
-          XsmmDtype<T>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
-          LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {}
-    void operator()(T* in, T* out, short* mask) {
-      kernel((void*)in, (void*)mask, (void*)NULL, (void*)out, (void*)NULL);
-    }
-    void ref(T* in, T* out, short* mask) {
-      kernel((void*)in, (void*)mask, (void*)NULL, (void*)out, (void*)NULL);
-    }
+        kernel(
+            1,
+            N,
+            N,
+            N,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
+            LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {}
+  void operator()(T* in, T* out, short* mask) {
+    kernel((void*)in, (void*)mask, (void*)NULL, (void*)out, (void*)NULL);
+  }
+  void ref(T* in, T* out, short* mask) {
+    kernel((void*)in, (void*)mask, (void*)NULL, (void*)out, (void*)NULL);
+  }
 
-  private:
-    int N = 0;
-    UnaryTPP kernel;
+ private:
+  int N = 0;
+  UnaryTPP kernel;
 };
 
 template <typename T>
 class ELUFwdTPP {
-  public:
-    ELUFwdTPP() {}
-    ELUFwdTPP(int N)
+ public:
+  ELUFwdTPP() {}
+  ELUFwdTPP(int N)
       : N(N),
-      kernel(
-          1,
-          N,
-          N,
-          N,
-          XsmmDtype<T>(),
-          XsmmDtype<T>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_MELTW_TYPE_UNARY_ELU) {}
-    void operator()(T* in, T* alpha, T* out) {
-      kernel((void*)in, (void*)NULL, (void*)alpha, (void*)out, (void*)NULL);
-    }
-    void ref(T* in, T* alpha, T* out) {
-      for(int i=0; i<N; i++)
-        out[i] = in[i] > 0 ? in[i] : (*alpha)*(exp(in[i])-1);
-    }
+        kernel(
+            1,
+            N,
+            N,
+            N,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_ELU) {}
+  void operator()(T* in, T* alpha, T* out) {
+    kernel((void*)in, (void*)NULL, (void*)alpha, (void*)out, (void*)NULL);
+  }
+  void ref(T* in, T* alpha, T* out) {
+    for (int i = 0; i < N; i++)
+      out[i] = in[i] > 0 ? in[i] : (*alpha) * (exp(in[i]) - 1);
+  }
 
-  private:
-    int N = 0;
-    UnaryTPP kernel;
+ private:
+  int N = 0;
+  UnaryTPP kernel;
 };
 
 template <typename T>
 class ELUBwdTPP {
-  public:
-    ELUBwdTPP() {}
-    ELUBwdTPP(int N)
+ public:
+  ELUBwdTPP() {}
+  ELUBwdTPP(int N)
       : N(N),
-      kernel(
-          1,
-          N,
-          N,
-          N,
-          XsmmDtype<T>(),
-          XsmmDtype<T>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_MELTW_TYPE_UNARY_ELU_INV) {}
-    void operator()(T* in, T* in2, T* alpha, T* out) {
-      kernel((void*)in, (void*)in2, (void*)alpha, (void*)out, (void*)NULL);
-    }
-    void ref(T* in, T* in2, T* alpha, T* out) {
-      for(int i=0; i<N; i++)
-        out[i] = in2[i] > 0 ? in[i] : in[i]*in2[i] + (*alpha)*(in[i]);
-    }
+        kernel(
+            1,
+            N,
+            N,
+            N,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_ELU_INV) {}
+  void operator()(T* in, T* in2, T* alpha, T* out) {
+    kernel((void*)in, (void*)in2, (void*)alpha, (void*)out, (void*)NULL);
+  }
+  void ref(T* in, T* in2, T* alpha, T* out) {
+    for (int i = 0; i < N; i++)
+      out[i] = in2[i] > 0 ? in[i] : in[i] * in2[i] + (*alpha) * (in[i]);
+  }
 
-  private:
-    int N = 0;
-    UnaryTPP kernel;
+ private:
+  int N = 0;
+  UnaryTPP kernel;
 };
 
 template <typename T>

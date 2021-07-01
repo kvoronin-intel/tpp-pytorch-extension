@@ -41,7 +41,7 @@ DECL_VLA_PTR_PT(T, grad_gelu, [S1][Nk][S2 * Hk], t_grad_gelu);
 DECL_VLA_PTR_PT(T, grad_out, [S1][Nk][S2 * Hk], t_grad_out);
 DECL_VLA_PTR_PT(T, grad_gelu_V, [S1][Nk][S2 * Hk], t_grad_gelu_V);
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(Nk * Hk), EW_ZERO);
-auto gelu_bwd_tpp = SCOPEIT(GeluBwdTPP<T>(S2 * Hk), GELU);
+auto gelu_bwd_tpp = SCOPEIT(GeluBwdTPP<T>(S2 * Hk), ACT);
 auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, Hk), BIAS);
 auto n2v_tpp = SCOPEIT(XformExtTPP<T>(S2, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
 auto di_gemm_b0_tpp = SCOPEITGEMM(

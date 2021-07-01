@@ -30,7 +30,7 @@ auto brgemm_tpp = SCOPEITGEMM(
     (BrgemmExtTPP<T, T>(S2, Hk, Hc, S2* Hc, Hk* Hc)),
     BRGEMM,
     S2* Hk* Hc);
-auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), GELU);
+auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
 
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {
