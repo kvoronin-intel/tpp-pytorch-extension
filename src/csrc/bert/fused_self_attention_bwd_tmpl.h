@@ -111,25 +111,29 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
   DECL_VLA_PTR_PT(T, dHS, [S1][N][S2 * H], t_dHS);
   DECL_VLA_PTR_PT(T, dEHS, [S1][N][S2 * H], t_dEHS);
 
-  auto cw_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(
-          S2,
-          H,
-          S2,
-          N * S1 * S2 * S2,
-          N * S2 * H,
-          0.0,
-          XformTPP::XFORM_NONE_TPP,
-          a_trans_flag)),
-      BRGEMM,
-      S2 * H * S2);
+  auto cw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      S2,
+      H,
+      S2,
+      N * S1 * S2 * S2,
+      N * S2 * H,
+      0.0,
+      XformTPP::XFORM_NONE_TPP,
+      a_trans_flag,
+      S1)));
   auto cw_n2v_tpp =
       SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
   auto a_convert_tpp = SCOPEIT((ConvertTPP<T, float>(S2, S2)), EW_COPY);
-  auto ci_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, float>(S2, S2, H, S2 * H, S2 * H, dAPO ? 1.0 : 0.0)),
-      BRGEMM,
-      S2 * S2 * H);
+  auto ci_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, float>(
+      S2,
+      S2,
+      H,
+      S2 * H,
+      S2 * H,
+      dAPO ? 1.0 : 0.0,
+      XformTPP::XFORM_NONE_TPP,
+      0,
+      1)));
   auto dropout_bwd_tpp =
       SCOPEIT(DropOutBwdTPP<float>(S1 * S2 * S2, p), DROPOUT);
   auto softmax_bwd_tpp =
@@ -137,43 +141,33 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
   auto scale_tpp = SCOPEIT((ScaleTPP<float, T>(S2 * S2)), EW_SCL);
   auto a_n2v_tpp =
       SCOPEIT(XformExtTPP<T>(S2, S2, XformTPP::XFORM_N2V_TPP), VNNI);
-  auto ai_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(S2, H, S2, S2 * S2, N * S2 * H, 0.0)),
-      BRGEMM,
-      S2 * H * S2);
-  auto aw_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(
-          H,
-          S2,
-          S2,
-          N * S2 * H,
-          N * S1 * S2 * S2,
-          0.0,
-          XformTPP::XFORM_XPOSE_TPP,
-          a_trans_flag)),
-      BRGEMM,
-      H * S2 * S2);
-  auto vi_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(S2, H, H, S2 * H, N * H * H, 0.0)),
-      BRGEMM,
-      S2 * H * H);
-  auto ki_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(S2, H, H, S2 * H, N * H * H, 1.0)),
-      BRGEMM,
-      S2 * H * H);
+  auto ai_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      S2, H, S2, S2 * S2, N * S2 * H, 0.0, XformTPP::XFORM_NONE_TPP, 0, S1)));
+  auto aw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      H,
+      S2,
+      S2,
+      N * S2 * H,
+      N * S1 * S2 * S2,
+      0.0,
+      XformTPP::XFORM_XPOSE_TPP,
+      a_trans_flag,
+      S1)));
+  auto vi_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      S2, H, H, S2 * H, N * H * H, 0.0, XformTPP::XFORM_NONE_TPP, 0, N)));
+  auto ki_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      S2, H, H, S2 * H, N * H * H, 1.0, XformTPP::XFORM_NONE_TPP, 0, N)));
   auto qi_gemm_tpp = (null_EHS ? ki_gemm_tpp : vi_gemm_tpp);
-  auto qkvw_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(
-          H,
-          H,
-          S2,
-          N * S2 * H,
-          N * S2 * H,
-          1.0,
-          (XformTPP::XFORM_TYPE)(grad_wt_flag),
-          a_trans_flag)),
-      BRGEMM,
-      H * H * S2);
+  auto qkvw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      H,
+      H,
+      S2,
+      N * S2 * H,
+      N * S2 * H,
+      1.0,
+      (XformTPP::XFORM_TYPE)(grad_wt_flag),
+      a_trans_flag,
+      S1)));
   // auto set_zero_dt_tpp = SCOPEIT(SetZeroTPP<T>(N*H), EW_ZERO);
   auto set_zero_f32_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
   auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, H), BIAS);

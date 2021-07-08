@@ -112,8 +112,8 @@ if (training) {
   DECL_VLA_PTR_PT(T, AM, [S1][S2], t_AM);
 
   auto copy_bias_tpp = SCOPEIT(CpyBiasTPP<T>(S2, H), BIAS);
-  auto qkv_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(S2, H, H, S2 * H, H * H, 1.0)), BRGEMM, S2 * H * H);
+  auto qkv_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      S2, H, H, S2 * H, H * H, 1.0, XformTPP::XFORM_NONE_TPP, 0, N)));
   auto xpose_tpp =
       SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
   auto k_xpose_tpp_1 = SCOPEIT(
@@ -126,10 +126,8 @@ if (training) {
       SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_XPOSE_N2V_TPP), VNNI);
   auto v_xpose_tpp_1 =
       SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
-  auto a_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, float>(S2, S2, H, S2 * H, H * S2, 0.0)),
-      BRGEMM,
-      S2 * S2 * H);
+  auto a_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, float>(
+      S2, S2, H, S2 * H, H * S2, 0.0, XformTPP::XFORM_NONE_TPP, 0, 1)));
   auto scale_tpp = SCOPEIT((ScaleTPP<float, float>(S2 * S2)), EW_SCL);
   auto add_mask_tpp = SCOPEIT(AddBiasTPP<T>(S2, S2), EW_ADD);
   auto softmax_fwd_tpp =
@@ -137,10 +135,8 @@ if (training) {
   auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(S1 * S2 * S2, p), DROPOUT);
   auto a_xpose_tpp =
       SCOPEIT(XformExtTPP<T>(S2, S2, XformTPP::XFORM_XPOSE_TPP), XPOSE);
-  auto c_gemm_tpp = SCOPEITGEMM(
-      (BrgemmExtTPP<T, T>(S2, H, S2, S2 * S2, N * S2 * H, 0.0)),
-      BRGEMM,
-      S2 * H * S2);
+  auto c_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+      S2, H, S2, S2 * S2, N * S2 * H, 0.0, XformTPP::XFORM_NONE_TPP, 0, S1)));
 
   {
     RECORD_SCOPE(q_gemm, {t_HS, t_Wq_V});

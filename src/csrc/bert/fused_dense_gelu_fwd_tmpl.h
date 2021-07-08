@@ -24,18 +24,23 @@ DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
 DECL_VLA_PTR_PT(T, out, [S1][Nk][S2 * Hk], t_out);
 DECL_VLA_PTR_PT(T, gelu_out, [S1][Nk][S2 * Hk], t_gelu_out);
 
-// Create TPPs
-auto copy_bias_tpp = SCOPEIT(CpyBiasTPP<T>(S2, Hk), BIAS);
-auto brgemm_tpp = SCOPEITGEMM(
-    (BrgemmExtTPP<T, T>(S2, Hk, Hc, S2* Hc, Hk* Hc)),
-    BRGEMM,
-    S2* Hk* Hc);
-auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
-
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {
   Ncb = Nk;
 }
+// Create TPPs
+auto copy_bias_tpp = SCOPEIT(CpyBiasTPP<T>(S2, Hk), BIAS);
+auto brgemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+    S2,
+    Hk,
+    Hc,
+    S2* Hc,
+    Hk* Hc,
+    1.0,
+    XformTPP::XFORM_NONE_TPP,
+    0,
+    Ncb)));
+auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
 
 {
   RECORD_SCOPE(i_gemm, {t_in, t_wt_V});

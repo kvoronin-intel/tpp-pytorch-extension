@@ -124,17 +124,13 @@ class GlobalPass {
   PassType oldPass;
   double start;
 };
-#define PURE_GEMM_TIME
+
 template <typename T, int impl = 0>
 class ScopedGEMMTPP {
  public:
-  ScopedGEMMTPP(T func, DebugTimer t, long flops)
-      : func(std::move(func)), t(t), flops(flops) {}
+  ScopedGEMMTPP(T func) : func(std::move(func)), t(BRGEMM) {}
   template <typename Tin, typename Tout>
   void operator()(Tin* A, Tin* B, Tout* C, long count) {
-#ifndef PURE_GEMM_TIME
-    ScopedTimer _t(t, 2 * count * flops);
-#endif
     if (impl == 0) {
       func(A, B, C, count);
     } else if (impl == 1) {
@@ -148,7 +144,6 @@ class ScopedGEMMTPP {
  private:
   T func;
   DebugTimer t;
-  long flops;
 };
 
 template <typename T, int impl = 0>
@@ -174,7 +169,7 @@ class ScopedTPP {
 };
 
 #if 1
-#define SCOPEITGEMM(f, t, flps) ScopedGEMMTPP<decltype(f)>(f, t, flps)
+#define SCOPEITGEMM(f) ScopedGEMMTPP<decltype(f)>(f)
 #define SCOPEIT(f, t) ScopedTPP<decltype(f)>(f, t)
 //#define SCOPEIT(f,t) ScopedTPP<decltype(f),1>(f, t)
 #define SCOPEIT_REF(f, t) ScopedTPP<decltype(f), 1>(f, t)

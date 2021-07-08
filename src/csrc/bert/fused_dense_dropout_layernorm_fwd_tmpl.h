@@ -45,21 +45,27 @@ DECL_VLA_PTR_PT(T, dout, [S1][Nk][S2][Hk], t_dout);
 DECL_VLA_PTR_PT(T, out, [S1][Nk][S2][Hk], t_out);
 DECL_VLA_PTR_PT(short, dp_mask, [S1][Nk][(S2 * Hk + 15) / 16], t_dp_mask);
 
+auto Ncb = Nc;
+if (Nc > Nk && Nc % Nk == 0) {
+  Ncb = Nk;
+}
 // Create TPPs
 auto copy_bias_tpp = SCOPEIT(CpyBiasTPP<T>(S2, Hk), BIAS);
-auto brgemm_tpp = SCOPEITGEMM(
-    (BrgemmExtTPP<T, T>(S2, Hk, Hc, S2* Hc, Hk* Hc)),
-    BRGEMM,
-    S2* Hk* Hc);
+auto brgemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+    S2,
+    Hk,
+    Hc,
+    S2* Hc,
+    Hk* Hc,
+    1.0,
+    XformTPP::XFORM_NONE_TPP,
+    0,
+    Ncb)));
 auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(S2 * Hk, p), DROPOUT);
 auto add_tpp = SCOPEIT((AddTPP<T, T>(S2 * Hk)), EW_ADD);
 auto layer_norm_fwd_tpp =
     SCOPEIT(LayerNormFwdTPP<T>(Nk, S2, Hk, eps), LAYER_NORM);
 
-auto Ncb = Nc;
-if (Nc > Nk && Nc % Nk == 0) {
-  Ncb = Nk;
-}
 {
   RECORD_SCOPE(o_gemm, {t_in, t_wt});
   auto nThreads = omp_get_max_threads();

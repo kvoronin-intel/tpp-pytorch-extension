@@ -1044,14 +1044,16 @@ class BrgemmTPP : public BaseTPP {
       long str_a,
       long str_b,
       float beta = 1.0,
-      int a_trans = 0)
+      int a_trans = 0,
+      int unroll_hint = 0)
       : M(M),
         N(N),
         K(K),
         str_a(str_a),
         str_b(str_b),
         beta(beta),
-        a_trans(a_trans) {
+        a_trans(a_trans),
+        unroll_hint(unroll_hint) {
     auto dt_in = XsmmDtype<Tin>();
     auto dt_out = XsmmDtype<Tout>();
     long type = -1;
@@ -1061,6 +1063,9 @@ class BrgemmTPP : public BaseTPP {
     } else if (dt_out == LIBXSMM_DATATYPE_F32) {
       type = 1;
     } else {
+      if (beta == 1) {
+        // printf("BrgemmTPP: Beta = 1 with BF16 output\n");
+      }
       type = 2;
     }
     if (type != 0)
@@ -1128,7 +1133,7 @@ class BrgemmTPP : public BaseTPP {
     snprintf(
         hash,
         200,
-        "brgemm_m%ld_n%ld_k%ld_a%ld_b%ld_t%ld_beta%d_at%d",
+        "brgemm_m%ld_n%ld_k%ld_a%ld_b%ld_t%ld_beta%d_at%d_uh%d",
         M,
         N,
         K,
@@ -1136,7 +1141,8 @@ class BrgemmTPP : public BaseTPP {
         str_b,
         brgemm_type,
         (int)beta,
-        a_trans);
+        a_trans,
+        unroll_hint);
     return std::string(hash);
   }
   void* build_kernel() override {
@@ -1146,12 +1152,13 @@ class BrgemmTPP : public BaseTPP {
       if (a_trans == 1)
         flags = LIBXSMM_GEMM_FLAGS('N', 'T');
       libxsmm_smmfunction_reducebatch_strd kernel =
-          libxsmm_smmdispatch_reducebatch_strd(
+          libxsmm_smmdispatch_reducebatch_strd_unroll(
               N,
               M,
               K,
               str_b * sizeof(float),
               str_a * sizeof(float),
+              unroll_hint,
               NULL,
               NULL,
               NULL,
@@ -1163,12 +1170,13 @@ class BrgemmTPP : public BaseTPP {
     } else if (brgemm_type == 1) {
       int flags = LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N');
       libxsmm_bsmmfunction_reducebatch_strd kernel =
-          libxsmm_bsmmdispatch_reducebatch_strd(
+          libxsmm_bsmmdispatch_reducebatch_strd_unroll(
               N,
               M,
               K,
               str_b * sizeof(bfloat16),
               str_a * sizeof(bfloat16),
+              unroll_hint,
               NULL,
               NULL,
               NULL,
@@ -1180,12 +1188,13 @@ class BrgemmTPP : public BaseTPP {
     } else {
       int flags = LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N');
       libxsmm_bmmfunction_reducebatch_strd kernel =
-          libxsmm_bmmdispatch_reducebatch_strd(
+          libxsmm_bmmdispatch_reducebatch_strd_unroll(
               N,
               M,
               K,
               str_b * sizeof(bfloat16),
               str_a * sizeof(bfloat16),
+              unroll_hint,
               NULL,
               NULL,
               NULL,
@@ -1203,8 +1212,10 @@ class BrgemmTPP : public BaseTPP {
   int a_trans;
   libxsmm_xmmfunction kernel;
   long brgemm_type = -1;
+  int unroll_hint;
 };
 
+#if 0
 template <typename Tin, typename Tout>
 class BrgemmExtTPP {
  public:
@@ -1215,9 +1226,10 @@ class BrgemmExtTPP {
       long K,
       long str_a,
       long str_b,
-      float beta = 1.0,
-      XformTPP::XFORM_TYPE c_trans = XformTPP::XFORM_NONE_TPP,
-      int a_trans = 0)
+      float beta, // = 1.0,
+      XformTPP::XFORM_TYPE c_trans, // = XformTPP::XFORM_NONE_TPP,
+      int a_trans, // = 0, 
+      int unroll_hint)
       : M(M),
         N(N),
         K(K),
@@ -1228,15 +1240,17 @@ class BrgemmExtTPP {
         add() {
     // auto dt_in = XsmmDtype<Tin>();
     auto dt_out = XsmmDtype<Tout>();
-    if (dt_out == LIBXSMM_DATATYPE_F32 && c_trans == XformTPP::XFORM_N2V_TPP)
+    if (dt_out == LIBXSMM_DATATYPE_F32 && c_trans == XformTPP::XFORM_N2V_TPP) {
+      printf("Warning: reseting c_trans flag from N2V to None for FP32 output\n");
       c_trans = XformTPP::XFORM_NONE_TPP;
+    }
     auto beta_ = beta;
 
     if (c_trans != XformTPP::XFORM_NONE_TPP) {
       beta_ = 0.0;
       xform = XformExtTPP<Tout>(M, N, c_trans);
     }
-    brgemm = BrgemmTPP<Tin, Tout>(M, N, K, str_a, str_b, beta_, a_trans);
+    brgemm = BrgemmTPP<Tin, Tout>(M, N, K, str_a, str_b, beta_, a_trans, unroll_hint);
     if (beta_ != beta) {
       add = AddTPP<Tout, Tout>(M, N);
     }
@@ -1282,6 +1296,7 @@ class BrgemmExtTPP {
   XformExtTPP<Tout> xform;
   AddTPP<Tout, Tout> add;
 };
+#endif
 
 template <typename T>
 class GeluFwdTPP {

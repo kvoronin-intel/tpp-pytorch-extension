@@ -40,30 +40,46 @@ DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
 DECL_VLA_PTR_PT(T, grad_gelu, [S1][Nk][S2 * Hk], t_grad_gelu);
 DECL_VLA_PTR_PT(T, grad_out, [S1][Nk][S2 * Hk], t_grad_out);
 DECL_VLA_PTR_PT(T, grad_gelu_V, [S1][Nk][S2 * Hk], t_grad_gelu_V);
+
+auto Nkb = Nk;
+if (Nk > Nc && Nk % Nc == 0) {
+  Nkb = Nc;
+}
+
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(Nk * Hk), EW_ZERO);
 auto gelu_bwd_tpp = SCOPEIT(GeluBwdTPP<T>(S2 * Hk), ACT);
 auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, Hk), BIAS);
 auto n2v_tpp = SCOPEIT(XformExtTPP<T>(S2, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
-auto di_gemm_b0_tpp = SCOPEITGEMM(
-    (BrgemmExtTPP<T, T>(S2, Hc, Hk, S2* Hk, Nc* Hk* Hc, 0.0)),
-    BRGEMM,
-    S2* Hc* Hk);
-auto di_gemm_b1_tpp = SCOPEITGEMM(
-    (BrgemmExtTPP<T, T>(S2, Hc, Hk, S2* Hk, Nc* Hk* Hc, 1.0)),
-    BRGEMM,
-    S2* Hc* Hk);
-auto dw_gemm_tpp = SCOPEITGEMM(
-    (BrgemmExtTPP<T, T>(
-        Hc,
-        Hk,
-        S2,
-        Nc* S2* Hc,
-        Nk* S2* Hk,
-        1.0,
-        (XformTPP::XFORM_TYPE)grad_wt_flag,
-        input_trans_flag)),
-    BRGEMM,
-    Hc* Hk* S2);
+auto di_gemm_b0_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+    S2,
+    Hc,
+    Hk,
+    S2* Hk,
+    Nc* Hk* Hc,
+    0.0,
+    XformTPP::XFORM_NONE_TPP,
+    0,
+    Nkb)));
+auto di_gemm_b1_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+    S2,
+    Hc,
+    Hk,
+    S2* Hk,
+    Nc* Hk* Hc,
+    1.0,
+    XformTPP::XFORM_NONE_TPP,
+    0,
+    Nkb)));
+auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
+    Hc,
+    Hk,
+    S2,
+    Nc* S2* Hc,
+    Nk* S2* Hk,
+    1.0,
+    (XformTPP::XFORM_TYPE)grad_wt_flag,
+    input_trans_flag,
+    S1)));
 {
   RECORD_SCOPE(di_bias, {t_grad_out});
   // t_grad_bias.zero_();
@@ -96,11 +112,6 @@ auto dw_gemm_tpp = SCOPEITGEMM(
 }
 {
   RECORD_SCOPE(dii_gemm, {t_grad_gelu, t_wt_TV});
-  auto Nkb = Nk;
-  if (Nk > Nc && Nk % Nc == 0) {
-    Nkb = Nc;
-  }
-
   // if(Nk != Nkb) t_grad_in.zero_();
   if (Nk != Nkb)
     tensor_set_zero(B * S1 * Nc, S2 * Hc, t_grad_in);
