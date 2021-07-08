@@ -404,7 +404,7 @@ def train(args, train_dataset, model, tokenizer):
                         f"Step: {global_step-1}, loss: {step_loss:6g}  tr_loss: {tr_loss/(global_step-1):6g} DT: {data_time*1e3:6g} FT: {(start_bwd_time-start_fwd_time)*1e3:6g} BT: {(start_opt_time-start_bwd_time)*1e3:6g} OT: {(end_time-start_opt_time)*1e3:6g} TT: {(end_time-start_fwd_time+data_time)*1e3:6g}"
                     )
                 if prof and args.use_pcl:
-                    ppx.print_debug_timers(-1)
+                    ppx.print_debug_timers()
                 if args.max_steps > 0 and global_step > args.max_steps:
                     epoch_iterator.close()
                     break
