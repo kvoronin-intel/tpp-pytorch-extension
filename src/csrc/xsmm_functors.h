@@ -459,30 +459,33 @@ class CpyTPP {
   UnaryTPP kernel;
 };
 
-template <typename T>
+template <typename Tin, typename Tout = Tin>
 class CpyBiasTPP {
  public:
   CpyBiasTPP() {}
-  CpyBiasTPP(int rows, int cols)
+  CpyBiasTPP(int rows, int cols) : CpyBiasTPP(rows, cols, cols) {}
+  CpyBiasTPP(int rows, int cols, int ldo)
       : rows(rows),
         cols(cols),
+        ldo(ldo),
         kernel(
             rows,
             cols,
             cols,
-            cols,
-            XsmmDtype<T>(),
-            XsmmDtype<T>(),
-            XsmmDtype<T>(),
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            XsmmDtype<Tin>() == XsmmDtype<Tout>() ? XsmmDtype<Tout>()
+                                                  : LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL,
             LIBXSMM_MELTW_TYPE_UNARY_IDENTITY) {}
-  void operator()(T* in, T* out) {
+  void operator()(Tin* in, Tout* out) {
     kernel((void*)in, (void*)out);
   }
-  void ref(T* in, T* out) {
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
-        out[r * cols + c] = in[c];
+  void ref(Tin* in, Tout* out) {
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        out[i * ldo + j] = (Tout)in[j];
       }
     }
   }
@@ -490,6 +493,7 @@ class CpyBiasTPP {
  private:
   int rows = 0;
   int cols = 0;
+  int ldo;
   UnaryTPP kernel;
 };
 
@@ -538,41 +542,7 @@ class AddBiasTPP {
   ConvertTPP<T, float> cvt;
 };
 
-template <typename Tin>
-class GradBiasTPP {
- public:
-  GradBiasTPP() {}
-  GradBiasTPP(int rows, int cols)
-      : rows(rows),
-        cols(cols),
-        kernel(
-            rows,
-            cols,
-            cols,
-            cols,
-            XsmmDtype<Tin>(),
-            LIBXSMM_DATATYPE_F32,
-            LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD) {}
-  void operator()(Tin* in, float* out) {
-    kernel((void*)in, (void*)out);
-  }
-  void ref(Tin* in, float* out) {
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
-        out[c] += (float)in[r * cols + c];
-      }
-    }
-  }
-
- private:
-  int rows = 0;
-  int cols = 0;
-  UnaryTPP kernel;
-};
-
-template <typename Tin, typename Tout>
+template <typename Tin, typename Tout = Tin>
 class AddTPP {
  public:
   AddTPP() {}
@@ -606,6 +576,44 @@ class AddTPP {
   int rows = 0;
   int cols = 0;
   BinaryTPP kernel;
+};
+
+template <typename Tin>
+class GradBiasTPP {
+ public:
+  GradBiasTPP() {}
+  GradBiasTPP(int rows, int cols)
+      : rows(rows),
+        cols(cols),
+        reduce(
+            rows,
+            cols,
+            cols,
+            cols,
+            XsmmDtype<Tin>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD),
+        add(cols) {}
+  void operator()(Tin* in, float* out) {
+    float tmp[cols];
+    reduce((void*)in, (void*)tmp);
+    add(tmp, out, out);
+  }
+  void ref(Tin* in, float* out) {
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        out[c] += (float)in[r * cols + c];
+      }
+    }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  UnaryTPP reduce;
+  AddTPP<float, float> add;
 };
 
 template <typename Tin, typename Tout>
