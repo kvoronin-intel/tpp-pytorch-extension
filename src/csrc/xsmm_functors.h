@@ -1502,7 +1502,7 @@ class ReLUBwdTPP {
             cols,
             ldi,
             ldo,
-            XsmmDtype<Tn>(),
+            XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
