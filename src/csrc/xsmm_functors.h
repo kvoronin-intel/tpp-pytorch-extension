@@ -399,7 +399,8 @@ class ConvertTPP {
             LIBXSMM_MELTW_TYPE_UNARY_IDENTITY),
         init_done(true) {}
   void operator()(Tin* in, Tout* out) {
-    kernel((void*)in, (void*)out);
+    if(!(XsmmDtype<Tin>()==LIBXSMM_DATATYPE_F32 && XsmmDtype<Tout>()==LIBXSMM_DATATYPE_F32))
+      kernel((void*)in, (void*)out);
   }
   void ref(Tin* in, Tout* out) {
     for (int i = 0; i < rows; i++) {
@@ -875,13 +876,15 @@ class XformExtTPP {
       cvt = ConvertTPP<float, bfloat16>(rows, cols);
   }
   void operator()(T* in, T* out) {
-    if (rowsp != rows || colsp != cols) {
-      T tmp[rowsp * colsp];
-      cpy(in, tmp);
-      zero(tmp + zero_offset);
-      kernel((void*)tmp, (void*)out);
-    } else {
-      kernel((void*)in, (void*)out);
+    if(in != out) {
+      if (rowsp != rows || colsp != cols) {
+        T tmp[rowsp * colsp];
+        cpy(in, tmp);
+        zero(tmp + zero_offset);
+        kernel((void*)tmp, (void*)out);
+      } else {
+        kernel((void*)in, (void*)out);
+      }
     }
   }
   void ref(T* in, T* out) {
