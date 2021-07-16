@@ -146,7 +146,7 @@ DECL_VLA_PTR_PT(T, grad_bias, [bk], t_grad_bias);
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(nk * bk), EW_ZERO);
 auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(bn, 1, bkp), EW_ZERO);
 auto grad_bias_tpp = SCOPEIT(GradBiasTPP<float>(nk, bk), BIAS);
-auto dropout_bwd_tpp = SCOPEIT(DropOutBwdTPP<float>(bn*bk, p), DROPOUT);
+auto dropout_bwd_tpp = SCOPEIT((DropOutBwdTPP<T,float>(bn*bk, p)), DROPOUT);
 auto relu_bwd_tpp = SCOPEIT(ReLUBwdTPP<float>(bn*bk), ACT);
 auto n2v_tpp = SCOPEIT(XformExtTPP<T>(bn, bk, XformTPP::XFORM_N2V_TPP, /*assume_padded*/true), VNNI);
 auto n2v_wt_tpp = SCOPEIT(XformExtTPP<T>(bc, bk, XformTPP::XFORM_N2V_TPP, /*assume_padded*/true), VNNI);
@@ -200,9 +200,9 @@ auto brgemm_dw_tpp = SCOPEITGEMM(
 #pragma omp for collapse(2)
         for(int n=0; n<nn; n++) {
           for(int k=0; k<nk; k++) {
-            cvt_f32_tpp(grad_out[n][k], grad_out_f32[n][k]);
+            //cvt_f32_tpp(grad_out[n][k], grad_out_f32[n][k]);
             if(p > 0) {
-              dropout_bwd_tpp(grad_out_f32[n][k], grad_out_f32[n][k], dp_mask[n][k]);
+              dropout_bwd_tpp(grad_out[n][k], grad_out_f32[n][k], dp_mask[n][k]);
             }
             if(act=="relu") {
               relu_bwd_tpp(grad_out_f32[n][k], grad_out_f32[n][k], relu_mask[n][k]);
@@ -360,7 +360,7 @@ if(res)
         }
       }
     }
-    printf("grad_wt_tmp %p, grad_wt %p\n",grad_wt_tmp,grad_wt);
+    //printf("grad_wt_tmp %p, grad_wt %p\n",grad_wt_tmp,grad_wt);
 #if 1
 #pragma omp parallel for collapse(2)
     for(int k=0; k<nk; k++) {

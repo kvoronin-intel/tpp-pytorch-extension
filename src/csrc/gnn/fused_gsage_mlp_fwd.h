@@ -70,7 +70,7 @@ auto brgemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, float>(bn, bk, bcp, bn*bcp, bk*bc
 auto add_bias_tpp = SCOPEIT(AddBiasTPP<T>(bn, bk), BIAS);
 auto add_tpp = SCOPEIT((AddTPP<float, float>(bn, bk)), EW_ADD);
 auto relu_fwd_tpp = SCOPEIT(ReLUFwdTPP<float>(bn*bk), ACT);
-auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<float>(bn*bk, p), DROPOUT);
+auto dropout_fwd_tpp = SCOPEIT((DropOutFwdTPP<float,T>(bn*bk, p)), DROPOUT);
 auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk)), EW_COPY);
 
 {
@@ -90,9 +90,9 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk)), EW_COPY);
           relu_fwd_tpp(out_f32[n][k], out_f32[n][k], relu_mask[n][k]);
         }
         if(p>0 && training) {
-          dropout_fwd_tpp(out_f32[n][k], (void*)rng_state, out_f32[n][k], dp_mask[n][k]);
+          dropout_fwd_tpp(out_f32[n][k], (void*)rng_state, out[n][k], dp_mask[n][k]);
         }
-        cvt_tpp(out_f32[n][k], out[n][k]);
+        //cvt_tpp(out_f32[n][k], out[n][k]);
       }
     }
   }
