@@ -399,7 +399,8 @@ class ConvertTPP {
             LIBXSMM_MELTW_TYPE_UNARY_IDENTITY),
         init_done(true) {}
   void operator()(Tin* in, Tout* out) {
-    if(!(XsmmDtype<Tin>()==LIBXSMM_DATATYPE_F32 && XsmmDtype<Tout>()==LIBXSMM_DATATYPE_F32))
+    if (!(XsmmDtype<Tin>() == LIBXSMM_DATATYPE_F32 &&
+          XsmmDtype<Tout>() == LIBXSMM_DATATYPE_F32))
       kernel((void*)in, (void*)out);
   }
   void ref(Tin* in, Tout* out) {
@@ -876,7 +877,7 @@ class XformExtTPP {
       cvt = ConvertTPP<float, bfloat16>(rows, cols);
   }
   void operator()(T* in, T* out) {
-    if(in != out) {
+    if (in != out) {
       if (rowsp != rows || colsp != cols) {
         T tmp[rowsp * colsp];
         cpy(in, tmp);
@@ -1057,11 +1058,38 @@ class BrgemmTPP : public BaseTPP {
       float beta = 1.0,
       int a_trans = 0,
       int unroll_hint = 0)
+      : BrgemmTPP(
+            M,
+            N,
+            K,
+            str_a,
+            str_b,
+            (a_trans == 0 ? K : M),
+            N,
+            N,
+            beta,
+            a_trans,
+            unroll_hint) {}
+  BrgemmTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int unroll_hint)
       : M(M),
         N(N),
         K(K),
         str_a(str_a),
         str_b(str_b),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
         beta(beta),
         a_trans(a_trans),
         unroll_hint(unroll_hint) {
@@ -1112,9 +1140,9 @@ class BrgemmTPP : public BaseTPP {
               C[i * N + j] = 0.0;
             for (int k = 0; k < K; k++) {
               if (a_trans == 1) {
-                C[i * N + j] += A_[k * M + i] * B_[k * N + j];
+                C[i * ldc + j] += A_[k * lda + i] * B_[k * ldb + j];
               } else {
-                C[i * N + j] += A_[i * K + k] * B_[k * N + j];
+                C[i * ldc + j] += A_[i * lda + k] * B_[k * ldb + j];
               }
             }
           }
@@ -1124,14 +1152,14 @@ class BrgemmTPP : public BaseTPP {
           for (int j = 0; j < N; j++) {
             float sum = 0.0f;
             if (beta == 1.0 && c == 0)
-              sum = C[i * N + j];
+              sum = C[i * ldc + j];
             for (int k = 0; k < K / 2; k++) {
-              sum += (float)A_[i * K + k * 2 + 0] *
-                  (float)B_[k * N * 2 + j * 2 + 0];
-              sum += (float)A_[i * K + k * 2 + 1] *
-                  (float)B_[k * N * 2 + j * 2 + 1];
+              sum += (float)A_[i * lda + k * 2 + 0] *
+                  (float)B_[k * ldb * 2 + j * 2 + 0];
+              sum += (float)A_[i * lda + k * 2 + 1] *
+                  (float)B_[k * ldb * 2 + j * 2 + 1];
             }
-            C[i * N + j] = (Tout)sum;
+            C[i * ldc + j] = (Tout)sum;
           }
         }
       }
@@ -1144,7 +1172,7 @@ class BrgemmTPP : public BaseTPP {
     snprintf(
         hash,
         200,
-        "brgemm_m%ld_n%ld_k%ld_a%ld_b%ld_t%ld_beta%d_at%d_uh%d",
+        "brgemm_m%ld_n%ld_k%ld_a%ld_b%ld_t%ld_beta%d_at%d_uh%d_ld_a%ld_b%ld_c%ld",
         M,
         N,
         K,
@@ -1153,7 +1181,10 @@ class BrgemmTPP : public BaseTPP {
         brgemm_type,
         (int)beta,
         a_trans,
-        unroll_hint);
+        unroll_hint,
+        (long)lda,
+        (long)ldb,
+        (long)ldc);
     return std::string(hash);
   }
   void* build_kernel() override {
@@ -1170,9 +1201,9 @@ class BrgemmTPP : public BaseTPP {
               str_b * sizeof(float),
               str_a * sizeof(float),
               unroll_hint,
-              NULL,
-              NULL,
-              NULL,
+              &ldb,
+              &lda,
+              &ldc,
               &alpha,
               &beta,
               &flags,
@@ -1188,9 +1219,9 @@ class BrgemmTPP : public BaseTPP {
               str_b * sizeof(bfloat16),
               str_a * sizeof(bfloat16),
               unroll_hint,
-              NULL,
-              NULL,
-              NULL,
+              &ldb,
+              &lda,
+              &ldc,
               &alpha,
               &beta,
               &flags,
@@ -1206,9 +1237,9 @@ class BrgemmTPP : public BaseTPP {
               str_b * sizeof(bfloat16),
               str_a * sizeof(bfloat16),
               unroll_hint,
-              NULL,
-              NULL,
-              NULL,
+              &ldb,
+              &lda,
+              &ldc,
               &alpha,
               &beta,
               &flags,
@@ -1219,6 +1250,9 @@ class BrgemmTPP : public BaseTPP {
 
  private:
   long M, N, K, str_a, str_b;
+  libxsmm_blasint lda;
+  libxsmm_blasint ldb;
+  libxsmm_blasint ldc;
   float beta;
   int a_trans;
   libxsmm_xmmfunction kernel;
