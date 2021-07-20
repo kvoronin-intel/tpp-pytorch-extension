@@ -169,7 +169,18 @@ auto brgemm_dw_tpp = SCOPEITGEMM(
         0.0,
         XformTPP::XFORM_NONE_TPP,
         input_trans_flag,
-        8)));
+        16)));
+auto brgemm_dw_tpp_b1 = SCOPEITGEMM(
+    (BrgemmExtTPP<T, T>(
+        bc, 
+        bk, 
+        bnp, 
+        nc*bc*bnp, 
+        nk*bk*bnp, 
+        1.0,
+        XformTPP::XFORM_NONE_TPP,
+        input_trans_flag,
+        16)));
 #else
 auto brgemm_dw_tpp = SCOPEITGEMM(
     (BrgemmExtTPP<T, float>(
@@ -351,9 +362,17 @@ if(res)
           int c = ck % nc;
           int nnb = end_nn - start_nn + 1;
 
-          //printf("tid %d: g_start %d, g_end %d, s_ck %d, e_ck %d, start_nn %d, end_nn %d, k %d, c %d\n",tid,start_nn,end_nn,k,c);
-
-          brgemm_dw_tpp(in_T[start_nn][c], grad_out_V[start_nn][k], tmp, nnb);
+          constexpr int BS = 16;
+          // auto t0 = getTime();
+          //brgemm_dw_tpp(in_T[start_nn][c], grad_out_V[start_nn][k], tmp, nnb);
+          for (int start_nn1 = start_nn; start_nn1 <= end_nn; start_nn1 += BS) {
+            if (start_nn1 == start_nn)
+              brgemm_dw_tpp(in_T[start_nn1][c], grad_out_V[start_nn1][k], tmp, (start_nn1+BS <= end_nn ? BS : end_nn - start_nn1 + 1));
+            else
+              brgemm_dw_tpp_b1(in_T[start_nn1][c], grad_out_V[start_nn1][k], tmp, (start_nn1+BS <= end_nn ? BS : end_nn - start_nn1 + 1));
+          }
+          // auto t1 = getTime();
+          //if(tid == 0) printf("T: %10.3f tid %2d: num_blk: %d, g_start %d, g_end %d, s_ck %d, e_ck %d, start_nn %d, end_nn %d, k %d, c %d\n",(t1-t0)*1e3, tid, (g_end-g_start), g_start, g_end, s_ck, e_ck, start_nn, end_nn,k,c);
           lock[k*nc+c].lock();
           add_gwt_tpp(tmp, grad_wt_tmp[k][c], grad_wt_tmp[k][c]);
           lock[k*nc+c].unlock();
@@ -397,7 +416,16 @@ if(res)
             int k = ck / nc;
             int c = ck % nc;
             int nnb = end_nn - start_nn + 1;
-            brgemm_dw_tpp(in_res_T[start_nn][c], grad_out_V[start_nn][k], tmp, nnb);
+            constexpr int BS = 16;
+            // auto t0 = getTime();
+            //brgemm_dw_tpp(in_res_T[start_nn][c], grad_out_V[start_nn][k], tmp, nnb);
+            for (int start_nn1 = start_nn; start_nn1 <= end_nn; start_nn1 += BS) {
+              if (start_nn1 == start_nn)
+                brgemm_dw_tpp(in_res_T[start_nn1][c], grad_out_V[start_nn1][k], tmp, (start_nn1+BS <= end_nn ? BS : end_nn - start_nn1 + 1));
+              else
+                brgemm_dw_tpp_b1(in_res_T[start_nn1][c], grad_out_V[start_nn1][k], tmp, (start_nn1+BS <= end_nn ? BS : end_nn - start_nn1 + 1));
+            }
+            // auto t1 = getTime();
             lock[k*nc+c].lock();
             add_gwt_tpp(tmp, grad_wt_res_tmp[k][c], grad_wt_res_tmp[k][c]);
             lock[k*nc+c].unlock();

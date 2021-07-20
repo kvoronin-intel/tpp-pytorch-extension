@@ -6,54 +6,63 @@ from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.autograd import Function
-from pcl_pytorch_extension.utils.blocked_layout import BlockedParameter, BlockedModule, BlockedTensor
+from pcl_pytorch_extension.utils.blocked_layout import (
+    BlockedParameter,
+    BlockedModule,
+    BlockedTensor,
+)
 from pcl_pytorch_extension.utils import blocked_layout, xsmm
 from pcl_pytorch_extension._C import _fused_gsage as fused_gsage_cpp
 import time
 from contextlib import contextmanager
 from dgl.nn.pytorch.conv.sageconv import *
-#torch.autograd.set_detect_anomaly(True)
+
+# torch.autograd.set_detect_anomaly(True)
 
 USE_BF16_PARAMS = True
+
 
 class DummyLinear(BlockedModule):
     def __init__(self, in_features, out_features, bias=True):
         super(DummyLinear, self).__init__()
         self.weight = BlockedParameter(torch.Tensor(out_features, in_features))
         if bias:
-          self.bias = BlockedParameter(torch.Tensor(out_features))
+            self.bias = BlockedParameter(torch.Tensor(out_features))
         else:
-          self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
-          fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-          bound = 1 / math.sqrt(fan_in)
-          init.uniform_(self.bias, -bound, bound)
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in)
+            init.uniform_(self.bias, -bound, bound)
 
     def forward(self, input):
         raise NotImplemented
         return input
 
+
 class SAGEMLPFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, p, act, res, training, *inputs):
         if res:
-          (inp, res_inp, wt, res_wt, bias) = inputs
+            (inp, res_inp, wt, res_wt, bias) = inputs
         else:
-          (inp, wt, bias) = inputs
+            (inp, wt, bias) = inputs
 
-        #breakpoint()
-        out, act_mask, dp_mask = fused_gsage_cpp.fused_gsage_mlp_fwd(p, act, res, training, inputs)
-        
-        if act == 'None':
+        # breakpoint()
+        out, act_mask, dp_mask = fused_gsage_cpp.fused_gsage_mlp_fwd(
+            p, act, res, training, inputs
+        )
+
+        if act == "None":
             act_mask = torch.tensor([], dtype=torch.short)
         if p == 0.0:
             dp_mask = torch.tensor([], dtype=torch.short)
         if res:
-            ctx.save_for_backward(inp, res_inp, wt, res_wt, act_mask, dp_mask) 
+            ctx.save_for_backward(inp, res_inp, wt, res_wt, act_mask, dp_mask)
         else:
             ctx.save_for_backward(inp, wt, act_mask, dp_mask)
         ctx.act = act
@@ -65,29 +74,48 @@ class SAGEMLPFunction(torch.autograd.Function):
     def backward(ctx, *grad_outs):
         inputs = list(grad_outs)
         inputs += ctx.saved_tensors
-        #breakpoint()
+        # breakpoint()
         if ctx.res:
-            grad_inp, grad_res_inp, grad_wt, grad_res_wt, grad_bias = fused_gsage_cpp.fused_gsage_mlp_bwd(ctx.p, ctx.act, ctx.res, inputs) 
-            return (None, None, None, None, grad_inp, grad_res_inp, grad_wt, grad_res_wt, grad_bias)
+            (
+                grad_inp,
+                grad_res_inp,
+                grad_wt,
+                grad_res_wt,
+                grad_bias,
+            ) = fused_gsage_cpp.fused_gsage_mlp_bwd(ctx.p, ctx.act, ctx.res, inputs)
+            return (
+                None,
+                None,
+                None,
+                None,
+                grad_inp,
+                grad_res_inp,
+                grad_wt,
+                grad_res_wt,
+                grad_bias,
+            )
         else:
-            grad_inp, grad_wt, grad_bias = fused_gsage_cpp.fused_gsage_mlp_bwd(ctx.p, ctx.res, inputs)
+            grad_inp, grad_wt, grad_bias = fused_gsage_cpp.fused_gsage_mlp_bwd(
+                ctx.p, ctx.res, inputs
+            )
             return (None, None, None, None, grad_inp, grad_wt, grad_bias)
+
 
 class DropoutFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, p, training, inp):
-      outputs = fused_gsage_cpp.dropout_fwd(p, inp, training) 
-      (out, dp_mask) = outputs
-      ctx.save_for_backward(dp_mask)
-      ctx.p = p
-      return out
+        outputs = fused_gsage_cpp.dropout_fwd(p, inp, training)
+        (out, dp_mask) = outputs
+        ctx.save_for_backward(dp_mask)
+        ctx.p = p
+        return out
 
     @staticmethod
     def backward(ctx, *grad_outs):
-      inputs = list(grad_outs)
-      inputs += ctx.saved_tensors
-      grad_inp = fused_gsage_cpp.dropout_bwd(ctx.p, inputs)
-      return (None, None, None, grad_inp)
+        inputs = list(grad_outs)
+        inputs += ctx.saved_tensors
+        grad_inp = fused_gsage_cpp.dropout_bwd(ctx.p, inputs)
+        return (None, None, None, grad_inp)
 
 
 class SAGEConvOpt(BlockedModule):
@@ -179,60 +207,84 @@ class SAGEConvOpt(BlockedModule):
             [ 0.5873,  1.6597],
             [-0.2502,  2.8068]], grad_fn=<AddBackward0>)
     """
-    def __init__(self, in_feats, out_feats, aggregator_type, feat_drop=0., bias=True, norm=None, activation=None):
-      super(SAGEConvOpt, self).__init__()
-      self._in_src_feats, self._in_dst_feats = expand_as_pair(in_feats)
-      self._out_feats = out_feats
-      self._aggre_type = aggregator_type
-      self.norm = norm
-      self.feat_drop = feat_drop
-      self.activation = "relu" if activation==F.relu else "None"
-      self.bc = self._in_dst_feats
-      self.bk = self._out_feats
-      self.res = False
-      self.align = 64
 
-      for cbf in [64, 50, 48, 32, 16]:
-        if self._in_dst_feats % cbf == 0:
-          self.bc = cbf
-          break
+    def __init__(
+        self,
+        in_feats,
+        out_feats,
+        aggregator_type,
+        feat_drop=0.0,
+        bias=True,
+        norm=None,
+        activation=None,
+    ):
+        super(SAGEConvOpt, self).__init__()
+        self._in_src_feats, self._in_dst_feats = expand_as_pair(in_feats)
+        self._out_feats = out_feats
+        self._aggre_type = aggregator_type
+        self.norm = norm
+        self.feat_drop = feat_drop
+        self.activation = "relu" if activation == F.relu else "None"
+        self.bc = self._in_dst_feats
+        self.bk = self._out_feats
+        self.res = False
+        self.align = 64
 
-      for kbf in [64, 50, 48, 32, 16]:
-        if self._out_feats % kbf == 0:
-          self.bk = kbf
-          break
+        for cbf in [64, 50, 48, 32, 16]:
+            if self._in_dst_feats % cbf == 0:
+                self.bc = cbf
+                break
 
-      if aggregator_type == 'pool':
-        self.fc_pool = nn.Linear(self._in_src_feats, self._in_src_feats)
-      if aggregator_type == 'lstm':
-        self.lstm = nn.LSTM(self._in_src_feats, self._in_src_feats, batch_first=True)
-      if aggregator_type != 'gcn':
-        self.res = True
-        self.fc_self = DummyLinear(self._in_dst_feats, out_feats, bias=False)
-        self.fc_self.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
+        for kbf in [64, 50, 48, 32, 16]:
+            if self._out_feats % kbf == 0:
+                self.bk = kbf
+                break
 
-      self.fc_neigh = DummyLinear(self._in_dst_feats, out_feats, bias=False)
-      self.fc_neigh.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
+        if aggregator_type == "pool":
+            self.fc_pool = nn.Linear(self._in_src_feats, self._in_src_feats)
+        if aggregator_type == "lstm":
+            self.lstm = nn.LSTM(
+                self._in_src_feats, self._in_src_feats, batch_first=True
+            )
+        if aggregator_type != "gcn":
+            self.res = True
+            self.fc_self = DummyLinear(self._in_dst_feats, out_feats, bias=False)
+            self.fc_self.weight.set_blocking_param(
+                (
+                    [self.bk, self.bc],
+                    [0, 2, 3, 1],
+                )
+            )
 
-      if bias:
-        self.bias = BlockedParameter(torch.zeros(out_feats))
-      else:
-        self.register_buffer('bias', None)
+        self.fc_neigh = DummyLinear(self._in_dst_feats, out_feats, bias=False)
+        self.fc_neigh.weight.set_blocking_param(
+            (
+                [self.bk, self.bc],
+                [0, 2, 3, 1],
+            )
+        )
 
-      self.blocked_input_signature = blocked_layout.get_blocking_signature("BF", "BFBF")
-      self.use_bf16 = False
+        if bias:
+            self.bias = BlockedParameter(torch.zeros(out_feats))
+        else:
+            self.register_buffer("bias", None)
 
-      self.reset_parameters()
+        self.blocked_input_signature = blocked_layout.get_blocking_signature(
+            "BF", "BFBF"
+        )
+        self.use_bf16 = False
+
+        self.reset_parameters()
 
     def maybe_block_params(self):
         self.fc_neigh.weight.block()
-        if self._aggre_type != 'gcn':
-          self.fc_self.weight.block()
+        if self._aggre_type != "gcn":
+            self.fc_self.weight.block()
 
     def maybe_unblock_params(self):
         self.fc_neigh.weight.unblock()
-        if self._aggre_type != 'gcn':
-          self.fc_self.weight.unblock()
+        if self._aggre_type != "gcn":
+            self.fc_self.weight.unblock()
 
     def reset_parameters(self):
         r"""
@@ -246,23 +298,25 @@ class SAGEConvOpt(BlockedModule):
         The linear weights :math:`W^{(l)}` are initialized using Glorot uniform initialization.
         The LSTM module is using xavier initialization method for its weights.
         """
-        gain = nn.init.calculate_gain('relu')
-        if self._aggre_type == 'pool':
+        gain = nn.init.calculate_gain("relu")
+        if self._aggre_type == "pool":
             nn.init.xavier_uniform_(self.fc_pool.weight, gain=gain)
-        if self._aggre_type == 'lstm':
+        if self._aggre_type == "lstm":
             self.lstm.reset_parameters()
-        if self._aggre_type != 'gcn':
+        if self._aggre_type != "gcn":
             nn.init.xavier_uniform_(self.fc_self.weight, gain=gain)
         nn.init.xavier_uniform_(self.fc_neigh.weight, gain=gain)
 
     def _compatibility_check(self):
         """Address the backward compatibility issue brought by #2747"""
-        if not hasattr(self, 'bias'):
-            dgl_warning("You are loading a GraphSAGE model trained from a old version of DGL, "
-                        "DGL automatically convert it to be compatible with latest version.")
+        if not hasattr(self, "bias"):
+            dgl_warning(
+                "You are loading a GraphSAGE model trained from a old version of DGL, "
+                "DGL automatically convert it to be compatible with latest version."
+            )
             bias = self.fc_neigh.bias
             self.fc_neigh.bias = None
-            if hasattr(self, 'fc_self'):
+            if hasattr(self, "fc_self"):
                 if bias is not None:
                     bias = bias + self.fc_self.bias
                     self.fc_self.bias = None
@@ -273,21 +327,23 @@ class SAGEConvOpt(BlockedModule):
         NOTE(zihao): lstm reducer with default schedule (degree bucketing)
         is slow, we could accelerate this with degree padding in the future.
         """
-        m = nodes.mailbox['m'] # (B, L, D)
+        m = nodes.mailbox["m"]  # (B, L, D)
         batch_size = m.shape[0]
-        h = (m.new_zeros((1, batch_size, self._in_src_feats)),
-             m.new_zeros((1, batch_size, self._in_src_feats)))
+        h = (
+            m.new_zeros((1, batch_size, self._in_src_feats)),
+            m.new_zeros((1, batch_size, self._in_src_feats)),
+        )
         _, (rst, _) = self.lstm(m, h)
-        return {'neigh': rst.squeeze(0)}
+        return {"neigh": rst.squeeze(0)}
 
     def maybe_pad_tensor(self, ten, dtype):
         N = ten.size(0)
-        pad = 0 
+        pad = 0
         if N % self.align != 0:
             pad = self.align - N % self.align
             pad_rows = torch.zeros(pad, ten.size(1), dtype=dtype)
             ten = torch.cat((ten, pad_rows), 0)
-       
+
         return ten
 
     def forward(self, graph, feat, edge_weight=None):
@@ -323,77 +379,88 @@ class SAGEConvOpt(BlockedModule):
             feat_dst = None
 
             if isinstance(feat, tuple):
-               feat_src = feat[0]
-               feat_dst = feat[1]
+                feat_src = feat[0]
+                feat_dst = feat[1]
             else:
-               feat_src = feat_dst = feat
+                feat_src = feat_dst = feat
 
-               if graph.is_block:
-                   feat_dst = feat_src[:graph.number_of_dst_nodes()]
-            
+                if graph.is_block:
+                    feat_dst = feat_src[: graph.number_of_dst_nodes()]
+
             if self.use_bf16:
-              feat_src = feat_src.to(torch.bfloat16)
-              feat_dst = feat_dst.to(torch.bfloat16)
+                feat_src = feat_src.to(torch.bfloat16)
+                feat_dst = feat_dst.to(torch.bfloat16)
 
-
-            msg_fn = fn.copy_src('h', 'm')
+            msg_fn = fn.copy_src("h", "m")
             if edge_weight is not None:
                 assert edge_weight.shape[0] == graph.number_of_edges()
-                graph.edata['_edge_weight'] = edge_weight
-                msg_fn = fn.u_mul_e('h', '_edge_weight', 'm')
+                graph.edata["_edge_weight"] = edge_weight
+                msg_fn = fn.u_mul_e("h", "_edge_weight", "m")
 
             h_self = feat_dst
 
             # Handle the case of graphs without edges
             if graph.number_of_edges() == 0:
-                graph.dstdata['neigh'] = torch.zeros(
-                    feat_dst.shape[0], self._in_src_feats).to(feat_dst)
+                graph.dstdata["neigh"] = torch.zeros(
+                    feat_dst.shape[0], self._in_src_feats
+                ).to(feat_dst)
 
             # Message Passing
-            if self._aggre_type == 'mean':
-                graph.srcdata['h'] = feat_src
-                graph.update_all(msg_fn, fn.mean('m', 'neigh'))
-                h_neigh = graph.dstdata['neigh']
-                #if not lin_before_mp:
+            if self._aggre_type == "mean":
+                graph.srcdata["h"] = feat_src
+                graph.update_all(msg_fn, fn.mean("m", "neigh"))
+                h_neigh = graph.dstdata["neigh"]
+                # if not lin_before_mp:
                 #    h_neigh = self.fc_neigh(h_neigh)
-            elif self._aggre_type == 'gcn':
+            elif self._aggre_type == "gcn":
                 check_eq_shape(feat)
-                graph.srcdata['h'] = feat_src
+                graph.srcdata["h"] = feat_src
                 if isinstance(feat, tuple):  # heterogeneous
-                    graph.dstdata['h'] = feat_dst
+                    graph.dstdata["h"] = feat_dst
                 else:
-                    graph.dstdata['h'] = graph.srcdata['h']
-                graph.update_all(msg_fn, fn.sum('m', 'neigh'))
+                    graph.dstdata["h"] = graph.srcdata["h"]
+                graph.update_all(msg_fn, fn.sum("m", "neigh"))
                 # divide in_degrees
                 degs = graph.in_degrees().to(feat_dst)
-                h_neigh = (graph.dstdata['neigh'] + graph.dstdata['h']) / (degs.unsqueeze(-1) + 1)
-                #if not lin_before_mp:
+                h_neigh = (graph.dstdata["neigh"] + graph.dstdata["h"]) / (
+                    degs.unsqueeze(-1) + 1
+                )
+                # if not lin_before_mp:
                 #    h_neigh = self.fc_neigh(h_neigh)
-            elif self._aggre_type == 'pool':
-                graph.srcdata['h'] = F.relu(self.fc_pool(feat_src))
-                graph.update_all(msg_fn, fn.max('m', 'neigh'))
-                h_neigh = graph.dstdata['neigh']
-                #h_neigh = self.fc_neigh(h_neigh)
-            elif self._aggre_type == 'lstm':
-                graph.srcdata['h'] = feat_src
+            elif self._aggre_type == "pool":
+                graph.srcdata["h"] = F.relu(self.fc_pool(feat_src))
+                graph.update_all(msg_fn, fn.max("m", "neigh"))
+                h_neigh = graph.dstdata["neigh"]
+                # h_neigh = self.fc_neigh(h_neigh)
+            elif self._aggre_type == "lstm":
+                graph.srcdata["h"] = feat_src
                 graph.update_all(msg_fn, self._lstm_reducer)
-                h_neigh = graph.dstdata['neigh']
-                #h_neigh = self.fc_neigh(h_neigh)
+                h_neigh = graph.dstdata["neigh"]
+                # h_neigh = self.fc_neigh(h_neigh)
             else:
-                raise KeyError('Aggregator type {} not recognized.'.format(self._aggre_type))
+                raise KeyError(
+                    "Aggregator type {} not recognized.".format(self._aggre_type)
+                )
 
             self.maybe_block_params()
-            
+
             # GraphSAGE GCN does not require fc_self.
-            if self._aggre_type == 'gcn':
+            if self._aggre_type == "gcn":
                 orig_input_dtype = h_neigh.dtype
                 N = h_neigh.size(0)
                 h_neigh = self.maybe_pad_tensor(h_neigh, orig_input_dtype)
-                h_neigh = self.get_blocked_tensor(h_neigh, self.blocked_input_signature, [None, self.bc] )
+                h_neigh = self.get_blocked_tensor(
+                    h_neigh, self.blocked_input_signature, [None, self.bc]
+                )
                 inputs = [h_neigh, self.fc_neigh.weight, self.bias]
                 if self.use_bf16:
-                    inputs = [i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs ]
-                rst = SAGEMLPFunction.apply(self.feat_drop, self.activation, self.res, self.training, *inputs)
+                    inputs = [
+                        i.to(torch.bfloat16) if i.is_floating_point() else i
+                        for i in inputs
+                    ]
+                rst = SAGEMLPFunction.apply(
+                    self.feat_drop, self.activation, self.res, self.training, *inputs
+                )
                 rst = BlockedTensor(rst, self.blocked_input_signature, orig_input_dtype)
                 rst = rst.unblocked_tensor()[:N, :]
             else:
@@ -401,17 +468,32 @@ class SAGEConvOpt(BlockedModule):
                 orig_input_dtype = h_neigh.dtype
                 N = h_neigh.size(0)
                 h_neigh = self.maybe_pad_tensor(h_neigh, orig_input_dtype)
-                h_neigh = self.get_blocked_tensor(h_neigh, self.blocked_input_signature, [None, self.bc] )
+                h_neigh = self.get_blocked_tensor(
+                    h_neigh, self.blocked_input_signature, [None, self.bc]
+                )
 
                 N = h_self.size(0)
                 h_self = self.maybe_pad_tensor(h_self, orig_input_dtype)
-                h_self = self.get_blocked_tensor(h_self, self.blocked_input_signature, [None, self.bc] )
+                h_self = self.get_blocked_tensor(
+                    h_self, self.blocked_input_signature, [None, self.bc]
+                )
                 #'''
-                #breakpoint()
-                inputs = [h_self, h_neigh, self.fc_self.weight, self.fc_neigh.weight, self.bias]
+                # breakpoint()
+                inputs = [
+                    h_self,
+                    h_neigh,
+                    self.fc_self.weight,
+                    self.fc_neigh.weight,
+                    self.bias,
+                ]
                 if self.use_bf16:
-                    inputs = [i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs ]
-                rst = SAGEMLPFunction.apply(self.feat_drop, self.activation, self.res, self.training, *inputs)
+                    inputs = [
+                        i.to(torch.bfloat16) if i.is_floating_point() else i
+                        for i in inputs
+                    ]
+                rst = SAGEMLPFunction.apply(
+                    self.feat_drop, self.activation, self.res, self.training, *inputs
+                )
                 rst = BlockedTensor(rst, self.blocked_input_signature, orig_input_dtype)
                 rst = rst.unblocked_tensor()[:N, :].contiguous()
 
@@ -420,20 +502,46 @@ class SAGEConvOpt(BlockedModule):
                 rst = self.norm(rst)
             return rst
 
+
 class SAGEConvOptBF16(SAGEConvOpt):
-    def __init__(self, in_feats, out_feats, aggregator_type, feat_drop=0., bias=True, norm=None, activation=None):
-        super(SAGEConvOptBF16, self).__init__(in_feats, out_feats, aggregator_type, feat_drop, bias, norm, activation)
+    def __init__(
+        self,
+        in_feats,
+        out_feats,
+        aggregator_type,
+        feat_drop=0.0,
+        bias=True,
+        norm=None,
+        activation=None,
+    ):
+        super(SAGEConvOptBF16, self).__init__(
+            in_feats, out_feats, aggregator_type, feat_drop, bias, norm, activation
+        )
         if USE_BF16_PARAMS:
-            self.fc_neigh.weight.set_blocking_param(([self.bk, [self.bc//2, 2]], [0, 2, 3, 1, 4], torch.bfloat16,))
-            if aggregator_type != 'gcn':
-              self.fc_self.weight.set_blocking_param(([self.bk, [self.bc//2, 2]], [0, 2, 3, 1, 4], torch.bfloat16,))
+            self.fc_neigh.weight.set_blocking_param(
+                (
+                    [self.bk, [self.bc // 2, 2]],
+                    [0, 2, 3, 1, 4],
+                    torch.bfloat16,
+                )
+            )
+            if aggregator_type != "gcn":
+                self.fc_self.weight.set_blocking_param(
+                    (
+                        [self.bk, [self.bc // 2, 2]],
+                        [0, 2, 3, 1, 4],
+                        torch.bfloat16,
+                    )
+                )
 
         self.use_bf16 = True
+
 
 @contextmanager
 def pcl_impl(enable=True, use_bf16=False):
     try:
         import dgl
+
         orig_SAGEConv = dgl.nn.pytorch.conv.SAGEConv
         try:
             if enable:
