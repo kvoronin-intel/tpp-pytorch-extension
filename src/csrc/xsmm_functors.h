@@ -279,9 +279,32 @@ class BinaryTPP : public BaseTPP {
       libxsmm_datatype dt_compute,
       libxsmm_meltw_binary_flags flags,
       libxsmm_meltw_binary_type type)
+      : BinaryTPP(
+            rows,
+            cols,
+            ldi,
+            ldi,
+            ldo,
+            dt_in,
+            dt_out,
+            dt_compute,
+            flags,
+            type) {}
+  BinaryTPP(
+      libxsmm_blasint rows,
+      libxsmm_blasint cols,
+      libxsmm_blasint ldi0,
+      libxsmm_blasint ldi1,
+      libxsmm_blasint ldo,
+      libxsmm_datatype dt_in,
+      libxsmm_datatype dt_out,
+      libxsmm_datatype dt_compute,
+      libxsmm_meltw_binary_flags flags,
+      libxsmm_meltw_binary_type type)
       : rows(rows),
         cols(cols),
-        ldi(ldi),
+        ldi0(ldi0),
+        ldi1(ldi1),
         ldo(ldo),
         dt_in(dt_in),
         dt_out(dt_out),
@@ -308,10 +331,11 @@ class BinaryTPP : public BaseTPP {
     snprintf(
         hash,
         200,
-        "binary_r%d_c%d_i%d_o%d_di%d_do%d_dc%d_f%d_t%d",
+        "binary_r%d_c%d_i0%d_i1%d_o%d_di%d_do%d_dc%d_f%d_t%d",
         rows,
         cols,
-        ldi,
+        ldi0,
+        ldi1,
         ldo,
         dt_in,
         dt_out,
@@ -322,12 +346,13 @@ class BinaryTPP : public BaseTPP {
   }
   void* build_kernel() override {
     return (void*)libxsmm_dispatch_meltw_binary(
-        cols, rows, &ldi, &ldi, &ldo, dt_in, dt_compute, dt_out, flags, type);
+        cols, rows, &ldi0, &ldi1, &ldo, dt_in, dt_compute, dt_out, flags, type);
   }
 
   libxsmm_blasint rows = 0;
   libxsmm_blasint cols = 0;
-  libxsmm_blasint ldi;
+  libxsmm_blasint ldi0;
+  libxsmm_blasint ldi1;
   libxsmm_blasint ldo;
   libxsmm_datatype dt_in;
   libxsmm_datatype dt_out;
