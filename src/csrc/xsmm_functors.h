@@ -788,6 +788,7 @@ class XformTPP {
   UnaryTPP kernel;
 };
 
+#if 0 // old one
 template <typename T>
 class XformExtTPP {
  public:
@@ -1063,6 +1064,307 @@ class XformExtTPP {
   XformTPP::XFORM_TYPE xtype;
   libxsmm_datatype dtype;
   bool assume_padded;
+  int zero_offset = 0;
+  XformTPP kernel;
+  ConvertTPP<float, bfloat16> cvt;
+  CpyTPP<T> cpy;
+  SetZeroTPP<T> zero;
+};
+#endif
+template <typename T>
+class XformExtTPP {
+ public:
+  XformExtTPP() {}
+  XformExtTPP(
+      /* rows and cols as for input tensor */
+      int rows,
+      int cols,
+      XformTPP::XFORM_TYPE xtype,
+      bool ignore_vnni_for_fp32 = false)
+      : XformExtTPP(
+            rows,
+            cols,
+            (xtype == XformTPP::XFORM_N2V_TPP ? rows : cols),
+            (xtype == XformTPP::XFORM_N2V_TPP ? cols : rows),
+            xtype,
+            ignore_vnni_for_fp32) {}
+  XformExtTPP(
+      int in_rows,
+      int in_cols,
+      int out_rows,
+      int out_cols,
+      XformTPP::XFORM_TYPE xtype,
+      bool ignore_vnni_for_fp32 = false)
+      : XformExtTPP(
+            in_rows,
+            in_cols,
+            out_rows,
+            out_cols,
+            in_cols,
+            out_cols,
+            xtype,
+            ignore_vnni_for_fp32) {}
+  XformExtTPP(
+      int in_rows,
+      int in_cols,
+      int out_rows,
+      int out_cols,
+      int ldi,
+      int ldo,
+      XformTPP::XFORM_TYPE xtype,
+      bool ignore_vnni_for_fp32 = false)
+      : in_rows(in_rows),
+        in_cols(in_cols),
+        out_rows(out_rows),
+        out_cols(out_cols),
+        ldi(ldi),
+        ldo(ldo),
+        xtype(xtype),
+        dtype(XsmmDtype<T>()),
+        kernel(),
+        cvt(),
+        cpy(),
+        zero() {
+    libxsmm_meltw_unary_type unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
+    if (ignore_vnni_for_fp32 == false) {
+      PCL_ASSERT(
+          (xtype == XformTPP::XFORM_XPOSE_TPP || dtype != LIBXSMM_DATATYPE_F32),
+          "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
+          (int)xtype);
+    }
+    const int BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    if (xtype == XformTPP::XFORM_N2V_TPP) {
+      in_rows_p = out_rows;
+      in_cols_p = out_cols;
+      if (dtype != LIBXSMM_DATATYPE_F32) {
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI;
+        PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
+      } else {
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
+      }
+    } else {
+      in_rows_p = out_cols;
+      in_cols_p = out_rows;
+      if (dtype != LIBXSMM_DATATYPE_F32) {
+        if (xtype == XformTPP::XFORM_XPOSE_TPP) {
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
+        } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
+          // unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNIT;
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
+          PCL_ASSERT(
+              in_cols_p % BS == 0, "XposeN2VTPP: uneven number of cols\n");
+        } else {
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI_TO_VNNIT;
+          PCL_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
+          PCL_ASSERT(
+              in_cols_p % BS == 0, "XposeV2VTPP: uneven number of cols\n");
+        }
+      } else {
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
+      }
+    }
+    PCL_ASSERT(
+        (in_rows_p >= in_rows && in_cols_p >= in_cols),
+        "Invalid output rows or cols value\n");
+    PCL_ASSERT(
+        in_rows_p == in_rows || in_cols_p == in_cols,
+        "Padding can only be done in rows or cols\n");
+
+    if (xtype != XformTPP::XFORM_XPOSE_N2V_TPP) {
+      kernel = XformTPP(in_rows_p, in_cols_p, ldi, ldo, dtype, unary_type);
+    } else {
+      // LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNIT not implemented so use
+      // workaround...
+      kernel = XformTPP(
+          in_rows_p,
+          in_cols_p / BS,
+          ldi / BS,
+          ldo,
+          LIBXSMM_DATATYPE_F32,
+          unary_type);
+    }
+
+    if (xtype == XformTPP::XFORM_N2V_TPP && in_rows_p != in_rows) {
+      cpy = CpyTPP<T>(in_rows, in_cols, ldi, in_cols);
+      zero = SetZeroTPP<T>(in_rows_p - in_rows, in_cols);
+      zero_offset = in_rows * in_cols;
+    } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP && in_cols_p != in_cols) {
+      cpy = CpyTPP<T>(in_rows, in_cols, ldi, in_cols_p);
+      zero = SetZeroTPP<T>(in_rows, in_cols_p - in_cols, in_cols_p);
+      zero_offset = in_cols;
+    } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP && in_cols_p != in_cols) {
+      cpy = CpyTPP<T>(in_rows / BS, in_cols * BS, ldi * BS, in_cols_p * BS);
+      zero = SetZeroTPP<T>(
+          in_rows / BS, (in_cols_p - in_cols) * BS, in_cols_p * BS);
+      zero_offset = in_cols * BS;
+    }
+    if (std::is_same<T, bfloat16>::value)
+      cvt = ConvertTPP<float, bfloat16>(in_rows, in_cols);
+  }
+  void operator()(T* in, T* out) {
+    if (in != out) {
+      if (in_rows_p != in_rows || in_cols_p != in_cols) {
+        T tmp[in_rows_p * in_cols_p];
+        cpy(in, tmp);
+        zero(tmp + zero_offset);
+        kernel((void*)tmp, (void*)out);
+      } else {
+        kernel((void*)in, (void*)out);
+      }
+    }
+  }
+  void ref(T* in, T* out) {
+    auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    if (xtype == XformTPP::XFORM_XPOSE_TPP) {
+      for (int i = 0; i < out_rows; i++) {
+        for (int j = 0; j < out_cols; j++) {
+          out[i * ldo + j] = in[j * ldi + i];
+        }
+      }
+    } else if (xtype == XformTPP::XFORM_N2V_TPP) {
+      for (int i = 0; i < out_rows / BS; i++) {
+        for (int j = 0; j < out_cols; j++) {
+          for (int k = 0; k < BS; k++) {
+            if (i * BS + k < in_rows) {
+              out[i * ldo * BS + j * BS + k] = in[i * ldi * BS + k * ldi + j];
+            } else {
+              out[i * ldo * BS + j * BS + k] = 0;
+            }
+          }
+        }
+      }
+    } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
+      for (int i = 0; i < out_rows / BS; i++) {
+        for (int j = 0; j < out_cols; j++) {
+          for (int k = 0; k < BS; k++) {
+            if (i * BS + k < in_cols) {
+              out[i * ldo * BS + j * BS + k] = in[j * ldi + i * BS + k];
+            } else {
+              out[i * ldo * BS + j * BS + k] = 0;
+            }
+          }
+        }
+      }
+    } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
+      for (int j = 0; j < out_rows / BS; j++) {
+        for (int i = 0; i < in_rows / BS; i++) {
+          for (int k = 0; k < BS; k++) { // RBS
+            for (int l = 0; l < BS; l++) { // CBS
+              if (j * BS + l < in_cols && i * BS + k < out_cols) {
+                out[j * ldo * BS + i * BS * BS + k * BS + l] =
+                    in[i * ldi * BS + j * BS * BS + l * BS + k];
+              } else {
+                out[j * ldo * BS + i * BS * BS + k * BS + l] = 0;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      PCL_ASSERT(false, "Should not come here\n");
+    }
+  }
+
+  void operator()(float* in, bfloat16* out) {
+    bfloat16 tmp2[in_rows * in_cols];
+    cvt(in, tmp2);
+    if (in_rows_p != in_rows || in_cols_p != in_cols) {
+      T tmp[in_rows_p * in_cols_p];
+      cpy(tmp2, tmp);
+      zero(tmp + zero_offset);
+      kernel((void*)tmp, (void*)out);
+    } else {
+      kernel((void*)tmp2, (void*)out);
+    }
+  }
+  void ref(float* in, bfloat16* out) {
+    auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    if (xtype == XformTPP::XFORM_XPOSE_TPP) {
+      for (int i = 0; i < out_rows; i++) {
+        for (int j = 0; j < out_cols; j++) {
+          out[i * ldo + j] = in[j * ldi + i];
+        }
+      }
+    } else if (xtype == XformTPP::XFORM_N2V_TPP) {
+      for (int i = 0; i < out_rows / BS; i++) {
+        for (int j = 0; j < out_cols; j++) {
+          for (int k = 0; k < BS; k++) {
+            if (i * BS + k < in_rows) {
+              out[i * ldo * BS + j * BS + k] = in[i * ldi * BS + k * ldi + j];
+            } else {
+              out[i * ldo * BS + j * BS + k] = 0;
+            }
+          }
+        }
+      }
+    } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
+      for (int i = 0; i < out_rows / BS; i++) {
+        for (int j = 0; j < out_cols; j++) {
+          for (int k = 0; k < BS; k++) {
+            if (i * BS + k < in_cols) {
+              out[i * ldo * BS + j * BS + k] = in[j * ldi + i * BS + k];
+            } else {
+              out[i * ldo * BS + j * BS + k] = 0;
+            }
+          }
+        }
+      }
+    } else if (xtype == XformTPP::XFORM_XPOSE_V2V_TPP) {
+      for (int j = 0; j < out_rows / BS; j++) {
+        for (int i = 0; i < out_cols / BS; i++) {
+          for (int k = 0; k < BS; k++) { // RBS
+            for (int l = 0; l < BS; l++) { // CBS
+              if (j * BS + l < in_cols) {
+                out[j * ldo * BS + i * BS * BS + k * BS + l] =
+                    in[i * ldi * BS + j * BS * BS + l * BS + k];
+              } else {
+                out[j * ldo * BS + i * BS * BS + k * BS + l] = 0;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      PCL_ASSERT(false, "Should not come here\n");
+    }
+  }
+  void operator()(int count, long str_in, long str_out, T* in, T* out) {
+    for (int i = 0; i < count; i++) {
+      this->operator()(&in[i * str_in], &out[i * str_out]);
+    }
+  }
+  void ref(int count, long str_in, long str_out, T* in, T* out) {
+    for (int i = 0; i < count; i++) {
+      this->ref(&in[i * str_in], &out[i * str_out]);
+    }
+  }
+  void operator()(
+      int count,
+      long str_in,
+      long str_out,
+      float* in,
+      bfloat16* out) {
+    for (int i = 0; i < count; i++) {
+      this->operator()(&in[i * str_in], &out[i * str_out]);
+    }
+  }
+  void ref(int count, long str_in, long str_out, float* in, bfloat16* out) {
+    for (int i = 0; i < count; i++) {
+      this->ref(&in[i * str_in], &out[i * str_out]);
+    }
+  }
+
+ private:
+  libxsmm_blasint in_rows = 0;
+  libxsmm_blasint in_cols = 0;
+  libxsmm_blasint out_rows = 0;
+  libxsmm_blasint out_cols = 0;
+  libxsmm_blasint ldi;
+  libxsmm_blasint ldo;
+  int in_rows_p = 0;
+  int in_cols_p = 0;
+  XformTPP::XFORM_TYPE xtype;
+  libxsmm_datatype dtype;
   int zero_offset = 0;
   XformTPP kernel;
   ConvertTPP<float, bfloat16> cvt;

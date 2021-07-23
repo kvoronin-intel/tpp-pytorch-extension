@@ -18,8 +18,7 @@ inline at::Tensor wt_tensor_n2v(
   DECL_VLA_PTR_PT(bfloat16, out, [Hcp2 * Hk * 2], output);
   DECL_VLA_PTR_PT(bfloat16, in, [Hc * Hk], input);
   auto n2v_tpp = SCOPEIT(
-      XformExtTPP<bfloat16>(
-          Hc, Hk, XformTPP::XFORM_N2V_TPP, /*assume_padded=*/true),
+      XformExtTPP<bfloat16>(Hc, Hk, Hcp2 * 2, Hk, XformTPP::XFORM_N2V_TPP),
       VNNI);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -46,7 +45,7 @@ inline at::Tensor wt_tensor_trans_n2v(
   DECL_VLA_PTR_PT(bfloat16, in, [Hc * Hk], input);
   auto trans_n2v_tpp = SCOPEIT(
       XformExtTPP<bfloat16>(
-          Hc, Hk, XformTPP::XFORM_XPOSE_N2V_TPP, /*assume_padded=*/true),
+          Hc, Hk, Hc, Hkp2 * 2, XformTPP::XFORM_XPOSE_N2V_TPP),
       XPOSE);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -75,7 +74,7 @@ inline at::Tensor wt_tensor_trans_v2v(
   DECL_VLA_PTR_PT(bfloat16, in, [Hc * Hk], input);
   auto trans_v2v_tpp = SCOPEIT(
       XformExtTPP<bfloat16>(
-          Hc, Hk, XformTPP::XFORM_XPOSE_V2V_TPP, /*assume_padded=*/true),
+          Hc, Hk, Hc, Hkp2 * 2, XformTPP::XFORM_XPOSE_V2V_TPP),
       XPOSE);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for

@@ -49,7 +49,8 @@ if (Nk > Nc && Nk % Nc == 0) {
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(Nk * Hk), EW_ZERO);
 auto gelu_bwd_tpp = SCOPEIT(GeluBwdTPP<T>(S2 * Hk), ACT);
 auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, Hk), BIAS);
-auto n2v_tpp = SCOPEIT(XformExtTPP<T>(S2, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
+auto n2v_tpp =
+    SCOPEIT(XformExtTPP<T>(S2, Hk, XformTPP::XFORM_N2V_TPP, true), VNNI);
 auto di_gemm_b0_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     S2,
     Hc,

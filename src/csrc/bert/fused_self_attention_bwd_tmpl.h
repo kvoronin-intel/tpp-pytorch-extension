@@ -122,7 +122,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
       a_trans_flag,
       S1)));
   auto cw_n2v_tpp =
-      SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+      SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_N2V_TPP, true), VNNI);
   auto a_convert_tpp = SCOPEIT((ConvertTPP<T, float>(S2, S2)), EW_COPY);
   auto ci_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, float>(
       S2,
@@ -140,7 +140,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
       SCOPEIT((SoftMaxBwdTPP<float, float, T>(S1, S2, S2)), SOFTMAX);
   auto scale_tpp = SCOPEIT((ScaleTPP<float, T>(S2 * S2)), EW_SCL);
   auto a_n2v_tpp =
-      SCOPEIT(XformExtTPP<T>(S2, S2, XformTPP::XFORM_N2V_TPP), VNNI);
+      SCOPEIT(XformExtTPP<T>(S2, S2, XformTPP::XFORM_N2V_TPP, true), VNNI);
   auto ai_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       S2, H, S2, S2 * S2, N * S2 * H, 0.0, XformTPP::XFORM_NONE_TPP, 0, S1)));
   auto aw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(

@@ -120,12 +120,13 @@ if (training) {
       XformExtTPP<T>(
           S2,
           H,
-          training ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_XPOSE_N2V_TPP),
+          training ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_XPOSE_N2V_TPP,
+          true),
       XPOSE);
   auto kv_xpose_tpp_2 =
-      SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_XPOSE_N2V_TPP), VNNI);
+      SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_XPOSE_N2V_TPP, true), VNNI);
   auto v_xpose_tpp_1 =
-      SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+      SCOPEIT(XformExtTPP<T>(S2, H, XformTPP::XFORM_N2V_TPP, true), VNNI);
   auto a_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, float>(
       S2, S2, H, S2 * H, H * S2, 0.0, XformTPP::XFORM_NONE_TPP, 0, 1)));
   auto scale_tpp = SCOPEIT((ScaleTPP<float, float>(S2 * S2)), EW_SCL);

@@ -76,7 +76,8 @@ auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(Nk * Hk), EW_ZERO);
 auto layer_norm_bwd_tpp = SCOPEIT(LayerNormBwdTPP<T>(Nk, S2, Hk), LAYER_NORM);
 auto drop_out_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(S2 * Hk, p), DROPOUT);
 auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, Hk), BIAS);
-auto n2v_tpp = SCOPEIT(XformExtTPP<T>(S2, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
+auto n2v_tpp =
+    SCOPEIT(XformExtTPP<T>(S2, Hk, XformTPP::XFORM_N2V_TPP, true), VNNI);
 auto di_gemm_b0_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     S2,
     Hc,
