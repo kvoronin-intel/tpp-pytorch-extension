@@ -170,6 +170,7 @@ class ScopedTPP {
 
 #if 1
 #define SCOPEITGEMM(f) ScopedGEMMTPP<decltype(f)>(f)
+#define SCOPEITGEMM_REF(f) ScopedGEMMTPP<decltype(f), 1>(f)
 #define SCOPEIT(f, t) ScopedTPP<decltype(f)>(f, t)
 //#define SCOPEIT(f,t) ScopedTPP<decltype(f),1>(f, t)
 #define SCOPEIT_REF(f, t) ScopedTPP<decltype(f), 1>(f, t)

@@ -528,14 +528,16 @@ template <typename T>
 class AddBiasTPP {
  public:
   AddBiasTPP() {}
-  AddBiasTPP(int rows, int cols)
+  AddBiasTPP(int rows, int cols) : AddBiasTPP(rows, cols, cols) {}
+  AddBiasTPP(int rows, int cols, int ld)
       : rows(rows),
         cols(cols),
+        ld(ld),
         kernel(
             rows,
             cols,
-            cols,
-            cols,
+            ld,
+            ld,
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_DATATYPE_F32,
@@ -557,7 +559,7 @@ class AddBiasTPP {
   void ref(T* in, float* out) {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        out[r * cols + c] += (float)in[c];
+        out[r * ld + c] += (float)in[c];
       }
     }
   }
@@ -565,6 +567,7 @@ class AddBiasTPP {
  private:
   int rows = 0;
   int cols = 0;
+  int ld;
   BinaryTPP kernel;
   ConvertTPP<T, float> cvt;
 };
@@ -574,14 +577,17 @@ class AddTPP {
  public:
   AddTPP() {}
   AddTPP(int N) : AddTPP(1, N) {}
-  AddTPP(int rows, int cols)
+  AddTPP(int rows, int cols) : AddTPP(rows, cols, cols, cols) {}
+  AddTPP(int rows, int cols, int ldi, int ldo)
       : rows(rows),
         cols(cols),
+        ldi(ldi),
+        ldo(ldo),
         kernel(
             rows,
             cols,
-            cols,
-            cols,
+            ldi,
+            ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
@@ -593,8 +599,7 @@ class AddTPP {
   void ref(Tin* in0, Tin* in1, Tout* out) {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        out[r * cols + c] +=
-            (float)in0[r * cols + c] + (float)in1[r * cols + c];
+        out[r * ldo + c] += (float)in0[r * ldi + c] + (float)in1[r * ldi + c];
       }
     }
   }
@@ -602,6 +607,8 @@ class AddTPP {
  private:
   int rows = 0;
   int cols = 0;
+  int ldi;
+  int ldo;
   BinaryTPP kernel;
 };
 
@@ -609,13 +616,15 @@ template <typename Tin>
 class GradBiasTPP {
  public:
   GradBiasTPP() {}
-  GradBiasTPP(int rows, int cols)
+  GradBiasTPP(int rows, int cols) : GradBiasTPP(rows, cols, cols) {}
+  GradBiasTPP(int rows, int cols, int ldi)
       : rows(rows),
         cols(cols),
+        ldi(ldi),
         reduce(
             rows,
             cols,
-            cols,
+            ldi,
             cols,
             XsmmDtype<Tin>(),
             LIBXSMM_DATATYPE_F32,
@@ -631,7 +640,7 @@ class GradBiasTPP {
   void ref(Tin* in, float* out) {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        out[c] += (float)in[r * cols + c];
+        out[c] += (float)in[r * ldi + c];
       }
     }
   }
@@ -639,6 +648,8 @@ class GradBiasTPP {
  private:
   int rows = 0;
   int cols = 0;
+  int ldi;
+
   UnaryTPP reduce;
   AddTPP<float, float> add;
 };
@@ -1171,7 +1182,8 @@ class XformExtTPP {
         "Padding can only be done in rows or cols\n");
 
     if (xtype != XformTPP::XFORM_XPOSE_N2V_TPP) {
-      kernel = XformTPP(in_rows_p, in_cols_p, ldi, ldo, dtype, unary_type);
+      int ld = (in_rows_p != in_rows || in_cols_p != in_cols) ? in_cols_p : ldi;
+      kernel = XformTPP(in_rows_p, in_cols_p, ld, ldo, dtype, unary_type);
     } else {
       // LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNIT not implemented so use
       // workaround...
@@ -1184,7 +1196,9 @@ class XformExtTPP {
           unary_type);
     }
 
-    if (xtype == XformTPP::XFORM_N2V_TPP && in_rows_p != in_rows) {
+    if ((xtype == XformTPP::XFORM_N2V_TPP ||
+         xtype == XformTPP::XFORM_XPOSE_TPP) &&
+        in_rows_p != in_rows) {
       cpy = CpyTPP<T>(in_rows, in_cols, ldi, in_cols);
       zero = SetZeroTPP<T>(in_rows_p - in_rows, in_cols);
       zero_offset = in_rows * in_cols;
@@ -1890,28 +1904,42 @@ template <typename Tin, typename Tout = Tin>
 class ELUFwdTPP {
  public:
   ELUFwdTPP() {}
-  ELUFwdTPP(int N)
-      : N(N),
+  ELUFwdTPP(int N, float alpha) : ELUFwdTPP(1, N, alpha) {}
+  ELUFwdTPP(int rows, int cols, float alpha)
+      : ELUFwdTPP(rows, cols, cols, cols, alpha) {}
+  ELUFwdTPP(int rows, int cols, int ldi, int ldo, float alpha)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        alpha(alpha),
         kernel(
-            1,
-            N,
-            N,
-            N,
+            rows,
+            cols,
+            ldi,
+            ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_ELU) {}
-  void operator()(Tin* in, Tin* alpha, Tout* out) {
-    kernel((void*)in, (void*)NULL, (void*)alpha, (void*)out, (void*)NULL);
+  void operator()(Tin* in, Tout* out) {
+    kernel((void*)in, (void*)NULL, (void*)&alpha, (void*)out, (void*)NULL);
   }
-  void ref(Tin* in, Tin* alpha, Tout* out) {
-    for (int i = 0; i < N; i++)
-      out[i] = in[i] > 0 ? in[i] : (*alpha) * (exp(in[i]) - 1);
+  void ref(Tin* in, Tout* out) {
+    Tin a = alpha;
+    for (int i = 0; i < rows; i++)
+      for (int j = 0; j < cols; j++)
+        out[i * ldo + j] = in[i * ldi + j] > 0 ? in[i * ldi + j]
+                                               : a * (exp(in[i * ldi + j]) - 1);
   }
 
  private:
-  int N = 0;
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  float alpha;
   UnaryTPP kernel;
 };
 
@@ -1919,28 +1947,43 @@ template <typename Tin, typename Tout = Tin>
 class ELUBwdTPP {
  public:
   ELUBwdTPP() {}
-  ELUBwdTPP(int N)
-      : N(N),
+  ELUBwdTPP(int N, float alpha) : ELUBwdTPP(1, N, alpha) {}
+  ELUBwdTPP(int rows, int cols, float alpha)
+      : ELUBwdTPP(rows, cols, cols, cols, alpha) {}
+  ELUBwdTPP(int rows, int cols, int ldi, int ldo, float alpha)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        alpha(alpha),
         kernel(
-            1,
-            N,
-            N,
-            N,
+            rows,
+            cols,
+            ldi,
+            ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_ELU_INV) {}
-  void operator()(Tin* in, Tin* in2, Tin* alpha, Tout* out) {
-    kernel((void*)in, (void*)in2, (void*)alpha, (void*)out, (void*)NULL);
+  void operator()(Tin* in, Tin* in2, Tout* out) {
+    kernel((void*)in, (void*)in2, (void*)&alpha, (void*)out, (void*)NULL);
   }
-  void ref(Tin* in, Tin* in2, Tin* alpha, Tout* out) {
-    for (int i = 0; i < N; i++)
-      out[i] = in2[i] > 0 ? in[i] : in[i] * in2[i] + (*alpha) * (in[i]);
+  void ref(Tin* in, Tin* in2, Tout* out) {
+    Tin a = alpha;
+    for (int i = 0; i < rows; i++)
+      for (int j = 0; j < cols; j++)
+        out[i * ldo + j] = in2[i * ldi + j] > 0
+            ? in[i * ldi + j]
+            : in[i * ldi + j] * in2[i * ldi + j] + a * in[i * ldi + j];
   }
 
  private:
-  int N = 0;
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  float alpha;
   UnaryTPP kernel;
 };
 
@@ -1948,14 +1991,20 @@ template <typename Tin, typename Tout = Tin>
 class DropOutFwdTPP {
  public:
   DropOutFwdTPP() {}
-  DropOutFwdTPP(int N, float p)
-      : N(N),
+  DropOutFwdTPP(int N, float p) : DropOutFwdTPP(1, N, p) {}
+  DropOutFwdTPP(int rows, int cols, float p)
+      : DropOutFwdTPP(rows, cols, cols, cols, p) {}
+  DropOutFwdTPP(int rows, int cols, int ldi, int ldo, float p)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
         p(p),
         kernel(
-            1,
-            N,
-            N,
-            N,
+            rows,
+            cols,
+            ldi,
+            ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
@@ -1969,7 +2018,10 @@ class DropOutFwdTPP {
   }
 
  private:
-  int N = 0;
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
   float p;
   UnaryTPP kernel;
 };
@@ -1978,14 +2030,20 @@ template <typename Tin, typename Tout = Tin>
 class DropOutBwdTPP {
  public:
   DropOutBwdTPP() {}
-  DropOutBwdTPP(int N, float p)
-      : N(N),
+  DropOutBwdTPP(int N, float p) : DropOutBwdTPP(1, N, p) {}
+  DropOutBwdTPP(int rows, int cols, float p)
+      : DropOutBwdTPP(rows, cols, cols, cols, p) {}
+  DropOutBwdTPP(int rows, int cols, int ldi, int ldo, float p)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
         p(p),
         kernel(
-            1,
-            N,
-            N,
-            N,
+            rows,
+            cols,
+            ldi,
+            ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
@@ -1999,7 +2057,10 @@ class DropOutBwdTPP {
   }
 
  private:
-  int N = 0;
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
   float p;
   UnaryTPP kernel;
 };

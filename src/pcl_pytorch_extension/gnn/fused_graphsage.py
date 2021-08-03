@@ -46,35 +46,38 @@ class DummyLinear(BlockedModule):
 
 class SAGEMLPFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, p, act, res, training, *inputs):
+    def forward(ctx, align, p, act, res, training, *inputs):
+        # breakpoint()
         if res:
-            (inp, res_inp, wt, res_wt, bias) = inputs
+            (inp, inp_res, wt, res_wt, bias) = inputs
+            (out, act_mask, dp_mask,) = fused_gsage_cpp.fused_gsage_mlp_fwd(
+                align, p, act, res, training, inputs
+            )
         else:
             (inp, wt, bias) = inputs
-
-        # breakpoint()
-        out, act_mask, dp_mask = fused_gsage_cpp.fused_gsage_mlp_fwd(
-            p, act, res, training, inputs
-        )
+            out, act_mask, dp_mask = fused_gsage_cpp.fused_gsage_mlp_fwd(
+                align, p, act, res, training, inputs
+            )
 
         if act == "None":
             act_mask = torch.tensor([], dtype=torch.short)
         if p == 0.0:
             dp_mask = torch.tensor([], dtype=torch.short)
         if res:
-            ctx.save_for_backward(inp, res_inp, wt, res_wt, act_mask, dp_mask)
+            ctx.save_for_backward(inp, inp_res, wt, res_wt, act_mask, dp_mask)
         else:
             ctx.save_for_backward(inp, wt, act_mask, dp_mask)
         ctx.act = act
         ctx.res = res
         ctx.p = p
+        ctx.align = align
         return out
 
     @staticmethod
     def backward(ctx, *grad_outs):
         inputs = list(grad_outs)
         inputs += ctx.saved_tensors
-        # breakpoint()
+
         if ctx.res:
             (
                 grad_inp,
@@ -82,8 +85,12 @@ class SAGEMLPFunction(torch.autograd.Function):
                 grad_wt,
                 grad_res_wt,
                 grad_bias,
-            ) = fused_gsage_cpp.fused_gsage_mlp_bwd(ctx.p, ctx.act, ctx.res, inputs)
+            ) = fused_gsage_cpp.fused_gsage_mlp_bwd(
+                ctx.align, ctx.p, ctx.act, ctx.res, inputs
+            )
+
             return (
+                None,
                 None,
                 None,
                 None,
@@ -96,7 +103,7 @@ class SAGEMLPFunction(torch.autograd.Function):
             )
         else:
             grad_inp, grad_wt, grad_bias = fused_gsage_cpp.fused_gsage_mlp_bwd(
-                ctx.p, ctx.res, inputs
+                ctx.align, ctx.p, ctx.res, inputs
             )
             return (None, None, None, None, grad_inp, grad_wt, grad_bias)
 
@@ -228,14 +235,14 @@ class SAGEConvOpt(BlockedModule):
         self.bc = self._in_dst_feats
         self.bk = self._out_feats
         self.res = False
-        self.align = 64
+        self.align = 32
 
-        for cbf in [64, 50, 48, 32, 16]:
+        for cbf in [50, 32, 16]:
             if self._in_dst_feats % cbf == 0:
                 self.bc = cbf
                 break
 
-        for kbf in [64, 50, 48, 32, 16]:
+        for kbf in [50, 32, 16]:
             if self._out_feats % kbf == 0:
                 self.bk = kbf
                 break
@@ -269,9 +276,9 @@ class SAGEConvOpt(BlockedModule):
         else:
             self.register_buffer("bias", None)
 
-        self.blocked_input_signature = blocked_layout.get_blocking_signature(
-            "BF", "BFBF"
-        )
+        # self.blocked_input_signature = blocked_layout.get_blocking_signature(
+        #    "BF", "BFBF"
+        # )
         self.use_bf16 = False
 
         self.reset_parameters()
@@ -280,11 +287,6 @@ class SAGEConvOpt(BlockedModule):
         self.fc_neigh.weight.block()
         if self._aggre_type != "gcn":
             self.fc_self.weight.block()
-
-    def maybe_unblock_params(self):
-        self.fc_neigh.weight.unblock()
-        if self._aggre_type != "gcn":
-            self.fc_self.weight.unblock()
 
     def reset_parameters(self):
         r"""
@@ -335,16 +337,6 @@ class SAGEConvOpt(BlockedModule):
         )
         _, (rst, _) = self.lstm(m, h)
         return {"neigh": rst.squeeze(0)}
-
-    def maybe_pad_tensor(self, ten, dtype):
-        N = ten.size(0)
-        pad = 0
-        if N % self.align != 0:
-            pad = self.align - N % self.align
-            pad_rows = torch.zeros(pad, ten.size(1), dtype=dtype)
-            ten = torch.cat((ten, pad_rows), 0)
-
-        return ten
 
     def forward(self, graph, feat, edge_weight=None):
         r"""
@@ -446,12 +438,6 @@ class SAGEConvOpt(BlockedModule):
 
             # GraphSAGE GCN does not require fc_self.
             if self._aggre_type == "gcn":
-                orig_input_dtype = h_neigh.dtype
-                N = h_neigh.size(0)
-                h_neigh = self.maybe_pad_tensor(h_neigh, orig_input_dtype)
-                h_neigh = self.get_blocked_tensor(
-                    h_neigh, self.blocked_input_signature, [None, self.bc]
-                )
                 inputs = [h_neigh, self.fc_neigh.weight, self.bias]
                 if self.use_bf16:
                     inputs = [
@@ -459,26 +445,14 @@ class SAGEConvOpt(BlockedModule):
                         for i in inputs
                     ]
                 rst = SAGEMLPFunction.apply(
-                    self.feat_drop, self.activation, self.res, self.training, *inputs
+                    self.align,
+                    self.feat_drop,
+                    self.activation,
+                    self.res,
+                    self.training,
+                    *inputs
                 )
-                rst = BlockedTensor(rst, self.blocked_input_signature, orig_input_dtype)
-                rst = rst.unblocked_tensor()[:N, :]
             else:
-                #'''
-                orig_input_dtype = h_neigh.dtype
-                N = h_neigh.size(0)
-                h_neigh = self.maybe_pad_tensor(h_neigh, orig_input_dtype)
-                h_neigh = self.get_blocked_tensor(
-                    h_neigh, self.blocked_input_signature, [None, self.bc]
-                )
-
-                N = h_self.size(0)
-                h_self = self.maybe_pad_tensor(h_self, orig_input_dtype)
-                h_self = self.get_blocked_tensor(
-                    h_self, self.blocked_input_signature, [None, self.bc]
-                )
-                #'''
-                # breakpoint()
                 inputs = [
                     h_self,
                     h_neigh,
@@ -492,11 +466,13 @@ class SAGEConvOpt(BlockedModule):
                         for i in inputs
                     ]
                 rst = SAGEMLPFunction.apply(
-                    self.feat_drop, self.activation, self.res, self.training, *inputs
+                    self.align,
+                    self.feat_drop,
+                    self.activation,
+                    self.res,
+                    self.training,
+                    *inputs
                 )
-                rst = BlockedTensor(rst, self.blocked_input_signature, orig_input_dtype)
-                rst = rst.unblocked_tensor()[:N, :].contiguous()
-
             # normalization
             if self.norm is not None:
                 rst = self.norm(rst)

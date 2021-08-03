@@ -24,6 +24,8 @@ REGISTER_SCOPE(w_xpose, "w_xpose");
 REGISTER_SCOPE(a_xpose, "a_xpose");
 REGISTER_SCOPE(a_vnni, "a_vnni");
 REGISTER_SCOPE(zero, "zero");
+REGISTER_SCOPE(pad_act, "pad_act");
+REGISTER_SCOPE(unpad_act, "unpad_act");
 
 int globalScope = 0;
 

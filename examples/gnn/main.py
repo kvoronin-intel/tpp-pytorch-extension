@@ -125,7 +125,7 @@ def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     """
     model.eval()
     with th.no_grad():
-        pred = model.inference(g, nfeat, device)
+        pred = model.inference(g, nfeat, device).to(th.float32)
     model.train()
     return (
         compute_acc(pred[val_nid], labels[val_nid]),
@@ -211,11 +211,12 @@ def run(args, device, data):
     with th.autograd.profiler.profile(
         enabled=args.profile, use_cuda=(args.gpu > 0), record_shapes=record_shapes
     ) as prof:
-        # if prof and args.use_pcl: ppx.reset_debug_timers()
+        if prof and args.use_pcl:
+            ppx.reset_debug_timers()
         # if args.use_pcl: ppx.reset_debug_timers()
         for epoch in range(args.num_epochs):
-            if args.use_pcl:
-                ppx.reset_debug_timers()
+            # if args.use_pcl:
+            #    ppx.reset_debug_timers()
             tic = time.time()
 
             # Loop over the dataloader to sample the computation dependency graph as a list of
@@ -274,8 +275,8 @@ def run(args, device, data):
 
             toc = time.time()
             print("Epoch Time(s): {:.4f}".format(toc - tic))
-            if args.use_pcl:
-                ppx.print_debug_timers(0)
+            # if args.use_pcl:
+            #    ppx.print_debug_timers(0)
             if epoch >= 5:
                 avg += toc - tic
             if epoch % args.eval_every == 0 and epoch != 0:
@@ -298,7 +299,8 @@ def run(args, device, data):
                     )
                 )
 
-    # if prof and args.use_pcl: ppx.print_debug_timers(0)
+    if prof and args.use_pcl:
+        ppx.print_debug_timers(0)
     # if args.use_pcl: ppx.print_debug_timers(0)
 
     if prof:

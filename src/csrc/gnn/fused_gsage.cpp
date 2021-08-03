@@ -3,12 +3,12 @@
 #include <torch/extension.h>
 
 #include <iostream>
-#include <vector>
 #include <mutex>
+#include <vector>
+#include "../ext_tpp.h"
 #include "../init.h"
 #include "../timing.h"
 #include "../xsmm_functors.h"
-#include "../ext_tpp.h"
 
 using namespace pcl;
 #include "../tensor_helper.h"
@@ -21,8 +21,6 @@ REGISTER_SCOPE(gdw_gemm, "gdw_gemm");
 REGISTER_SCOPE(gdbias, "gdbias");
 REGISTER_SCOPE(go_dropout, "go_dropout");
 REGISTER_SCOPE(gdo_dropout, "gdo_dropout");
-//REGISTER_SCOPE(gdw_downcvt, "gdw_downcvt");
-
 
 #ifdef PURE_GEMM_TIME
 template <typename Tin, typename Tout>
@@ -153,39 +151,41 @@ inline void omp_reduce_buf(
 }
 
 std::vector<at::Tensor> fused_gsage_mlp_fwd(
-    float p, 
-    std::string act, 
-    bool res, 
+    int align,
+    float p,
+    std::string act,
+    bool res,
     bool training,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-#include "fused_gsage_mlp_fwd.h"
+#include "fused_gsage_mlp_flat_fwd.h"
   } else {
     typedef bfloat16 T;
-#include "fused_gsage_mlp_fwd.h"
+#include "fused_gsage_mlp_flat_fwd.h"
   }
 }
 
 std::vector<at::Tensor> fused_gsage_mlp_bwd(
-    float p, 
-    std::string act, 
-    bool res, 
+    int align,
+    float p,
+    std::string act,
+    bool res,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-#include "fused_gsage_mlp_bwd.h"
+#include "fused_gsage_mlp_flat_bwd.h"
   } else {
-      typedef bfloat16 T;
-#include "fused_gsage_mlp_bwd.h"
-    }
+    typedef bfloat16 T;
+#include "fused_gsage_mlp_flat_bwd.h"
   }
+}
 
-std::vector<at::Tensor> dropout_fwd( float p, at::Tensor inp, bool training) {
+std::vector<at::Tensor> dropout_fwd(float p, at::Tensor inp, bool training) {
   GlobalPass _gp(FWD);
-  if(inp.dtype() == at::kFloat) {
+  if (inp.dtype() == at::kFloat) {
     typedef float T;
 #include "dropout_fwd.h"
   } else {
@@ -196,7 +196,7 @@ std::vector<at::Tensor> dropout_fwd( float p, at::Tensor inp, bool training) {
 
 at::Tensor dropout_bwd(float p, std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
-  if(inputs[0].dtype() == at::kFloat) {
+  if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "dropout_bwd.h"
   } else {
@@ -207,19 +207,11 @@ at::Tensor dropout_bwd(float p, std::vector<at::Tensor> inputs) {
 
 REGISTER_SUBMODULE(_fused_gsage, m) {
   m.def(
-      "fused_gsage_mlp_fwd",
-      &fused_gsage_mlp_fwd,
-      "Pcl GraphSAGE MLP forward");
+      "fused_gsage_mlp_fwd", &fused_gsage_mlp_fwd, "Pcl GraphSAGE MLP forward");
   m.def(
       "fused_gsage_mlp_bwd",
       &fused_gsage_mlp_bwd,
       "Pcl GraphSAGE MLP backward");
-  m.def(
-      "dropout_fwd",
-      &dropout_fwd,
-      "Pcl Optimized Dropout FWD");
-  m.def(
-      "dropout_bwd",
-      &dropout_bwd,
-      "Pcl Optimized Dropout BWD");
+  m.def("dropout_fwd", &dropout_fwd, "Pcl Optimized Dropout FWD");
+  m.def("dropout_bwd", &dropout_bwd, "Pcl Optimized Dropout BWD");
 }

@@ -1,15 +1,14 @@
 
 RECORD_FUNCTION("dropout_bwd", std::vector<c10::IValue>());
 
-int i=0;
+int i = 0;
 auto t_grad_out = inputs[i++];
 auto t_dp_mask = inputs[i++];
 
-if(p > 0.0)
-{
+if (p > 0.0) {
   auto dims = t_grad_out.dim();
   auto N = 1;
-  for(int i=0; i<dims; i++)
+  for (int i = 0; i < dims; i++)
     N = N * t_grad_out.sizes()[i];
 
   auto grad_out = t_grad_out.data_ptr<T>();
@@ -21,8 +20,8 @@ if(p > 0.0)
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
-      for(int n=0; n<N; n++)
-        dropout_bwd_tpp(&grad_out[n], &grad_out[n], &dp_mask[n/16]);
+      for (int n = 0; n < N; n++)
+        dropout_bwd_tpp(&grad_out[n], &grad_out[n], &dp_mask[n / 16]);
     }
   }
 }
