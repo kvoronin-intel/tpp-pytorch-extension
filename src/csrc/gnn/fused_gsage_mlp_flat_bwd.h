@@ -300,25 +300,25 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM(
           0,
           nk)));
 
-      T tmp[rem][nk * bkp];
       if (bk != bkp) {
+        T tmp[rem][nk * bkp];
+
         for (int k = 0; k < nk; k++) {
           set_zero_col_tpp(&tmp[0][k * bk] + bk);
           cpy_tpp(grad_out[nn * bn][0], &tmp[0][k * bk]);
         }
-      }
-
-      for (int c = 0; c < nc; c++) {
-        if (bk != bkp)
+        for (int c = 0; c < nc; c++)
           brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in[nn * bn][c], nk);
-        else
+        if (res)
+          for (int c = 0; c < nc; c++)
+            brgemm_di_tpp(tmp[0], wt_res_TV[0][c], grad_in_res[nn * bn][c], nk);
+      } else {
+        for (int c = 0; c < nc; c++)
           brgemm_di_tpp(
               grad_out[nn * bn][0], wt_TV[0][c], grad_in[nn * bn][c], nk);
 
         if (res) {
-          if (bk != bkp)
-            brgemm_di_tpp(tmp[0], wt_res_TV[0][c], grad_in_res[nn * bn][c], nk);
-          else
+          for (int c = 0; c < nc; c++)
             brgemm_di_tpp(
                 grad_out[nn * bn][0],
                 wt_res_TV[0][c],
