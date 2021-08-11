@@ -251,31 +251,49 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM(
   RECORD_SCOPE(gdi_gemm, {t_grad_out, t_wt});
   {
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+    if (bk != bkp) {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel
-    {
-      T tmp[bn][nk * bkp];
+      {
+        T tmp[bn][nk * bkp];
+        for (int k = 0; k < nk; k++)
+          set_zero_col_tpp(&tmp[0][k * bkp] + bk);
 
 #pragma omp for collapse(2)
+        for (int n = 0; n < nn; n++) {
+          for (int c = 0; c < nc; c++) {
+            for (int k = 0; k < nk; k++)
+              cpy_tpp(grad_out[n][0][k], &tmp[0][k * bk]);
+            brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in[n][0][c], nk);
+          }
+        }
+        if (res) {
+          RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp for collapse(2)
+          for (int n = 0; n < nn; n++) {
+            for (int c = 0; c < nc; c++) {
+              for (int k = 0; k < nk; k++)
+                cpy_tpp(grad_out[n][0][k], &tmp[0][k * bk]);
+              brgemm_di_tpp(tmp[0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
+            }
+          }
+        }
+      }
+    }
+    else {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
       for (int n = 0; n < nn; n++) {
         for (int c = 0; c < nc; c++) {
-          if (bk != bkp) {
-            for (int k = 0; k < nk; k++) {
-              set_zero_col_tpp(&tmp[0][k * bkp] + bk);
-              cpy_tpp(grad_out[n][0][k], &tmp[0][k * bk]);
-            }
-
-            brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in[n][0][c], nk);
-          } else
-            brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk);
-          if (res) {
-            if (bk != bkp) {
-              set_zero_col_tpp(tmp[0] + bk);
-              cpy_tpp(grad_out[n][0][0], tmp[0]);
-
-              brgemm_di_tpp(tmp[0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
-            } else
-              brgemm_di_tpp(
-                  grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
+          brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk);
+        }
+      }
+      if(res) {
+        RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+        for (int n = 0; n < nn; n++) {
+          for (int c = 0; c < nc; c++) {
+            brgemm_di_tpp(grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
           }
         }
       }

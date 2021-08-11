@@ -143,6 +143,15 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     return batch_inputs, batch_labels
 
 
+def worker_init_fn(worker_id):
+    cpu_aff = psutil.Process().cpu_affinity()
+    cpu_aff_new = [cpu_aff[0] - worker_id -1]
+    try:
+       psutil.Process().cpu_affinity(cpu_aff_new)
+       print("Worker {} with pid {} called, new affinity = {}".format(worker_id, os.getpid(), psutil.Process().cpu_affinity()))
+    except:
+       print("Unable to set worker affinity {} for worker {}".format(cpu_aff_new, worker_id))
+
 #### Entry point
 def run(args, device, data):
     # Unpack data
