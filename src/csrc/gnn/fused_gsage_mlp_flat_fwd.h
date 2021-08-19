@@ -67,7 +67,7 @@ DECL_VLA_PTR_PT(float, out_res, [bn][nk][bk], t_out_res);
 DECL_VLA_PTR_PT(short, relu_mask, [bn][nk][rd], t_relu_mask);
 DECL_VLA_PTR_PT(short, dp_mask, [bn][nk][rd], t_dp_mask);
 
-auto brgemm_tpp = SCOPEITGEMM(
+auto brgemm_tpp = SCOPEITGEMM2(
     (BrgemmTPP<
         T,
         float>(bn, bk, bcp, bcp, bk* bcp, nc* bcp, bk, nk* bk, 0.0, 0, nc)));
@@ -113,7 +113,7 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
       DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
       DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
 
-      auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
+      auto brgemm_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));
       auto add_bias_tpp = SCOPEIT(AddBiasTPP<T>(rem, bk, K), BIAS);
       auto add_tpp =

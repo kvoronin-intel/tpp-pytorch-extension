@@ -1507,6 +1507,10 @@ class BrgemmTPP : public BaseTPP {
     }
   }
 
+  long flops() {
+    return 2L * M * N * K;
+  }
+
  protected:
   std::string hash_str() override {
     char hash[200];

@@ -128,12 +128,12 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
 auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, bk, K, K)), EW_COPY);
 auto add_gwt_tpp = SCOPEIT((AddTPP<float, float>(bc, bk)), EW_ADD);
 
-auto brgemm_di_tpp = SCOPEITGEMM(
+auto brgemm_di_tpp = SCOPEITGEMM2(
     (BrgemmTPP<
         T,
         T>(bn, bc, bkp, bkp, nc* bc* bkp, nk* bkp, bc, nc* bc, 0.0, 0, nk)));
 
-auto brgemm_dw_f32_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
+auto brgemm_dw_f32_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
     bc,
     bk,
     bnp,
@@ -145,7 +145,7 @@ auto brgemm_dw_f32_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
     0.0,
     input_trans_flag,
     16)));
-auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM((BrgemmTPP<T, float>(
+auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
     bc,
     bk,
     bnp,
@@ -159,11 +159,11 @@ auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM((BrgemmTPP<T, float>(
     16)));
 
 // BF16 del-wt brgemms
-auto brgemm_dw_bf16_tpp = SCOPEITGEMM(
+auto brgemm_dw_bf16_tpp = SCOPEITGEMM2(
     (BrgemmTPP<
         T,
         float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 0.0, 0, 16)));
-auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM(
+auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
     (BrgemmTPP<
         T,
         float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 1.0, 0, 16)));
@@ -279,8 +279,7 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM(
           }
         }
       }
-    }
-    else {
+    } else {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int n = 0; n < nn; n++) {
@@ -288,12 +287,13 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM(
           brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk);
         }
       }
-      if(res) {
+      if (res) {
         RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
         for (int n = 0; n < nn; n++) {
           for (int c = 0; c < nc; c++) {
-            brgemm_di_tpp(grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
+            brgemm_di_tpp(
+                grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
           }
         }
       }
@@ -305,7 +305,7 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM(
 
       auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
       auto cpy_tpp = SCOPEIT(CpyTPP<T>(rem, bk, bk, bkp), EW_COPY);
-      auto brgemm_di_tpp = SCOPEITGEMM((BrgemmTPP<T, T>(
+      auto brgemm_di_tpp = SCOPEITGEMM2((BrgemmTPP<T, T>(
           rem,
           bc,
           bkp,
@@ -456,7 +456,7 @@ auto trans_tpp = SCOPEIT(
                 XformTPP::XFORM_XPOSE_TPP,
                 true),
             XPOSE);
-        auto brgemm_dw_bf16_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
+        auto brgemm_dw_bf16_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
             bc, bk, remp, bc * remp, bk * remp, remp, bk, bk, 0.0, 0, 1)));
 
 #pragma omp parallel
@@ -488,7 +488,7 @@ auto trans_tpp = SCOPEIT(
       } else if (t_in.dtype() == at::kFloat) {
         DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
         DECL_VLA_PTR_PT(T, in_rem, [nc][bc], t_in);
-        auto brgemm_dw_f32_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
+        auto brgemm_dw_f32_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
             bc,
             bk,
             remp,
@@ -642,7 +642,7 @@ auto trans_tpp = SCOPEIT(
                   XformTPP::XFORM_XPOSE_TPP,
                   true),
               XPOSE);
-          auto brgemm_dw_bf16_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
+          auto brgemm_dw_bf16_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
               bc, bk, remp, bc * remp, bk * remp, remp, bk, bk, 0.0, 0, 1)));
 
 #pragma omp parallel
@@ -674,7 +674,7 @@ auto trans_tpp = SCOPEIT(
         } else if (t_in.dtype() == at::kFloat) {
           DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
           DECL_VLA_PTR_PT(T, in_rem, [nc][bc], t_in_res);
-          auto brgemm_dw_f32_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
+          auto brgemm_dw_f32_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
               bc,
               bk,
               remp,
