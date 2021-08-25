@@ -231,6 +231,29 @@ class UnaryTPP : public BaseTPP {
     kernel(&unary_param);
   }
 
+  void operator()(
+      void* in,
+      void* in2,
+      void* in3,
+      void* op,
+      void* op2,
+      void* op3,
+      void* out,
+      void* out2) {
+    if (!initialized)
+      return;
+    libxsmm_meltw_unary_param unary_param;
+    unary_param.in.primary = in;
+    unary_param.in.secondary = in2;
+    unary_param.in.tertiary = in3;
+    unary_param.op.primary = op;
+    unary_param.op.secondary = op2;
+    unary_param.op.tertiary = op3;
+    unary_param.out.primary = out;
+    unary_param.out.secondary = out2;
+    kernel(&unary_param);
+  }
+
  protected:
   std::string hash_str() override {
     char hash[200];
@@ -1928,7 +1951,15 @@ class ELUFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_ELU) {}
   void operator()(Tin* in, Tout* out) {
-    kernel((void*)in, (void*)NULL, (void*)&alpha, (void*)out, (void*)NULL);
+    kernel(
+        (void*)in,
+        NULL,
+        NULL,
+        (void*)&alpha,
+        NULL,
+        NULL,
+        (void*)out,
+        (void*)NULL);
   }
   void ref(Tin* in, Tout* out) {
     Tin a = alpha;
@@ -1971,7 +2002,15 @@ class ELUBwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_ELU_INV) {}
   void operator()(Tin* in, Tin* in2, Tout* out) {
-    kernel((void*)in, (void*)in2, (void*)&alpha, (void*)out, (void*)NULL);
+    kernel(
+        (void*)in,
+        (void*)in2,
+        NULL,
+        (void*)&alpha,
+        NULL,
+        NULL,
+        (void*)out,
+        (void*)NULL);
   }
   void ref(Tin* in, Tin* in2, Tout* out) {
     Tin a = alpha;
@@ -2015,10 +2054,26 @@ class DropOutFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
             LIBXSMM_MELTW_TYPE_UNARY_DROPOUT) {}
   void operator()(Tin* in, void* rng_state, Tout* out, short* mask) {
-    kernel((void*)in, rng_state, (void*)&p, (void*)out, (void*)mask);
+    kernel(
+        (void*)in,
+        NULL,
+        NULL,
+        (void*)&p,
+        rng_state,
+        NULL,
+        (void*)out,
+        (void*)mask);
   }
   void ref(Tin* in, void* rng_state, Tout* out, short* mask) {
-    kernel((void*)in, rng_state, (void*)&p, (void*)out, (void*)mask);
+    kernel(
+        (void*)in,
+        NULL,
+        NULL,
+        (void*)&p,
+        rng_state,
+        NULL,
+        (void*)out,
+        (void*)mask);
   }
 
  private:
@@ -2054,10 +2109,26 @@ class DropOutBwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK,
             LIBXSMM_MELTW_TYPE_UNARY_DROPOUT_INV) {}
   void operator()(Tin* in, Tout* out, short* mask) {
-    kernel((void*)in, (void*)mask, (void*)&p, (void*)out, (void*)NULL);
+    kernel(
+        (void*)in,
+        (void*)mask,
+        NULL,
+        (void*)&p,
+        NULL,
+        NULL,
+        (void*)out,
+        (void*)NULL);
   }
   void ref(Tin* in, Tout* out, short* mask) {
-    kernel((void*)in, (void*)mask, (void*)&p, (void*)out, (void*)NULL);
+    kernel(
+        (void*)in,
+        (void*)mask,
+        NULL,
+        (void*)&p,
+        NULL,
+        NULL,
+        (void*)out,
+        (void*)NULL);
   }
 
  private:
@@ -3601,7 +3672,7 @@ class EmbBagBwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_REPLICATE_COL_VAR) {}
   void operator()(Tin* in, Tout* out, uint64_t N) {
-    kernel((void*)in, (void*)out, (void*)&N);
+    kernel((void*)in, NULL, NULL, (void*)&N, NULL, NULL, (void*)out, NULL);
   }
   void ref(Tin* in, Tout* out, uint64_t N) {
     for (uint64_t i = 0; i < N; i++) {
