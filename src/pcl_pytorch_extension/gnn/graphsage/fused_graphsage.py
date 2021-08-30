@@ -13,6 +13,7 @@ from pcl_pytorch_extension.utils.blocked_layout import (
 )
 from pcl_pytorch_extension.utils import blocked_layout, xsmm
 from pcl_pytorch_extension._C import _fused_gsage as fused_gsage_cpp
+from pcl_pytorch_extension._C import _xsmm as xsmm_cpp
 import time
 from contextlib import contextmanager
 from dgl.nn.pytorch.conv.sageconv import *

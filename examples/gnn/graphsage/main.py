@@ -9,8 +9,10 @@ import time
 import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
-from pcl_pytorch_extension.gnn import fused_graphsage as pcl_graphsage
+from pcl_pytorch_extension.gnn.graphsage import fused_graphsage as pcl_graphsage
 import pcl_pytorch_extension as ppx
+import os
+import psutil
 
 
 class SAGE(nn.Module):
@@ -89,6 +91,7 @@ class SAGE(nn.Module):
                 shuffle=True,
                 drop_last=False,
                 num_workers=args.num_workers,
+                worker_init_fn=worker_init_fn
             )
 
             for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
@@ -169,6 +172,7 @@ def run(args, device, data):
         shuffle=True,
         drop_last=False,
         num_workers=args.num_workers,
+        worker_init_fn=worker_init_fn
     )
 
     # Define model and optimizer

@@ -172,7 +172,7 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
   RECORD_SCOPE(gdbias, {t_grad_out});
   {
     tensor_set_zero(nk, bk, t_grad_bias);
-    int threads = omp_get_max_threads();
+    int threads = atoi(getenv("OMP_NUM_THREADS")); //omp_get_max_threads();
     float* bias_ptrs[threads];
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
@@ -279,7 +279,8 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
           }
         }
       }
-    } else {
+    }
+    else {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int n = 0; n < nn; n++) {
@@ -287,13 +288,12 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
           brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk);
         }
       }
-      if (res) {
+      if(res) {
         RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
         for (int n = 0; n < nn; n++) {
           for (int c = 0; c < nc; c++) {
-            brgemm_di_tpp(
-                grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
+            brgemm_di_tpp(grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
           }
         }
       }
@@ -348,7 +348,6 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
   }
 }
 
-int threads = omp_get_max_threads();
 std::mutex lock[nk * nc];
 auto setzero_delwt_tpp = SCOPEIT(SetZeroTPP<float>(nk * nc * bc * bk), EW_ZERO);
 setzero_delwt_tpp(t_grad_wt_tmp.data_ptr<float>());
@@ -367,6 +366,7 @@ auto trans_tpp = SCOPEIT(
     {
       constexpr int BS = 16;
       float tmp[bc * bk];
+      int threads = omp_get_num_threads();
       int tid = omp_get_thread_num();
 
       int g_start = (nn * nk * nc) * tid / threads;
@@ -465,6 +465,7 @@ auto trans_tpp = SCOPEIT(
           T tmp_inT[remp * bc];
           float tmp[bc * bk];
 
+          int threads = omp_get_num_threads();
           int tid = omp_get_thread_num();
 
           int g_start = (nk * nc) * tid / threads;
@@ -505,6 +506,7 @@ auto trans_tpp = SCOPEIT(
         {
           float tmp[bc * bk];
 
+          int threads = omp_get_num_threads();
           int tid = omp_get_thread_num();
 
           int g_start = (nk * nc) * tid / threads;
@@ -538,6 +540,7 @@ auto trans_tpp = SCOPEIT(
         constexpr int BS = 16;
         float tmp[bc * bk];
 
+        int threads = omp_get_num_threads();
         int tid = omp_get_thread_num();
 
         int g_start = (nn * nk * nc) * tid / threads;
@@ -651,6 +654,7 @@ auto trans_tpp = SCOPEIT(
             T tmp_inT[remp * bc];
             float tmp[bc * bk];
 
+            int threads = omp_get_num_threads();
             int tid = omp_get_thread_num();
 
             int g_start = (nk * nc) * tid / threads;
@@ -691,6 +695,7 @@ auto trans_tpp = SCOPEIT(
           {
             float tmp[bc * bk];
 
+            int threads = omp_get_num_threads();
             int tid = omp_get_thread_num();
 
             int g_start = (nk * nc) * tid / threads;

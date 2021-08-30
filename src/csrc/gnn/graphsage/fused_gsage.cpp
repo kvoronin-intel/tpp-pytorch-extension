@@ -1,17 +1,18 @@
 
 #include <ATen/record_function.h>
 #include <torch/extension.h>
+#include <cstdlib>
 
 #include <iostream>
 #include <mutex>
 #include <vector>
-#include "../ext_tpp.h"
-#include "../init.h"
-#include "../timing.h"
-#include "../xsmm_functors.h"
+#include "ext_tpp.h"
+#include "init.h"
+#include "timing.h"
+#include "xsmm_functors.h"
 
 using namespace pcl;
-#include "../tensor_helper.h"
+#include "tensor_helper.h"
 
 static int my_rank = guess_mpi_rank();
 
