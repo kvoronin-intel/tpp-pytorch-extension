@@ -747,17 +747,17 @@ template <typename T>
 class RecpTPP {
   public:
     RecpTPP() {}
-    RecpTPP(N) 
+    RecpTPP(int N) 
       : N(N),
         kernel(
-            rows,
-            cols,
-            ldi,
-            ldo,
+            1,
+            N,
+            N,
+            N,
             XsmmDtype<T>(),
             XsmmDtype<T>(),
             LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_NONE,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL) {}
     void operator()(T* in, T* out) {
       kernel((void*)in, (void*)out);
@@ -776,17 +776,17 @@ template <typename T>
 class RecpSqrtTPP {
   public:
     RecpSqrtTPP() {}
-    RecpSqrtTPP(N) 
+    RecpSqrtTPP(int N) 
       : N(N),
         kernel(
-            rows,
-            cols,
-            ldi,
-            ldo,
+            1,
+            N,
+            N,
+            N,
             XsmmDtype<T>(),
             XsmmDtype<T>(),
             LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_NONE,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL_SQRT) {}
     void operator()(T* in, T* out) {
       kernel((void*)in, (void*)out);
@@ -804,9 +804,9 @@ template <typename Tin, typename Tout = Tin>
 class MulNormTPP {
   public:
     MulNormTPP() {}
-    MulNormTPP(N) : MulNormTPP(1, N) {}
-    MulNormTPP(rows, cols) : MulNormTPP(rows, cols, cols) {}
-    MulNormTPP(rows, cols, ldi) 
+    MulNormTPP(int N) : MulNormTPP(1, N) {}
+    MulNormTPP(int rows, int cols) : MulNormTPP(rows, cols, cols) {}
+    MulNormTPP(int rows, int cols, int ldi) 
       : rows(rows),
         cols(cols),
         ldi(ldi),
@@ -830,6 +830,8 @@ class MulNormTPP {
     }
   private:
     int N = 0;
+    int rows, cols;
+    int ldi;
     BinaryTPP kernel;
 };
 
