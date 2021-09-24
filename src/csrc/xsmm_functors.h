@@ -745,9 +745,9 @@ class Norm2TPP {
 
 template <typename T>
 class RecpTPP {
-  public:
-    RecpTPP() {}
-    RecpTPP(int N) 
+ public:
+  RecpTPP() {}
+  RecpTPP(int N)
       : N(N),
         kernel(
             1,
@@ -759,24 +759,24 @@ class RecpTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL) {}
-    void operator()(T* in, T* out) {
-      kernel((void*)in, (void*)out);
-    }
-    void ref(T* in, T* out) {
-      for(int i=0; i<N; i++)
-        out[i] = 1.0/in[i];
-    }
+  void operator()(T* in, T* out) {
+    kernel((void*)in, (void*)out);
+  }
+  void ref(T* in, T* out) {
+    for (int i = 0; i < N; i++)
+      out[i] = 1.0 / in[i];
+  }
 
-  private:
-    int N = 0;
-    UnaryTPP kernel;
+ private:
+  int N = 0;
+  UnaryTPP kernel;
 };
 
 template <typename T>
 class RecpSqrtTPP {
-  public:
-    RecpSqrtTPP() {}
-    RecpSqrtTPP(int N) 
+ public:
+  RecpSqrtTPP() {}
+  RecpSqrtTPP(int N)
       : N(N),
         kernel(
             1,
@@ -788,25 +788,26 @@ class RecpSqrtTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL_SQRT) {}
-    void operator()(T* in, T* out) {
-      kernel((void*)in, (void*)out);
-    }
-    void ref(T* in, T* out) {
-      for(int i=0; i<N; i++)
-        out[i] = 1.0/sqrt(in[i]);
-    }
-  private:
-    int N = 0;
-    UnaryTPP kernel;
+  void operator()(T* in, T* out) {
+    kernel((void*)in, (void*)out);
+  }
+  void ref(T* in, T* out) {
+    for (int i = 0; i < N; i++)
+      out[i] = 1.0 / sqrt(in[i]);
+  }
+
+ private:
+  int N = 0;
+  UnaryTPP kernel;
 };
 
 template <typename Tin, typename Tout = Tin>
 class MulNormTPP {
-  public:
-    MulNormTPP() {}
-    MulNormTPP(int N) : MulNormTPP(1, N) {}
-    MulNormTPP(int rows, int cols) : MulNormTPP(rows, cols, cols) {}
-    MulNormTPP(int rows, int cols, int ldi) 
+ public:
+  MulNormTPP() {}
+  MulNormTPP(int N) : MulNormTPP(1, N) {}
+  MulNormTPP(int rows, int cols) : MulNormTPP(rows, cols, cols) {}
+  MulNormTPP(int rows, int cols, int ldi)
       : rows(rows),
         cols(cols),
         ldi(ldi),
@@ -820,19 +821,20 @@ class MulNormTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_0,
             LIBXSMM_MELTW_TYPE_BINARY_ADD) {}
-    void operator()(Tin* in, Tin* in2, Tout* out) {
-      kernel((void*)in, (void*)in2, (void*)out);
-    }
-    void ref(Tin* in, Tin* in2, Tout* out) {
-      for(int r=0; r<rows; r++)
-        for(int c=0; c<cols; c++)
-          out[r*cols+c] = in[c] * in2[r*ldi+c];
-    }
-  private:
-    int N = 0;
-    int rows, cols;
-    int ldi;
-    BinaryTPP kernel;
+  void operator()(Tin* in, Tin* in2, Tout* out) {
+    kernel((void*)in, (void*)in2, (void*)out);
+  }
+  void ref(Tin* in, Tin* in2, Tout* out) {
+    for (int r = 0; r < rows; r++)
+      for (int c = 0; c < cols; c++)
+        out[r * cols + c] = in[c] * in2[r * ldi + c];
+  }
+
+ private:
+  int N = 0;
+  int rows, cols;
+  int ldi;
+  BinaryTPP kernel;
 };
 
 template <typename Tin, typename Tout>
@@ -2124,129 +2126,145 @@ class ELUBwdTPP {
 
 template <typename T>
 class SiLUFwdTPP {
-  public:
-    SiLUFwdTPP() {}
-    SiLUFwdTPP(int N) : SiLUFwdTPP(1, N) {}
-    SiLUFwdTPP(int rows, int cols) : SiLUFwdTPP(rows, cols, cols, cols) {}
-    SiLUFwdTPP(int rows, int cols, int ldi, int ldo)
+ public:
+  SiLUFwdTPP() {}
+  SiLUFwdTPP(int N) : SiLUFwdTPP(1, N) {}
+  SiLUFwdTPP(int rows, int cols) : SiLUFwdTPP(rows, cols, cols, cols) {}
+  SiLUFwdTPP(int rows, int cols, int ldi, int ldo)
       : rows(rows),
-      cols(cols),
-      ldi(ldi),
-      ldo(ldo),
-      sigmoid(
-          rows,
-          cols,
-          ldi,
-          ldo,
-          XsmmDtype<T>(),
-          XsmmDtype<T>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_MELTW_TYPE_UNARY_SIGMOID),
-      mul(
-          rows,
-          cols,
-          ldi,
-          ldo,
-          XsmmDtype<T>(),
-          XsmmDtype<T>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_BINARY_NONE,
-          LIBXSMM_MELTW_TYPE_BINARY_MUL) {}
-    void operator()(T* in, T* out, T* sigout) {
-      sigmoid((void*)in, (void*)sigout);
-      mul((void*)in, (void*)sigout, (void*)out);
-    }
-    void ref(T* in, T* out, T* sigout) {
-      for(int i=0; i<rows; i++) {
-        for(int j=0; j<cols; j++) {
-          sigout[i*ldo + j] = 1./(1. + exp(-in[i*ldi + j]));
-          out[i*ldo + j] = in[i*ldo + j] *  sigout[i*ldo + j];
-        }
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        sigmoid(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_SIGMOID),
+        mul(rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL) {}
+  void operator()(T* in, T* out, T* sigout) {
+    sigmoid((void*)in, (void*)sigout);
+    mul((void*)in, (void*)sigout, (void*)out);
+  }
+  void ref(T* in, T* out, T* sigout) {
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        sigout[i * ldo + j] = 1. / (1. + exp(-in[i * ldi + j]));
+        out[i * ldo + j] = in[i * ldo + j] * sigout[i * ldo + j];
       }
     }
+  }
 
-  private:
-    int rows = 0;
-    int cols = 0;
-    int ldi;
-    int ldo;
-    UnaryTPP sigmoid;
-    BinaryTPP mul;
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  UnaryTPP sigmoid;
+  BinaryTPP mul;
 };
 
 template <typename Tin, typename Tout = Tin>
 class SiLUBwdTPP : public BaseTPP {
-  public:
-    SiLUBwdTPP() {}
-    SiLUBwdTPP(int N) : SiLUBwdTPP(1, N) {}
-    SiLUBwdTPP(int rows, int cols) : SiLUBwdTPP(rows, cols, cols, cols) {}
-    SiLUBwdTPP(int rows, int cols, int ldi, int ldo)
-      : rows(rows),
-      cols(cols),
-      ldi(ldi),
-      ldo(ldo) {
-        kernel = (libxsmm_matrix_eqn_function)get_kernel();
-        initialized = true;
-      }
-    void operator()(Tin* in, Tin* in2, Tin* in3, Tout* out) {
-      if (!initialized)
-        return;
-      libxsmm_matrix_eqn_param eqn_param;
-      libxsmm_matrix_arg arg_array[5];
-      float one = 1.;
-      arg_array[0].primary = (void*)in;
-      arg_array[1].primary = (void*)in2;
-      arg_array[2].primary = (void*)in3;
-      arg_array[3].primary = (void*)&one;
-      arg_array[4].primary = (void*)in2;
-      eqn_param.inputs = arg_array;
-      eqn_param.output.primary = (void*)out;
+ public:
+  SiLUBwdTPP() {}
+  SiLUBwdTPP(int N) : SiLUBwdTPP(1, N) {}
+  SiLUBwdTPP(int rows, int cols) : SiLUBwdTPP(rows, cols, cols, cols) {}
+  SiLUBwdTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows), cols(cols), ldi(ldi), ldo(ldo) {
+    kernel = (libxsmm_matrix_eqn_function)get_kernel();
+    initialized = true;
+  }
+  void operator()(Tin* in, Tin* in2, Tin* in3, Tout* out) {
+    if (!initialized)
+      return;
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[5];
+    float one = 1.;
+    arg_array[0].primary = (void*)in;
+    arg_array[1].primary = (void*)in2;
+    arg_array[2].primary = (void*)in3;
+    arg_array[3].primary = (void*)&one;
+    arg_array[4].primary = (void*)in2;
+    eqn_param.inputs = arg_array;
+    eqn_param.output.primary = (void*)out;
 
-      kernel(&eqn_param);
-    }
-    void ref(Tin* in, Tin* in2, Tin* in3, Tout* out) {
+    kernel(&eqn_param);
+  }
+  void ref(Tin* in, Tin* in2, Tin* in3, Tout* out) {
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        float grad_out = in[i * ldi + j];
+        float si = in2[i * ldi + j];
+        float fout = in3[i * ldi + j];
 
-      for(int i=0; i<rows; i++) {
-        for(int j=0; j<cols; j++) {
-          float grad_out = in[i*ldi + j];
-          float si = in2[i*ldi + j];
-          float fout = in3[i*ldi + j];
-
-          out[i] = grad_out * (si + fout*(1 - si));
-        }
+        out[i] = grad_out * (si + fout * (1 - si));
       }
     }
+  }
 
-  protected:
-    std::string hash_str() override {
-      char hash[200];
-      snprintf(hash, 200, "silu_bwd_eqn_%d_%d", rows, cols);
-      return std::string(hash);
-    }
-    void* build_kernel() override {
-      libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_binary_op( my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_MELTW_FLAG_BINARY_NONE, LIBXSMM_DATATYPE_F32 );
-      libxsmm_matrix_eqn_push_back_arg( my_eqn0, cols, rows, ldo, 0, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_binary_op( my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_NONE, LIBXSMM_DATATYPE_F32 );
-      libxsmm_matrix_eqn_push_back_arg( my_eqn0, cols, rows, ldo, 1, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_binary_op( my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_MELTW_FLAG_BINARY_NONE, LIBXSMM_DATATYPE_F32 );
-      libxsmm_matrix_eqn_push_back_arg( my_eqn0, cols, rows, ldo, 2, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_binary_op( my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_SUB, LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0, LIBXSMM_DATATYPE_F32 );
-      libxsmm_matrix_eqn_push_back_arg( my_eqn0, cols, rows, ldo, 3, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg( my_eqn0, cols, rows, ldo, 4, 0, LIBXSMM_DATATYPE_F32);
+ protected:
+  std::string hash_str() override {
+    char hash[200];
+    snprintf(hash, 200, "silu_bwd_eqn_%d_%d", rows, cols);
+    return std::string(hash);
+  }
+  void* build_kernel() override {
+    libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
+    libxsmm_matrix_eqn_push_back_binary_op(
+        my_eqn0,
+        LIBXSMM_MELTW_TYPE_BINARY_MUL,
+        LIBXSMM_MELTW_FLAG_BINARY_NONE,
+        LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_arg(
+        my_eqn0, cols, rows, ldo, 0, 0, LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_binary_op(
+        my_eqn0,
+        LIBXSMM_MELTW_TYPE_BINARY_ADD,
+        LIBXSMM_MELTW_FLAG_BINARY_NONE,
+        LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_arg(
+        my_eqn0, cols, rows, ldo, 1, 0, LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_binary_op(
+        my_eqn0,
+        LIBXSMM_MELTW_TYPE_BINARY_MUL,
+        LIBXSMM_MELTW_FLAG_BINARY_NONE,
+        LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_arg(
+        my_eqn0, cols, rows, ldo, 2, 0, LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_binary_op(
+        my_eqn0,
+        LIBXSMM_MELTW_TYPE_BINARY_SUB,
+        LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0,
+        LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_arg(
+        my_eqn0, cols, rows, ldo, 3, 0, LIBXSMM_DATATYPE_F32);
+    libxsmm_matrix_eqn_push_back_arg(
+        my_eqn0, cols, rows, ldo, 4, 0, LIBXSMM_DATATYPE_F32);
 
-      auto func0 =
-        libxsmm_dispatch_matrix_eqn(cols, rows, &ldo, XsmmDtype<Tout>(), my_eqn0);
-      return (void*)func0;
-    }
+    auto func0 = libxsmm_dispatch_matrix_eqn(
+        cols, rows, &ldo, XsmmDtype<Tout>(), my_eqn0);
+    return (void*)func0;
+  }
 
-  private:
-    int rows = 0;
-    int cols = 0;
-    int ldi;
-    int ldo;
-    libxsmm_matrix_eqn_function kernel = NULL;
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  libxsmm_matrix_eqn_function kernel = NULL;
 };
 
 template <typename Tin, typename Tout = Tin>
@@ -2358,7 +2376,6 @@ class DropOutBwdTPP {
   float p;
   UnaryTPP kernel;
 };
-
 
 template <typename Tin, typename Tout>
 class SoftMaxFwdTPP {

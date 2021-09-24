@@ -1,4 +1,6 @@
-import pcl_pytorch_extension._C as _C
+import torch
+
+from . import _C
 
 try:
     from .utils import extend_profiler

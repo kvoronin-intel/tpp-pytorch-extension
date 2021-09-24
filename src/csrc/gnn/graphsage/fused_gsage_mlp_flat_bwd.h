@@ -172,7 +172,7 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
   RECORD_SCOPE(gdbias, {t_grad_out});
   {
     tensor_set_zero(nk, bk, t_grad_bias);
-    int threads = atoi(getenv("OMP_NUM_THREADS")); //omp_get_max_threads();
+    int threads = atoi(getenv("OMP_NUM_THREADS")); // omp_get_max_threads();
     float* bias_ptrs[threads];
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
@@ -279,8 +279,7 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
           }
         }
       }
-    }
-    else {
+    } else {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int n = 0; n < nn; n++) {
@@ -288,12 +287,13 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEITGEMM2(
           brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk);
         }
       }
-      if(res) {
+      if (res) {
         RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
         for (int n = 0; n < nn; n++) {
           for (int c = 0; c < nc; c++) {
-            brgemm_di_tpp(grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
+            brgemm_di_tpp(
+                grad_out[n][0][0], wt_res_TV[0][c], grad_in_res[n][0][c], nk);
           }
         }
       }
