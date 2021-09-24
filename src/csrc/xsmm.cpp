@@ -33,7 +33,7 @@ void init_libxsmm() {
       MAX_THREADS,
       max_threads);
   libxsmm_init();
-  manual_seed(0);
+  xsmm_manual_seed(0);
 }
 
 REGISTER_SUBMODULE(_xsmm, m) {
