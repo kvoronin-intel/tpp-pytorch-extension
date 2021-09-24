@@ -1,4 +1,4 @@
-from pcl_pytorch_extension._C import _xsmm as xsmm_cpp
+from .._C import _xsmm as xsmm_cpp
 
 
 def manual_seed(seed):

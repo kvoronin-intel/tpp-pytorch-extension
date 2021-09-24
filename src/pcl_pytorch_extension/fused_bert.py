@@ -4,13 +4,13 @@ from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.autograd import Function
-from pcl_pytorch_extension.utils.blocked_layout import (
+from .utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
 )
-from pcl_pytorch_extension.utils import blocked_layout
-from pcl_pytorch_extension._C import _fused_bert as fused_bert_cpp
+from .utils import blocked_layout
+from ._C import _fused_bert as fused_bert_cpp
 import time
 from contextlib import contextmanager
 
