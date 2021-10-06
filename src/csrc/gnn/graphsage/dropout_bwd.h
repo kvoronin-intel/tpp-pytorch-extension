@@ -14,7 +14,7 @@ if (p > 0.0) {
   auto grad_out = t_grad_out.data_ptr<T>();
   auto dp_mask = t_dp_mask.data_ptr<short>();
 
-  auto dropout_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(N, p), DROPOUT);
+  auto dropout_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(N, p, true), DROPOUT);
   {
     RECORD_SCOPE(gdo_dropout, {t_grad_out});
     {

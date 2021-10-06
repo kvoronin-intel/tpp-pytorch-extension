@@ -90,8 +90,7 @@ class SAGE(nn.Module):
                 batch_size=args.batch_size,
                 shuffle=True,
                 drop_last=False,
-                num_workers=args.num_workers,
-                worker_init_fn=worker_init_fn
+                num_workers=args.num_workers
             )
 
             for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
@@ -164,6 +163,7 @@ def run(args, device, data):
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(",")]
     )
+    '''
     dataloader = dgl.dataloading.NodeDataLoader(
         g,
         train_nid,
@@ -173,6 +173,16 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers,
         worker_init_fn=worker_init_fn
+    )
+    '''
+    dataloader = dgl.dataloading.NodeDataLoader(
+        g,
+        train_nid,
+        sampler,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False,
+        num_workers=args.num_workers
     )
 
     # Define model and optimizer

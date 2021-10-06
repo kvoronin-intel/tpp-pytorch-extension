@@ -60,14 +60,17 @@ class SAGEMLPFunction(torch.autograd.Function):
                 align, p, act, res, training, inputs
             )
 
+        #breakpoint()
         if act == "None":
             act_mask = torch.tensor([], dtype=torch.short)
         if p == 0.0:
             dp_mask = torch.tensor([], dtype=torch.short)
+        
         if res:
             ctx.save_for_backward(inp, inp_res, wt, res_wt, act_mask, dp_mask)
         else:
             ctx.save_for_backward(inp, wt, act_mask, dp_mask)
+
         ctx.act = act
         ctx.res = res
         ctx.p = p
@@ -439,12 +442,14 @@ class SAGEConvOpt(BlockedModule):
 
             # GraphSAGE GCN does not require fc_self.
             if self._aggre_type == "gcn":
-                inputs = [h_neigh, self.fc_neigh.weight, self.bias]
+                inputs = [h_neigh, self.fc_neigh.weight]
                 if self.use_bf16:
                     inputs = [
                         i.to(torch.bfloat16) if i.is_floating_point() else i
                         for i in inputs
                     ]
+                inputs.append(self.bias)
+
                 rst = SAGEMLPFunction.apply(
                     self.align,
                     self.feat_drop,
@@ -459,13 +464,13 @@ class SAGEConvOpt(BlockedModule):
                     h_neigh,
                     self.fc_self.weight,
                     self.fc_neigh.weight,
-                    self.bias,
                 ]
                 if self.use_bf16:
                     inputs = [
                         i.to(torch.bfloat16) if i.is_floating_point() else i
                         for i in inputs
                     ]
+                inputs.append(self.bias)
                 rst = SAGEMLPFunction.apply(
                     self.align,
                     self.feat_drop,

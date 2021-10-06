@@ -60,7 +60,7 @@ DECL_VLA_PTR_PT(T, in, [bn][nc][bcp], t_in);
 DECL_VLA_PTR_PT(T, in_res, [bn][nc][bcp], t_in_res);
 DECL_VLA_PTR_PT(T, wt_V, [nc][bcp * bk], t_wt_V);
 DECL_VLA_PTR_PT(T, wt_res_V, [nc][bcp * bk], t_wt_res_V);
-DECL_VLA_PTR_PT(T, bias, [bk], t_bias);
+DECL_VLA_PTR_PT(float, bias, [bk], t_bias);
 DECL_VLA_PTR_PT(T, out, [bn][nk][bk], t_out);
 DECL_VLA_PTR_PT(float, out_f32, [bn][nk][bk], t_out_f32);
 DECL_VLA_PTR_PT(float, out_res, [bn][nk][bk], t_out_res);
@@ -70,12 +70,11 @@ DECL_VLA_PTR_PT(short, dp_mask, [bn][nk][rd], t_dp_mask);
 auto brgemm_tpp = SCOPEITGEMM2(
     (BrgemmTPP<
         T,
-        float>(bn, bk, bcp, bcp, bk* bcp, nc* bcp, bk, nk* bk, 0.0, 0, nc)));
-auto add_bias_tpp = SCOPEIT(AddBiasTPP<T>(bn, bk, K), BIAS);
-auto add_tpp = SCOPEIT((AddTPP<float, float>(bn, bk, nk* bk, nk* bk)), EW_ADD);
-auto relu_fwd_tpp = SCOPEIT(ReLUFwdTPP<float>(bn, bk, nk* bk, nk* bk), ACT);
+        float>(bn, bk, bcp, bcp, bk* bcp, nc* bcp, bk, nk* bk, 1.0, 0, nc)));
+auto cpy_bias_tpp = SCOPEIT(CpyBiasTPP<float>(bn, bk, K), BIAS);
+auto relu_fwd_tpp = SCOPEIT(ReLUFwdTPP<float>(bn, bk, nk* bk, nk* bk, true), ACT);
 auto dropout_fwd_tpp =
-    SCOPEIT((DropOutFwdTPP<float, T>(bn, bk, nk* bk, nk* bk, p)), DROPOUT);
+    SCOPEIT((DropOutFwdTPP<float, T>(bn, bk, nk* bk, nk* bk, p, true)), DROPOUT);
 auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
 
 {
@@ -85,12 +84,11 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
 #pragma omp parallel for collapse(2)
     for (int n = 0; n < nn; n++) {
       for (int k = 0; k < nk; k++) {
+        cpy_bias_tpp(bias[k], out_f32[n][0][k]);
         brgemm_tpp(in[n][0][0], wt_V[k][0], out_f32[n][0][k], nc);
         if (res) {
-          brgemm_tpp(in_res[n][0][0], wt_res_V[k][0], out_res[n][0][k], nc);
+          brgemm_tpp(in_res[n][0][0], wt_res_V[k][0], out_f32[n][0][k], nc);
         }
-        add_bias_tpp(bias[k], out_f32[n][0][k]);
-        add_tpp(out_f32[n][0][k], out_res[n][0][k], out_f32[n][0][k]);
         if (act == "relu") {
           relu_fwd_tpp(out_f32[n][0][k], out_f32[n][0][k], relu_mask[n][0][k]);
         }
@@ -100,7 +98,8 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
               (void*)rng_state,
               out[n][0][k],
               dp_mask[n][0][k]);
-        } else
+        } 
+        else
           cvt_tpp(out_f32[n][0][k], out[n][0][k]);
       }
     }
@@ -114,37 +113,37 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
       DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
 
       auto brgemm_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
-          rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));
-      auto add_bias_tpp = SCOPEIT(AddBiasTPP<T>(rem, bk, K), BIAS);
-      auto add_tpp =
-          SCOPEIT((AddTPP<float, float>(rem, bk, nk * bk, nk * bk)), EW_ADD);
+          rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 1.0, 0, nc)));
+      auto cpy_bias_tpp = SCOPEIT(CpyBiasTPP<float>(1, bk, K), BIAS);
       auto relu_fwd_tpp =
-          SCOPEIT(ReLUFwdTPP<float>(rem, bk, nk * bk, nk * bk), ACT);
+          SCOPEIT(ReLUFwdTPP<float>(1, bk, nk * bk, nk * bk, true), ACT);
       auto dropout_fwd_tpp = SCOPEIT(
-          (DropOutFwdTPP<float, T>(rem, bk, nk * bk, nk * bk, p)), DROPOUT);
-      auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(rem, bk, K, K)), EW_COPY);
+          (DropOutFwdTPP<float, T>(1, bk, nk * bk, nk * bk, p, true)), DROPOUT);
+      auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(1, bk, K, K)), EW_COPY);
 
 #pragma omp parallel for
       for (int k = 0; k < nk; k++) {
+        for(int r=0; r<rem; r++)
+          cpy_bias_tpp(bias[k], out_f32[nn * bn+r][k]);
         brgemm_tpp(in[nn * bn][0], wt_V[k][0], out_f32[nn * bn][k], nc);
         if (res) {
           brgemm_tpp(
               in_res[nn * bn][0], wt_res_V[k][0], out_res[nn * bn][k], nc);
         }
-        add_bias_tpp(bias[k], out_f32[nn * bn][k]);
-        add_tpp(out_f32[nn * bn][k], out_res[nn * bn][k], out_f32[nn * bn][k]);
-        if (act == "relu") {
-          relu_fwd_tpp(
-              out_f32[nn * bn][k], out_f32[nn * bn][k], relu_mask[nn * bn][k]);
+        for(int r=0; r<rem; r++) {
+          if (act == "relu") {
+            relu_fwd_tpp(
+                out_f32[nn * bn+r][k], out_f32[nn * bn+r][k], relu_mask[nn * bn+r][k]);
+          }
+          if (p > 0 && training) {
+            dropout_fwd_tpp(
+                out_f32[nn * bn+r][k],
+                (void*)rng_state,
+                out[nn * bn+r][k],
+                dp_mask[nn * bn+r][k]);
+          } else
+            cvt_tpp(out_f32[nn * bn+r][k], out[nn * bn+r][k]);
         }
-        if (p > 0 && training) {
-          dropout_fwd_tpp(
-              out_f32[nn * bn][k],
-              (void*)rng_state,
-              out[nn * bn][k],
-              dp_mask[nn * bn][k]);
-        } else
-          cvt_tpp(out_f32[nn * bn][k], out[nn * bn][k]);
       }
     }
   }
