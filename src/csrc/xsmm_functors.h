@@ -2880,6 +2880,487 @@ class SoftMaxBwdTPP {
   Eqn eqn0, eqn1;
 };
 
+template <typename Tin, typename Tout>
+class VarSoftMaxFwdTPP {
+ public:
+  VarSoftMaxFwdTPP() {}
+  VarSoftMaxFwdTPP(int S2, int S3)
+      : S2(S2), S3(S3) /*, eqn0(S1, S2, S3), eqn1(S1, S2, S3)*/ {}
+  void operator()(int S1, Tin* in, Tout* out) {
+#if 0
+    LIBXSMM_ALIGNED(float tmp[S1 * S3], 64);
+    for (int s2 = 0; s2 < S2; s2++) {
+      eqn0(&in[s2 * S3], tmp);
+      eqn1(tmp, &out[s2 * S3]);
+    }
+#else
+    ref(S1, in, out);
+#endif
+  }
+  void ref(int S1, Tin* pinp, Tout* pout) {
+    int s1, s2, s3;
+    LIBXSMM_VLA_DECL(3, Tin, inp, pinp, S2, S3);
+    LIBXSMM_VLA_DECL(3, Tout, out, pout, S2, S3);
+#if defined(__AVX512F__)
+    for (s2 = 0; s2 < S2; s2++) {
+      float tmp[S1][S3];
+      float max =
+          upconvert_to_float(LIBXSMM_VLA_ACCESS(3, inp, 0, s2, 0, S2, S3));
+      float sum = 0.0;
+      __m512 vmax = _mm512_set1_ps(max);
+      __m512 vsum = _mm512_setzero_ps();
+
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
+          vmax = _mm512_max_ps(
+              _mm512_loadu_ps_auto(
+                  &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
+              vmax);
+        }
+        if (s3 < S3) {
+          int rem = S3 - s3;
+          __mmask16 mask = (1 << rem) - 1;
+          vmax = _mm512_mask_max_ps(
+              vmax,
+              mask,
+              _mm512_maskz_loadu_ps_auto(
+                  mask, &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
+              vmax);
+        }
+      }
+      max = _mm512_reduce_max_ps(vmax);
+      vmax = _mm512_set1_ps(max);
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
+          __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS_3DTS(_mm512_sub_ps(
+              _mm512_loadu_ps_auto(
+                  &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
+              vmax));
+          _mm512_storeu_ps(&tmp[s1][s3], vz);
+          vsum = _mm512_add_ps(vsum, vz);
+        }
+        if (s3 < S3) {
+          int rem = S3 - s3;
+          __mmask16 mask = (1 << rem) - 1;
+          __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS_3DTS(_mm512_sub_ps(
+              _mm512_maskz_loadu_ps_auto(
+                  mask, &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
+              vmax));
+          _mm512_mask_storeu_ps(&tmp[s1][s3], mask, vz);
+          vsum = _mm512_mask_add_ps(vsum, mask, vsum, vz);
+        }
+      }
+      sum = _mm512_reduce_add_ps(vsum);
+      sum = 1.0 / sum;
+      vsum = _mm512_set1_ps(sum);
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
+          _mm512_storeu_ps_auto(
+              &LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3),
+              _mm512_mul_ps(vsum, _mm512_loadu_ps(&tmp[s1][s3])));
+        }
+        if (s3 < S3) {
+          int rem = S3 - s3;
+          __mmask16 mask = (1 << rem) - 1;
+          _mm512_mask_storeu_ps_auto(
+              &LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3),
+              mask,
+              _mm512_mul_ps(vsum, _mm512_maskz_loadu_ps(mask, &tmp[s1][s3])));
+        }
+      }
+    }
+#else
+#warning "Not using AVX512 path for VarSoftMax"
+    for (s2 = 0; s2 < S2; s2++) {
+      float tmp[S1][S3];
+      float max =
+          upconvert_to_float(LIBXSMM_VLA_ACCESS(3, inp, 0, s2, 0, S2, S3));
+      float sum = 0.0;
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          float cur = upconvert_to_float(
+              LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3));
+          if (max < cur)
+            max = cur;
+        }
+      }
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          float cur = upconvert_to_float(
+              LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3));
+          float z = expf(cur - max);
+          tmp[s1][s3] = z;
+          sum += z;
+        }
+      }
+      sum = 1.0 / sum;
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          float cur = tmp[s1][s3] * sum;
+          // libxsmm_rne_convert_fp32_bf16( &cur, &LIBXSMM_VLA_ACCESS(3, out,
+          // s1, s2, s3, S2, S3), 1 );
+          LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3) = cur;
+        }
+      }
+    }
+#endif
+  }
+#if 0
+  class Eqn0 : BaseTPP {
+   public:
+    Eqn0() {}
+    Eqn0(int S1, int S2, int S3) : S1(S1), S2(S2), S3(S3) {
+      kernel = (libxsmm_matrix_eqn_function)get_kernel();
+      initialized = true;
+    }
+    void operator()(Tin* in, float* out) {
+      if (!initialized)
+        return;
+      libxsmm_matrix_eqn_param eqn_param;
+      libxsmm_matrix_arg arg_array[1];
+      arg_array[0].primary = (void*)in;
+      eqn_param.inputs = arg_array;
+      eqn_param.output.primary = (void*)out;
+
+      kernel(&eqn_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "softmax_fwd_eqn0_ti%d_to%d_S1%d_S2%d_S3%d",
+          XsmmDtype<Tin>(),
+          LIBXSMM_DATATYPE_F32,
+          S1,
+          S2,
+          S3);
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      auto dt_in = XsmmDtype<Tin>();
+      libxsmm_blasint tmp_ld = S2;
+      libxsmm_blasint ld = S2 * S3;
+      libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
+      libxsmm_matrix_eqn_push_back_unary_op(
+          my_eqn0,
+          LIBXSMM_MELTW_TYPE_UNARY_EXP,
+          LIBXSMM_MELTW_FLAG_UNARY_NONE,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_binary_op(
+          my_eqn0,
+          LIBXSMM_MELTW_TYPE_BINARY_SUB,
+          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
+      libxsmm_matrix_eqn_push_back_unary_op(
+          my_eqn0,
+          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX,
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_unary_op(
+          my_eqn0,
+          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX,
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
+      libxsmm_matrix_eqn_tree_print(my_eqn0); // printf
+      return (void*)libxsmm_dispatch_matrix_eqn(
+          S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn0);
+    }
+
+   private:
+    int S1, S2, S3;
+    libxsmm_matrix_eqn_function kernel = NULL;
+  };
+
+  class Eqn1 : BaseTPP {
+   public:
+    Eqn1() {}
+    Eqn1(int S1, int S2, int S3) : S1(S1), S2(S2), S3(S3) {
+      kernel = (libxsmm_matrix_eqn_function)get_kernel();
+      initialized = true;
+    }
+    void operator()(float* in, Tout* out) {
+      if (!initialized)
+        return;
+      libxsmm_matrix_eqn_param eqn_param;
+      libxsmm_matrix_arg arg_array[1];
+      arg_array[0].primary = (void*)in;
+      eqn_param.inputs = arg_array;
+      eqn_param.output.primary = (void*)out;
+
+      kernel(&eqn_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "softmax_fwd_eqn1_ti%d_to%d_S1%d_S2%d_S3%d",
+          LIBXSMM_DATATYPE_F32,
+          XsmmDtype<Tout>(),
+          S1,
+          S2,
+          S3);
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      auto dt_out = XsmmDtype<Tout>();
+      libxsmm_blasint tmp_ld = S2;
+      libxsmm_blasint ld = S2 * S3;
+      libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();
+      libxsmm_matrix_eqn_push_back_binary_op(
+          my_eqn1,
+          LIBXSMM_MELTW_TYPE_BINARY_MUL,
+          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_arg(
+          my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_unary_op(
+          my_eqn1,
+          LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL,
+          LIBXSMM_MELTW_FLAG_UNARY_NONE,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_unary_op(
+          my_eqn1,
+          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_unary_op(
+          my_eqn1,
+          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+          LIBXSMM_DATATYPE_F32);
+      libxsmm_matrix_eqn_push_back_arg(
+          my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+      /*libxsmm_matrix_eqn_tree_print( my_eqn1 );*/
+      return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_out, my_eqn1);
+    }
+
+   private:
+    int S1, S2, S3;
+    libxsmm_matrix_eqn_function kernel = NULL;
+  };
+#endif
+ private:
+  int S2, S3;
+  // Eqn0 eqn0;
+  // Eqn1 eqn1;
+};
+
+template <typename T1, typename T2, typename T3>
+class VarSoftMaxBwdTPP {
+ public:
+  VarSoftMaxBwdTPP() {}
+  VarSoftMaxBwdTPP(int S2, int S3)
+      : S2(S2), S3(S3) /*, eqn0(S1, S2, S3, 0), eqn1(S1, S2, S3, 1)*/ {}
+  void operator()(int S1, T1* gin, T2* gout, T3* out) {
+    ref(S1, gin, gout, out);
+  }
+  void ref(int S1, T1* pgradinp, T2* pgradout, T3* pout) {
+    int s1, s2, s3;
+    LIBXSMM_VLA_DECL(3, T1, ginp, pgradinp, S2, S3);
+    LIBXSMM_VLA_DECL(3, T2, gout, pgradout, S2, S3);
+    LIBXSMM_VLA_DECL(3, T3, out, pout, S2, S3);
+#if defined(__AVX512F__)
+    for (s2 = 0; s2 < S2; s2++) {
+      float sum = 0.0;
+      __m512 vsum = _mm512_setzero_ps();
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
+          __m512 vgo =
+              _mm512_loadu_ps(&LIBXSMM_VLA_ACCESS(3, gout, s1, s2, s3, S2, S3));
+          __m512 vo = _mm512_loadu_ps_auto(
+              &LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3));
+          vsum = _mm512_fmadd_ps(vgo, vo, vsum);
+        }
+        if (s3 < S3) {
+          int rem = S3 - s3;
+          __mmask16 mask = (1 << rem) - 1;
+          __m512 vgo = _mm512_maskz_loadu_ps(
+              mask, &LIBXSMM_VLA_ACCESS(3, gout, s1, s2, s3, S2, S3));
+          __m512 vo = _mm512_maskz_loadu_ps_auto(
+              mask, &LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3));
+          vsum = _mm512_fmadd_ps(vgo, vo, vsum);
+        }
+      }
+      sum = _mm512_reduce_add_ps(vsum);
+      vsum = _mm512_set1_ps(sum);
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
+          __m512 tmp = _mm512_sub_ps(
+              _mm512_loadu_ps(&LIBXSMM_VLA_ACCESS(3, gout, s1, s2, s3, S2, S3)),
+              vsum);
+          _mm512_storeu_ps(
+              &LIBXSMM_VLA_ACCESS(3, ginp, s1, s2, s3, S2, S3),
+              _mm512_mul_ps(
+                  _mm512_loadu_ps_auto(
+                      &LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3)),
+                  tmp));
+        }
+        if (s3 < S3) {
+          int rem = S3 - s3;
+          __mmask16 mask = (1 << rem) - 1;
+          __m512 tmp = _mm512_sub_ps(
+              _mm512_maskz_loadu_ps(
+                  mask, &LIBXSMM_VLA_ACCESS(3, gout, s1, s2, s3, S2, S3)),
+              vsum);
+          _mm512_mask_storeu_ps(
+              &LIBXSMM_VLA_ACCESS(3, ginp, s1, s2, s3, S2, S3),
+              mask,
+              _mm512_mul_ps(
+                  _mm512_maskz_loadu_ps_auto(
+                      mask, &LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3)),
+                  tmp));
+        }
+      }
+    }
+#else
+    for (s2 = 0; s2 < S2; s2++) {
+      float sum = 0.0;
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          sum += LIBXSMM_VLA_ACCESS(3, gout, s1, s2, s3, S2, S3) *
+              upconvert_to_float(
+                     LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3));
+        }
+      }
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          LIBXSMM_VLA_ACCESS(3, ginp, s1, s2, s3, S2, S3) =
+              upconvert_to_float(
+                  LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3)) *
+              (LIBXSMM_VLA_ACCESS(3, gout, s1, s2, s3, S2, S3) - sum);
+        }
+      }
+    }
+#endif
+  }
+#if 0
+  class Eqn : BaseTPP {
+   public:
+    Eqn() {}
+    Eqn(int S1, int S2, int S3, int eqn_no)
+        : S1(S1), S2(S2), S3(S3), eqn_no(eqn_no) {
+      kernel = (libxsmm_matrix_eqn_function)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_matrix_eqn_param* eqn_param) {
+      if (!initialized)
+        return;
+      kernel(eqn_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "softmax_bwd_eqn%d_t1%d_t2%d_t3%d_S1%d_S2%d_S3%d",
+          eqn_no,
+          XsmmDtype<T2>(),
+          XsmmDtype<T3>(),
+          LIBXSMM_DATATYPE_F32,
+          S1,
+          S2,
+          S3);
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      auto dt_1 = XsmmDtype<T1>();
+      auto dt_2 = XsmmDtype<T2>();
+      auto dt_3 = XsmmDtype<T3>();
+      libxsmm_blasint tmp_ld = S3;
+      libxsmm_blasint ld = S2 * S3;
+      libxsmm_matrix_eqn_function func;
+      if (eqn_no == 0) {
+        libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn2,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 0, 0, dt_2);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 1, 0, dt_3);
+        libxsmm_matrix_eqn_tree_print(my_eqn2); // printf
+        func = libxsmm_dispatch_matrix_eqn(
+            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
+      } else if (eqn_no == 1) {
+        libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
+#if 1
+        libxsmm_matrix_eqn_push_back_ternary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_TERNARY_NMULADD,
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_0 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_unary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_unary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
+#else
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_BINARY_SUB,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
+        libxsmm_matrix_eqn_push_back_unary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_unary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+#endif
+        libxsmm_matrix_eqn_tree_print(my_eqn3);
+        func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_1, my_eqn3);
+      } else {
+        PCL_ASSERT(false, "Should not come here\n");
+      }
+      return (void*)func;
+    }
+
+   private:
+    int S1, S2, S3, eqn_no;
+    libxsmm_matrix_eqn_function kernel = NULL;
+  };
+#endif
+ private:
+  int S2, S3;
+  // Eqn eqn0, eqn1;
+};
+
 template <typename T>
 class LayerNormFwdTPP {
  public:
