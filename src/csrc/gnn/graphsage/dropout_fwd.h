@@ -16,7 +16,7 @@ if (training && p > 0.0) {
   auto in = t_in.data_ptr<T>();
   auto dp_mask = t_dp_mask.data_ptr<short>();
 
-  auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(N, p, true), DROPOUT);
+  auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(N, p), DROPOUT);
   {
     RECORD_SCOPE(go_dropout, {t_in});
     {

@@ -90,7 +90,7 @@ class SAGE(nn.Module):
                 batch_size=args.batch_size,
                 shuffle=True,
                 drop_last=False,
-                num_workers=args.num_workers
+                num_workers=args.num_workers,
             )
 
             for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
@@ -147,12 +147,21 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
 
 def worker_init_fn(worker_id):
     cpu_aff = psutil.Process().cpu_affinity()
-    cpu_aff_new = [cpu_aff[0] - worker_id -1]
+    cpu_aff_new = [cpu_aff[0] - worker_id - 1]
     try:
-       psutil.Process().cpu_affinity(cpu_aff_new)
-       print("Worker {} with pid {} called, new affinity = {}".format(worker_id, os.getpid(), psutil.Process().cpu_affinity()))
+        psutil.Process().cpu_affinity(cpu_aff_new)
+        print(
+            "Worker {} with pid {} called, new affinity = {}".format(
+                worker_id, os.getpid(), psutil.Process().cpu_affinity()
+            )
+        )
     except:
-       print("Unable to set worker affinity {} for worker {}".format(cpu_aff_new, worker_id))
+        print(
+            "Unable to set worker affinity {} for worker {}".format(
+                cpu_aff_new, worker_id
+            )
+        )
+
 
 #### Entry point
 def run(args, device, data):
@@ -163,7 +172,7 @@ def run(args, device, data):
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(",")]
     )
-    '''
+    """
     dataloader = dgl.dataloading.NodeDataLoader(
         g,
         train_nid,
@@ -174,7 +183,7 @@ def run(args, device, data):
         num_workers=args.num_workers,
         worker_init_fn=worker_init_fn
     )
-    '''
+    """
     dataloader = dgl.dataloading.NodeDataLoader(
         g,
         train_nid,
@@ -182,7 +191,7 @@ def run(args, device, data):
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
     )
 
     # Define model and optimizer

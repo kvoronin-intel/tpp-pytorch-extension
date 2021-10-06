@@ -803,10 +803,10 @@ class RecpSqrtTPP {
 
 template <typename Tin, typename Tout = Tin>
 class MulNormTPP {
-  public:
-    MulNormTPP() {}
-    MulNormTPP(int rows, int cols) : MulNormTPP(rows, cols, cols) {}
-    MulNormTPP(int rows, int cols, int ldi) 
+ public:
+  MulNormTPP() {}
+  MulNormTPP(int rows, int cols) : MulNormTPP(rows, cols, cols) {}
+  MulNormTPP(int rows, int cols, int ldi)
       : rows(rows),
         cols(cols),
         ldi(ldi),
@@ -820,19 +820,20 @@ class MulNormTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0,
             LIBXSMM_MELTW_TYPE_BINARY_MUL) {}
-    void operator()(Tin* in, Tin* in2, Tout* out) {
-      kernel((void*)in, (void*)in2, (void*)out);
-    }
-    void ref(Tin* in, Tin* in2, Tout* out) {
-      for(int r=0; r<rows; r++)
-        for(int c=0; c<cols; c++)
-          out[r*cols+c] = in[r] * in2[r*ldi+c];
-    }
-  private:
-    int N = 0;
-    int rows, cols;
-    int ldi;
-    BinaryTPP kernel;
+  void operator()(Tin* in, Tin* in2, Tout* out) {
+    kernel((void*)in, (void*)in2, (void*)out);
+  }
+  void ref(Tin* in, Tin* in2, Tout* out) {
+    for (int r = 0; r < rows; r++)
+      for (int c = 0; c < cols; c++)
+        out[r * cols + c] = in[r] * in2[r * ldi + c];
+  }
+
+ private:
+  int N = 0;
+  int rows, cols;
+  int ldi;
+  BinaryTPP kernel;
 };
 
 template <typename Tin, typename Tout>
@@ -1952,7 +1953,8 @@ class ReLUFwdTPP {
  public:
   ReLUFwdTPP() {}
   ReLUFwdTPP(int N, bool bm) : ReLUFwdTPP(1, N, bm) {}
-  ReLUFwdTPP(int rows, int cols, bool bm) : ReLUFwdTPP(rows, cols, cols, cols, bm) {}
+  ReLUFwdTPP(int rows, int cols, bool bm)
+      : ReLUFwdTPP(rows, cols, cols, cols, bm) {}
   ReLUFwdTPP(int rows, int cols, int ldi, int ldo, bool bm)
       : rows(rows),
         cols(cols),
@@ -1966,12 +1968,13 @@ class ReLUFwdTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT
+               : LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RELU) {}
-  void operator()(Tin* in, Tout* out, short* mask=NULL) {
+  void operator()(Tin* in, Tout* out, short* mask = NULL) {
     kernel((void*)in, (void*)out, (void*)mask);
   }
-  void ref(Tin* in, Tout* out, short* mask=NULL) {
+  void ref(Tin* in, Tout* out, short* mask = NULL) {
     kernel((void*)in, (void*)out, (void*)mask);
   }
 
@@ -1988,7 +1991,8 @@ class ReLUBwdTPP {
  public:
   ReLUBwdTPP() {}
   ReLUBwdTPP(int N, bool bm) : ReLUBwdTPP(1, N, bm) {}
-  ReLUBwdTPP(int rows, int cols, bool bm) : ReLUBwdTPP(rows, cols, cols, cols, bm) {}
+  ReLUBwdTPP(int rows, int cols, bool bm)
+      : ReLUBwdTPP(rows, cols, cols, cols, bm) {}
   ReLUBwdTPP(int rows, int cols, int ldi, int ldo, bool bm)
       : rows(rows),
         cols(cols),
@@ -2003,13 +2007,24 @@ class ReLUBwdTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT
+               : LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {}
-  void operator()(Tin* in, Tout* out, Tin* in2=NULL, short* mask=NULL) {
-    kernel((void*)in, bm ? (void*)mask : (void*)in2, (void*)NULL, (void*)out, (void*)NULL);
+  void operator()(Tin* in, Tout* out, Tin* in2 = NULL, short* mask = NULL) {
+    kernel(
+        (void*)in,
+        bm ? (void*)mask : (void*)in2,
+        (void*)NULL,
+        (void*)out,
+        (void*)NULL);
   }
-  void ref(Tin* in, Tout* out, Tin* in2=NULL, short* mask=NULL) {
-    kernel((void*)in, bm ? (void*)mask : (void*)in2, (void*)NULL, (void*)out, (void*)NULL);
+  void ref(Tin* in, Tout* out, Tin* in2 = NULL, short* mask = NULL) {
+    kernel(
+        (void*)in,
+        bm ? (void*)mask : (void*)in2,
+        (void*)NULL,
+        (void*)out,
+        (void*)NULL);
   }
 
  private:
@@ -2271,10 +2286,10 @@ template <typename Tin, typename Tout = Tin>
 class DropOutFwdTPP {
  public:
   DropOutFwdTPP() {}
-  DropOutFwdTPP(int N, float p, bool bm) : DropOutFwdTPP(1, N, p, bm) {}
-  DropOutFwdTPP(int rows, int cols, float p, bool bm)
-      : DropOutFwdTPP(rows, cols, cols, cols, p, bm) {}
-  DropOutFwdTPP(int rows, int cols, int ldi, int ldo, float p, bool bm)
+  DropOutFwdTPP(int N, float p) : DropOutFwdTPP(1, N, p) {}
+  DropOutFwdTPP(int rows, int cols, float p)
+      : DropOutFwdTPP(rows, cols, cols, cols, p) {}
+  DropOutFwdTPP(int rows, int cols, int ldi, int ldo, float p)
       : rows(rows),
         cols(cols),
         ldi(ldi),
@@ -2288,9 +2303,9 @@ class DropOutFwdTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_DROPOUT) {}
-  void operator()(Tin* in, void* rng_state, Tout* out, short* mask=NULL) {
+  void operator()(Tin* in, void* rng_state, Tout* out, short* mask) {
     kernel(
         (void*)in,
         NULL,
@@ -2301,7 +2316,7 @@ class DropOutFwdTPP {
         (void*)out,
         (void*)mask);
   }
-  void ref(Tin* in, void* rng_state, Tout* out, short* mask=NULL) {
+  void ref(Tin* in, void* rng_state, Tout* out, short* mask) {
     kernel(
         (void*)in,
         NULL,
@@ -2326,16 +2341,15 @@ template <typename Tin, typename Tout = Tin>
 class DropOutBwdTPP {
  public:
   DropOutBwdTPP() {}
-  DropOutBwdTPP(int N, float p, bool bm) : DropOutBwdTPP(1, N, p, bm) {}
-  DropOutBwdTPP(int rows, int cols, float p, bool bm)
-      : DropOutBwdTPP(rows, cols, cols, cols, p, bm) {}
-  DropOutBwdTPP(int rows, int cols, int ldi, int ldo, float p, bool bm)
+  DropOutBwdTPP(int N, float p) : DropOutBwdTPP(1, N, p) {}
+  DropOutBwdTPP(int rows, int cols, float p)
+      : DropOutBwdTPP(rows, cols, cols, cols, p) {}
+  DropOutBwdTPP(int rows, int cols, int ldi, int ldo, float p)
       : rows(rows),
         cols(cols),
         ldi(ldi),
         ldo(ldo),
         p(p),
-        bm(bm),
         kernel(
             rows,
             cols,
@@ -2344,9 +2358,9 @@ class DropOutBwdTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_DROPOUT_INV) {}
-  void operator()(Tin* in, Tout* out, short* mask=NULL) {
+  void operator()(Tin* in, Tout* out, short* mask) {
     kernel(
         (void*)in,
         (void*)mask,
@@ -2357,7 +2371,7 @@ class DropOutBwdTPP {
         (void*)out,
         (void*)NULL);
   }
-  void ref(Tin* in, Tout* out, short* mask=NULL) {
+  void ref(Tin* in, Tout* out, short* mask) {
     kernel(
         (void*)in,
         (void*)mask,
@@ -2375,7 +2389,6 @@ class DropOutBwdTPP {
   int ldi;
   int ldo;
   float p;
-  bool bm;
   UnaryTPP kernel;
 };
 
@@ -3839,22 +3852,25 @@ class SplitSGDTPP : public BaseTPP {
 };
 
 template <typename Tin, typename Tout, typename Tind>
-class EmbBagFwdTPP : public BaseTPP {
+class EmbBagFwdTPP {
  public:
   EmbBagFwdTPP() {}
-  EmbBagFwdTPP(int E) : E(E) {
-    kernel = (libxsmm_meltwfunction_reduce_cols_idx)get_kernel();
-    initialized = true;
-  }
+  EmbBagFwdTPP(int E)
+      : E(E),
+        kernel(
+            E,
+            0,
+            E,
+            E,
+            XsmmDtype<Tin>(),
+            LIBXSMM_DATATYPE_F32,
+            XsmmDtype<Tout>(),
+            sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
+                              : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX) {}
   void operator()(Tout* output, Tin* weight, Tind* input, int N) {
-    if (!initialized)
-      return;
-    libxsmm_meltw_reduce_cols_idx_param params;
-    params.n = N;
-    params.ind_ptr = (void*)input;
-    params.inp_ptr = (void*)weight;
-    params.out_ptr = (void*)output;
-    kernel(&params);
+    unsigned long long _N = N;
+    kernel((void*)weight, (void*)input, (void*)&_N, (void*)output, NULL);
   }
   void ref(Tout* output, Tin* weight, Tind* input, int N) {
     for (long v = 0; v < E; v++)
@@ -3866,32 +3882,9 @@ class EmbBagFwdTPP : public BaseTPP {
     }
   }
 
- protected:
-  std::string hash_str() override {
-    char hash[200];
-    snprintf(
-        hash,
-        200,
-        "emb_bag_fwd_eqn_t%d_t%d_t%d_i%d",
-        XsmmDtype<Tin>(),
-        XsmmDtype<Tout>(),
-        XsmmDtype<Tind>(),
-        E);
-    return std::string(hash);
-  }
-  void* build_kernel() override {
-    auto dt_in = XsmmDtype<Tin>();
-    auto dt_out = XsmmDtype<Tout>();
-    auto dt_ind = XsmmDtype<Tind>();
-    libxsmm_blasint ld = E;
-    setenv("LOAD_ACCS_REDUCE_COLS_IDX", "0", 1);
-    return (void*)libxsmm_dispatch_meltw_reduce_cols_idx(
-        E, &ld, &ld, dt_in, dt_out, dt_ind);
-  }
-
  private:
   int E;
-  libxsmm_meltwfunction_reduce_cols_idx kernel = NULL;
+  UnaryTPP kernel;
 };
 
 template <typename Tin, typename Tout>

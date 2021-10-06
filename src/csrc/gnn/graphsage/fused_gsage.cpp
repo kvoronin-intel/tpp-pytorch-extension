@@ -109,6 +109,6 @@ REGISTER_SUBMODULE(_fused_gsage, m) {
       "fused_gsage_mlp_bwd",
       &fused_gsage_mlp_bwd,
       "Pcl GraphSAGE MLP backward");
-  //m.def("dropout_fwd", &dropout_fwd, "Pcl Optimized Dropout FWD");
-  //m.def("dropout_bwd", &dropout_bwd, "Pcl Optimized Dropout BWD");
+  // m.def("dropout_fwd", &dropout_fwd, "Pcl Optimized Dropout FWD");
+  // m.def("dropout_bwd", &dropout_bwd, "Pcl Optimized Dropout BWD");
 }

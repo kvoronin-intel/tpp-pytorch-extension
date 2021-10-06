@@ -60,12 +60,12 @@ class SAGEMLPFunction(torch.autograd.Function):
                 align, p, act, res, training, inputs
             )
 
-        #breakpoint()
+        # breakpoint()
         if act == "None":
             act_mask = torch.tensor([], dtype=torch.short)
         if p == 0.0:
             dp_mask = torch.tensor([], dtype=torch.short)
-        
+
         if res:
             ctx.save_for_backward(inp, inp_res, wt, res_wt, act_mask, dp_mask)
         else:
