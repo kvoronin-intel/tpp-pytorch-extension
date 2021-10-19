@@ -622,7 +622,7 @@ class AddTPP {
   void ref(Tin* in0, Tin* in1, Tout* out) {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        out[r * ldo + c] += (float)in0[r * ldi + c] + (float)in1[r * ldi + c];
+        out[r * ldo + c] = (float)in0[r * ldi + c] + (float)in1[r * ldi + c];
       }
     }
   }
