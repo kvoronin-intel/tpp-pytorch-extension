@@ -99,7 +99,7 @@ auto dropout_fwd_tpp = SCOPEIT((DropOutFwdTPP<float, T>(bn * bk, p)), DROPOUT);
         }
         if (p > 0 && training) {
           dropout_fwd_tpp(
-              out_f32[n][k], (void*)rng_state, out[n][k], dp_mask[n][k]);
+              out_f32[n][k], (void*)get_rng_state(), out[n][k], dp_mask[n][k]);
         }
       }
     }

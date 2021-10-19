@@ -23,7 +23,8 @@ if (training && p > 0.0) {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
       for (int n = 0; n < N; n++)
-        dropout_fwd_tpp(&in[n], (void*)rng_state, &in[n], &dp_mask[n / 16]);
+        dropout_fwd_tpp(
+            &in[n], (void*)get_rng_state(), &in[n], &dp_mask[n / 16]);
     }
   }
 }

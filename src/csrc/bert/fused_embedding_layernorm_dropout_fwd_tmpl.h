@@ -108,7 +108,7 @@ auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(N * S2 * H, p), DROPOUT);
         if (p > 0) {
           dropout_fwd_tpp(
               out[b][s1][0][0],
-              (void*)rng_state,
+              (void*)get_rng_state(),
               out[b][s1][0][0],
               dp_mask[b][s1]);
         }

@@ -10,7 +10,10 @@
 
 thread_local unsigned int* rng_state = NULL;
 thread_local struct drand48_data drng_state; // For non AVX512 version
+
+unsigned int saved_seed = 0;
 void xsmm_manual_seed(unsigned int seed) {
+  saved_seed = seed;
 #pragma omp parallel
   {
     int tid = omp_get_thread_num();
@@ -27,6 +30,16 @@ void xsmm_manual_seed(unsigned int seed) {
     rng_state = libxsmm_rng_create_extstate(seed + tid);
     srand48_r(seed + tid, &drng_state);
   }
+}
+
+unsigned int* get_rng_state() {
+  if (rng_state) {
+    return rng_state;
+  }
+  auto tid = omp_get_thread_num();
+  rng_state = libxsmm_rng_create_extstate(saved_seed + tid);
+  srand48_r(saved_seed + tid, &drng_state);
+  return rng_state;
 }
 
 void init_libxsmm() {

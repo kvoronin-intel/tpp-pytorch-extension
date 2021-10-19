@@ -38,6 +38,7 @@ extern double ifreq; // defined in init.cpp
 // Defined in xsmm.cpp
 extern thread_local unsigned int* rng_state;
 extern thread_local struct drand48_data drng_state; // For non AVX512 version
+unsigned int* get_rng_state();
 
 #ifdef __x86_64__
 static __inline__ unsigned long long rdtsc(void) {

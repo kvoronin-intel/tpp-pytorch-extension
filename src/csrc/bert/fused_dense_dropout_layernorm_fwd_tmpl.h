@@ -88,7 +88,7 @@ auto layer_norm_fwd_tpp =
               if (p > 0) {
                 dropout_fwd_tpp(
                     dout[b][s1][nk][0],
-                    (void*)rng_state,
+                    (void*)get_rng_state(),
                     dout[b][s1][nk][0],
                     dp_mask[b][s1][nk]);
               }
@@ -120,7 +120,7 @@ auto layer_norm_fwd_tpp =
               if (p > 0) {
                 dropout_fwd_tpp(
                     dout[b][s1][nk][0],
-                    (void*)rng_state,
+                    (void*)get_rng_state(),
                     dout[b][s1][nk][0],
                     dp_mask[b][s1][nk]);
               }

@@ -96,7 +96,7 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
         if (p > 0 && training) {
           dropout_fwd_tpp(
               out_f32[n][0][k],
-              (void*)rng_state,
+              (void*)get_rng_state(),
               out[n][0][k],
               dp_mask[n][0][k]);
         } else
@@ -140,7 +140,7 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
           if (p > 0 && training) {
             dropout_fwd_tpp(
                 out_f32[nn * bn + r][k],
-                (void*)rng_state,
+                (void*)get_rng_state(),
                 out[nn * bn + r][k],
                 dp_mask[nn * bn + r][k]);
           } else

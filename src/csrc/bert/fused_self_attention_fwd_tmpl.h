@@ -231,7 +231,7 @@ if (training) {
             if (p > 0) {
               dropout_fwd_tpp(
                   AP[b][s11][n][0],
-                  rng_state,
+                  (void*)get_rng_state(),
                   APD[b][s11][n][0],
                   APD_mask[b][s11][n]);
             }
