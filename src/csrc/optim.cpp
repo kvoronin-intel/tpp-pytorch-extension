@@ -19,7 +19,9 @@ REGISTER_SCOPE(split_sgd_sparse, "splitsgd_s");
 REGISTER_SCOPE(split_sgd_dense, "splitsgd_d");
 REGISTER_SCOPE(dense_sparse_add, "sprse_add");
 REGISTER_SCOPE(fused_adamw, "fused_adamw");
+REGISTER_SCOPE(fused_lamb, "fused_lamb");
 REGISTER_SCOPE(splt_adamw, "splt_adamw");
+REGISTER_SCOPE(splt_lamb, "splt_lamb");
 REGISTER_SCOPE(grad_norm, "grad_norm");
 
 static int sparse_add_use_lock_free() {
@@ -364,6 +366,82 @@ at::Tensor clip_grad_norm(std::vector<at::Tensor>& grads, float max_norm) {
   return at::tensor(total_norm);
 }
 
+float fused_lamb(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_exp_avg,
+    at::Tensor& t_exp_avg_sq,
+    float beta1,
+    float beta2,
+    float weight_norm,
+    float lr,
+    float weight_decay,
+    float eps) {
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(fused_lamb, {t_data});
+  typedef float T;
+  auto t_adam_step = at::empty_like(t_data);
+  auto data = t_data.data_ptr<T>();
+  auto grad = t_grad.data_ptr<T>();
+  auto exp_avg = t_exp_avg.data_ptr<T>();
+  auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
+  auto adam_step = t_adam_step.data_ptr<T>();
+  long sz = t_data.numel();
+  constexpr int BS = 64;
+
+  auto adam_step_tpp =
+      SCOPEIT(FusedAdamStepTPP<T>(BS, beta1, beta2, weight_decay, eps), OPTIM);
+  auto norm_tpp = SCOPEIT(Norm2TPP<T>(BS), OPTIM);
+  auto scale_add_tpp = SCOPEIT((ScaleAddTPP<T, T>(BS)), OPTIM);
+
+  long i;
+  float adam_norm = 0.0f;
+#pragma omp parallel for lastprivate(i) reduction(+ : adam_norm)
+  for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
+    adam_step_tpp(
+        &data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], &adam_step[i]);
+    norm_tpp(&adam_step[i], &adam_norm);
+  }
+  if (i < sz) {
+    auto adam_step_tpp = SCOPEIT(
+        FusedAdamStepTPP<T>(sz - i, beta1, beta2, weight_decay, eps), OPTIM);
+    auto norm_tpp = SCOPEIT(Norm2TPP<T>(sz - i), OPTIM);
+    adam_step_tpp(
+        &data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], &adam_step[i]);
+    norm_tpp(&adam_step[i], &adam_norm);
+  }
+
+  adam_norm = sqrtf(adam_norm);
+  if (weight_norm == -1.0) {
+    weight_norm = sqrtf(norm2(data, sz));
+  }
+
+  auto trust_ratio = 1.0;
+  if (weight_norm != 0 && adam_norm != 0) {
+    trust_ratio = weight_norm / adam_norm;
+  }
+
+  lr = -lr * trust_ratio;
+
+  float new_weight_norm = 0.0;
+
+#pragma omp parallel for lastprivate(i) reduction(+ : new_weight_norm)
+  for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
+    scale_add_tpp(&adam_step[i], &data[i], lr);
+    norm_tpp(&data[i], &new_weight_norm);
+  }
+  if (i < sz) {
+    auto norm_tpp = SCOPEIT(Norm2TPP<T>(sz - i), OPTIM);
+    auto scale_add_tpp = SCOPEIT((ScaleAddTPP<T, T>(sz - i)), OPTIM);
+    scale_add_tpp(&adam_step[i], &data[i], lr);
+    norm_tpp(&data[i], &new_weight_norm);
+  }
+  new_weight_norm = sqrtf(new_weight_norm);
+  if (new_weight_norm > 10.0)
+    new_weight_norm = 10.0;
+  return new_weight_norm;
+}
+
 REGISTER_SUBMODULE(_optim, m) {
   m.def("dense_sparse_add_", &dense_sparse_add_, "Pcl pcl_dense_sparse_add");
   m.def("bf16_split_add_", &bf16_split_add_, "Pcl pcl_bf16_update");
@@ -373,4 +451,5 @@ REGISTER_SUBMODULE(_optim, m) {
       &fused_split_adamw,
       "Fused AdamW optimizer for BF16");
   m.def("clip_grad_norm", &clip_grad_norm, "Pcl BERT clip_grad_norm");
+  m.def("fused_lamb", &fused_lamb, "Fused LAMB optimizer");
 }

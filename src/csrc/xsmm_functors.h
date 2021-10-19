@@ -5016,6 +5016,283 @@ class FusedSplitAdamWTPP {
   friend class Eqn;
 };
 
+template <typename T>
+class FusedAdamStepTPP {
+ public:
+  FusedAdamStepTPP() {}
+  FusedAdamStepTPP(
+      int N,
+      float beta1,
+      float beta2,
+      float weight_decay,
+      float eps)
+      : N(N),
+        beta1(beta1),
+        beta2(beta2),
+        weight_decay(weight_decay),
+        eps(eps),
+        eqn0(this, 0),
+        eqn1(this, 1),
+        eqn2(this, 2) {}
+  void operator()(T* data, T* grad, T* exp_avg, T* exp_avg_sq, T* adam_step) {
+    float beta1_1 = 1.0f - beta1;
+    float beta2_1 = 1.0f - beta2;
+    float wd = weight_decay;
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[6];
+    arg_array[0].primary = (void*)grad;
+    arg_array[1].primary = (void*)&beta1_1;
+    arg_array[2].primary = (void*)exp_avg;
+    arg_array[3].primary = (void*)&beta1;
+    eqn_param.inputs = arg_array;
+    eqn_param.output.primary = (void*)exp_avg;
+    eqn0(&eqn_param);
+
+    // arg_array[0].primary = (void*)grad;
+    arg_array[1].primary = (void*)&beta2_1;
+    arg_array[2].primary = (void*)exp_avg_sq;
+    arg_array[3].primary = (void*)&beta2;
+    eqn_param.output.primary = (void*)exp_avg_sq;
+    eqn1(&eqn_param);
+
+    arg_array[0].primary = (void*)exp_avg_sq;
+    arg_array[1].primary = (void*)&eps;
+    arg_array[2].primary = (void*)exp_avg;
+    arg_array[3].primary = (void*)data;
+    arg_array[4].primary = (void*)&wd;
+    eqn_param.output.primary = (void*)adam_step;
+    eqn2(&eqn_param);
+  }
+
+  void ref(T* data, T* grad, T* exp_avg, T* exp_avg_sq, T* adam_step) {
+    long sz = N;
+    float beta1_1 = 1.0f - beta1;
+    float beta2_1 = 1.0f - beta2;
+#ifndef __AVX512F__
+    for (long i = 0; i < sz; i++) {
+      auto avg_i = exp_avg[i];
+      auto avg_sq_i = exp_avg_sq[i];
+      auto grad_i = grad[i];
+      avg_i = avg_i * beta1 + grad_i * beta1_1;
+      avg_sq_i = avg_sq_i * beta2 + grad_i * grad_i * beta2_1;
+      auto denom = sqrtf(avg_sq_i) + eps;
+      auto adam_step_i = avg_i / denom;
+      if (weight_decay > 0.0)
+        adam_step_i += data[i] * weight_decay;
+      exp_avg[i] = avg_i;
+      exp_avg_sq[i] = avg_sq_i;
+      adam_step[i] = adam_step_i;
+    }
+#else
+    auto vbeta1 = _mm512_set1_ps(beta1);
+    auto vbeta1_1 = _mm512_set1_ps(beta1_1);
+    auto vbeta2 = _mm512_set1_ps(beta2);
+    auto vbeta2_1 = _mm512_set1_ps(beta2_1);
+    auto veps = _mm512_set1_ps(eps);
+    // auto vstep_size = _mm512_set1_ps(step_size);
+    auto vweight_decay = _mm512_set1_ps(weight_decay);
+    long i;
+    for (i = 0; i < ALIGNDOWN(sz, 16); i += 16) {
+      auto avg_i = _mm512_loadu_ps(&exp_avg[i]);
+      auto avg_sq_i = _mm512_loadu_ps(&exp_avg_sq[i]);
+      auto grad_i = _mm512_loadu_ps(&grad[i]);
+      avg_i = _mm512_add_ps(
+          _mm512_mul_ps(avg_i, vbeta1), _mm512_mul_ps(grad_i, vbeta1_1));
+      avg_sq_i = _mm512_add_ps(
+          _mm512_mul_ps(avg_sq_i, vbeta2),
+          _mm512_mul_ps(_mm512_mul_ps(grad_i, grad_i), vbeta2_1));
+      auto denom = _mm512_add_ps(_mm512_sqrt_ps(avg_sq_i), veps);
+      auto adam_step_i = _mm512_div_ps(avg_i, denom);
+      if (weight_decay > 0.0) {
+        auto data_i = _mm512_loadu_ps(&data[i]);
+        adam_step_i =
+            _mm512_add_ps(adam_step_i, _mm512_mul_ps(data_i, vweight_decay));
+      }
+      _mm512_storeu_ps(&exp_avg[i], avg_i);
+      _mm512_storeu_ps(&exp_avg_sq[i], avg_sq_i);
+      _mm512_storeu_ps(&adam_step[i], adam_step_i);
+    }
+    if (i < sz) {
+      int rem = sz - i;
+      __mmask16 mask = (1 << rem) - 1;
+      auto avg_i = _mm512_maskz_loadu_ps(mask, &exp_avg[i]);
+      auto avg_sq_i = _mm512_maskz_loadu_ps(mask, &exp_avg_sq[i]);
+      auto grad_i = _mm512_maskz_loadu_ps(mask, &grad[i]);
+      avg_i = _mm512_add_ps(
+          _mm512_mul_ps(avg_i, vbeta1), _mm512_mul_ps(grad_i, vbeta1_1));
+      avg_sq_i = _mm512_add_ps(
+          _mm512_mul_ps(avg_sq_i, vbeta2),
+          _mm512_mul_ps(_mm512_mul_ps(grad_i, grad_i), vbeta2_1));
+      auto denom = _mm512_add_ps(_mm512_sqrt_ps(avg_sq_i), veps);
+      auto adam_step_i = _mm512_div_ps(avg_i, denom);
+      if (weight_decay > 0.0) {
+        auto data_i = _mm512_maskz_loadu_ps(mask, &data[i]);
+        adam_step_i =
+            _mm512_add_ps(adam_step_i, _mm512_mul_ps(data_i, vweight_decay));
+      }
+      _mm512_mask_storeu_ps(&exp_avg[i], mask, avg_i);
+      _mm512_mask_storeu_ps(&exp_avg_sq[i], mask, avg_sq_i);
+      _mm512_mask_storeu_ps(&adam_step[i], mask, adam_step_i);
+    }
+#endif
+  }
+  class Eqn : BaseTPP {
+   public:
+    Eqn() {}
+    Eqn(FusedAdamStepTPP* p, int eqn_no) : p(p), eqn_no(eqn_no) {
+      kernel = (libxsmm_matrix_eqn_function)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_matrix_eqn_param* eqn_param) {
+      if (!initialized)
+        return;
+      kernel(eqn_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "fused_adam_step_eqn%d_t%d_n%d_wd%d",
+          eqn_no,
+          XsmmDtype<T>(),
+          p->N,
+          (p->weight_decay == 0.0 ? 0 : 1));
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      auto in_dt = XsmmDtype<T>();
+      libxsmm_blasint ld = p->N;
+      auto N = p->N;
+      int use_wd = p->weight_decay == 0.0 ? 0 : 1;
+      libxsmm_matrix_eqn_function func;
+      if (eqn_no == 0) {
+        // Equation for exp_avg
+        auto my_eqn0 = libxsmm_matrix_eqn_create();
+        libxsmm_matrix_eqn_push_back_ternary_op(
+            my_eqn0,
+            LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn0,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
+        libxsmm_matrix_eqn_tree_print(my_eqn0);
+        libxsmm_matrix_eqn_rpn_print(my_eqn0);
+        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
+      } else if (eqn_no == 1) {
+        // Equation for exp_avg_sq
+        auto my_eqn1 = libxsmm_matrix_eqn_create();
+        libxsmm_matrix_eqn_push_back_ternary_op(
+            my_eqn1,
+            LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+            (libxsmm_meltw_ternary_flags)(
+                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn1,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_unary_op(
+            my_eqn1,
+            LIBXSMM_MELTW_TYPE_UNARY_X2,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
+        libxsmm_matrix_eqn_tree_print(my_eqn1);
+        libxsmm_matrix_eqn_rpn_print(my_eqn1);
+        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
+      } else if (eqn_no == 2) {
+        // Equation for adam_step_i (with decay)
+        auto my_eqn2 = libxsmm_matrix_eqn_create();
+        if (use_wd == 1) {
+          libxsmm_matrix_eqn_push_back_binary_op(
+              my_eqn2,
+              LIBXSMM_MELTW_TYPE_BINARY_ADD,
+              LIBXSMM_MELTW_FLAG_BINARY_NONE,
+              LIBXSMM_DATATYPE_F32);
+          libxsmm_matrix_eqn_push_back_binary_op(
+              my_eqn2,
+              LIBXSMM_MELTW_TYPE_BINARY_MUL,
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+              LIBXSMM_DATATYPE_F32);
+          libxsmm_matrix_eqn_push_back_arg(
+              my_eqn2, N, 1, ld, 3, 0, in_dt); // data_i
+          libxsmm_matrix_eqn_push_back_arg( // weight_decay
+              my_eqn2,
+              1,
+              1,
+              1,
+              4,
+              0,
+              LIBXSMM_DATATYPE_F32);
+        }
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn2,
+            LIBXSMM_MELTW_TYPE_BINARY_DIV,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn2,
+            LIBXSMM_MELTW_TYPE_BINARY_ADD,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_unary_op(
+            my_eqn2,
+            LIBXSMM_MELTW_TYPE_UNARY_SQRT,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
+        libxsmm_matrix_eqn_tree_print(my_eqn2);
+        libxsmm_matrix_eqn_rpn_print(my_eqn2);
+        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
+      } else {
+        PCL_ASSERT(false, "Should not come here\n");
+      }
+      return (void*)func;
+    }
+
+   private:
+    FusedAdamStepTPP* p;
+    int eqn_no;
+    libxsmm_matrix_eqn_function kernel = NULL;
+  };
+
+ private:
+  int N = 0;
+  float beta1, beta2, weight_decay, eps;
+  Eqn eqn0, eqn1, eqn2;
+  friend class Eqn;
+};
+
 #if 0
   template<typename T>
     class TPP : public BaseTPP {
