@@ -33,7 +33,11 @@ auto t_grad_beta = at::empty_like(t_gamma); // [N][H]
 auto t_grad_word_emb = at::empty_like(t_word_emb);
 auto t_grad_pos_emb = at::empty_like(t_pos_emb);
 auto t_grad_tt_emb = at::empty_like(t_tt_emb);
+auto t_grad_dp_out = t_grad_out;
 auto t_grad_emb_out = at::empty_like(t_emb_out);
+if (p > 0) {
+  t_grad_dp_out = t_grad_emb_out;
+}
 
 DECL_VLA_PTR_PT(long, in_ids, [S1][S2], t_in_ids);
 DECL_VLA_PTR_PT(long, pos_ids, [S1][S2], t_pos_ids);
@@ -46,6 +50,7 @@ DECL_VLA_PTR_PT(float, mean, [S1][S2], t_mean);
 DECL_VLA_PTR_PT(float, var, [S1][S2], t_var);
 DECL_VLA_PTR_PT(T, emb_out, [S1][N][S2][H], t_emb_out);
 DECL_VLA_PTR_PT(T, grad_out, [S1][N][S2][H], t_grad_out);
+DECL_VLA_PTR_PT(T, grad_dp_out, [S1][N][S2][H], t_grad_dp_out);
 DECL_VLA_PTR_PT(T, grad_emb_out, [S1][N][S2][H], t_grad_emb_out);
 DECL_VLA_PTR_PT(short, dp_mask, [S1][(N * S2 * H + 15) / 16], t_dp_mask);
 DECL_VLA_PTR_PT(ET, grad_word_emb, [N][H], t_grad_word_emb);
@@ -86,11 +91,11 @@ auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
           if (p > 0) {
             drop_out_bwd_tpp(
                 grad_out[b][s1][0][0],
-                grad_emb_out[b][s1][0][0],
+                grad_dp_out[b][s1][0][0],
                 dp_mask[b][s1]);
           }
           layer_norm_bwd_tpp(
-              grad_emb_out[b][s1][0][0],
+              grad_dp_out[b][s1][0][0],
               emb_out[b][s1][0][0],
               mean[b][s1],
               var[b][s1],
