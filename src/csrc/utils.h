@@ -39,12 +39,30 @@ extern double ifreq; // defined in init.cpp
 extern thread_local unsigned int* rng_state;
 extern thread_local struct drand48_data drng_state; // For non AVX512 version
 
+#ifdef __x86_64__
 static __inline__ unsigned long long rdtsc(void) {
   unsigned hi, lo;
   __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
   return ((unsigned long long)lo) | (((unsigned long long)hi) << 32);
 }
+#elif defined(__aarch64__)
+static __inline__ unsigned long long rdtsc(void) {
+  unsigned long long val;
 
+  /*
+   * According to ARM DDI 0487F.c, from Armv8.0 to Armv8.5 inclusive, the
+   * system counter is at least 56 bits wide; from Armv8.6, the counter
+   * must be 64 bits wide.  So the system counter could be less than 64
+   * bits wide and it is attributed with the flag 'cap_user_time_short'
+   * is true.
+   */
+  asm volatile("mrs %0, cntvct_el0" : "=r"(val));
+
+  return val;
+}
+#else
+#error "Unsupported architecture for rdtsc"
+#endif
 inline double getFreq() {
   long long int s = rdtsc();
   sleep(1);
