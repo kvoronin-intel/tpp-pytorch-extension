@@ -184,6 +184,8 @@ class BlockedTensor(object):
             return getattr(self._t, attr)
         elif attr == "detach":
             return getattr(self.unblocked_tensor(), attr)
+        elif attr == "view":
+            return getattr(self.unblocked_tensor(), attr)
         # elif hasattr(self._t, attr): return getattr(self._t, attr)
         else:
             raise AttributeError("BlockedTensor doesn't support attr %s" % attr)
