@@ -67,6 +67,7 @@ inline int register_scope(std::string name) {
   return idx;
 }
 
+#define REGISTER_LOCAL_SCOPE(id, name) static int sc_##id = register_scope(name)
 #define REGISTER_SCOPE(id, name) int sc_##id = register_scope(name)
 #define USING_SCOPE(id) extern int sc_##id
 

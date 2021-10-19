@@ -168,6 +168,32 @@ inline at::Tensor act_tensor_trans(
 #endif
 }
 
+inline at::Tensor act_tensor_trans(
+    long S1,
+    long N,
+    long S2,
+    long H,
+    at::Tensor& input) {
+  RECORD_SCOPE(a_xpose, {input});
+#if 0
+  return input.permute({0, 1, 3, 2}).contiguous();
+#else
+  auto output = input.new_empty({S1, N, H, S2});
+  DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
+  DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
+  auto trans_tpp =
+      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+  {
+    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for
+    for (int n = 0; n < S1 * N; n++) {
+      trans_tpp(in[n], out[n]);
+    }
+  }
+  return output;
+#endif
+}
+
 USING_SCOPE(a_vnni);
 
 inline at::Tensor act_tensor_n2v(
@@ -191,6 +217,33 @@ inline at::Tensor act_tensor_n2v(
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
     for (int n = 0; n < B * S1 * N; n++) {
+      n2v_tpp(in[n], out[n]);
+    }
+  }
+  return output;
+#endif
+}
+
+inline at::Tensor act_tensor_n2v(
+    long S1,
+    long N,
+    long S2,
+    long H,
+    at::Tensor& input) {
+  RECORD_SCOPE(a_vnni, {input});
+  PCL_ASSERT(S2 % 2 == 0, "Uneven number for S2\n");
+#if 0
+  return input.view({S1, N, S2/2, 2, H}).permute({0,1,2,4,3}).contiguous();
+#else
+  auto output = input.new_empty({S1, N, S2 / 2, H, 2});
+  DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
+  DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
+  auto n2v_tpp =
+      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+  {
+    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for
+    for (int n = 0; n < S1 * N; n++) {
       n2v_tpp(in[n], out[n]);
     }
   }
