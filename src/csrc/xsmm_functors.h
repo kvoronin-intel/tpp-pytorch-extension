@@ -4346,15 +4346,17 @@ class EmbBagFwdTPP {
   EmbBagFwdTPP(int E)
       : E(E),
         kernel(
-            E,
             0,
+            E,
             E,
             E,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                              : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES,
+            (libxsmm_meltw_unary_flags)(
+                LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC |
+                (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
+                                   : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX) {}
   void operator()(Tout* output, Tin* weight, Tind* input, int N) {
     unsigned long long _N = N;
