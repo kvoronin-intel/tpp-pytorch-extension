@@ -2146,6 +2146,115 @@ class ELUBwdTPP {
   UnaryTPP kernel;
 };
 
+template <typename Tin, typename Tout = Tin>
+class LeakyRELUFwdTPP {
+ public:
+  LeakyRELUFwdTPP() {}
+  LeakyRELUFwdTPP(int N, float alpha) : LeakyRELUFwdTPP(1, N, alpha) {}
+  LeakyRELUFwdTPP(int rows, int cols, float alpha)
+      : LeakyRELUFwdTPP(rows, cols, cols, cols, alpha) {}
+  LeakyRELUFwdTPP(int rows, int cols, int ldi, int ldo, float alpha)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        alpha(alpha),
+        kernel(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
+            LIBXSMM_MELTW_TYPE_UNARY_LEAKY_RELU) {}
+  void operator()(Tin* in,  Tout* out, short* mask=NULL) {
+    kernel(
+        (void*)in,
+        NULL,
+        NULL,
+        (void*)&alpha,
+        NULL,
+        NULL,
+        (void*)out,
+        (void*)mask);
+  }
+  void ref(Tin* in, Tout* out, short* mask=NULL) {
+    float a = alpha;
+    // std::cout << " op: " << out << " inp: "<< in << std::endl;
+    for (int i = 0; i < rows; i++)
+      for (int j = 0; j < cols; j++){
+        out[i * ldo + j] = in[i * ldi + j] > 0 
+                            ? (Tout)in[i * ldi + j]
+                            : (Tout)(a * (in[i * ldi + j]));
+      }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  float alpha;
+  UnaryTPP kernel;
+};
+
+template <typename Tin, typename Tout = Tin>
+class LeakyRELUBwdTPP {
+ public:
+  LeakyRELUBwdTPP() {}
+  LeakyRELUBwdTPP(int N, float alpha) : LeakyRELUBwdTPP(1, N, alpha) {}
+  LeakyRELUBwdTPP(int rows, int cols, float alpha)
+      : LeakyRELUBwdTPP(rows, cols, cols, cols, alpha) {}
+  LeakyRELUBwdTPP(int rows, int cols, int ldi, int ldo, float alpha)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        alpha(alpha),
+        kernel(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
+            LIBXSMM_MELTW_TYPE_UNARY_LEAKY_RELU_INV) {}
+  void operator()(Tin* in, Tout* out, Tin* in2=NULL, short* mask= NULL) {
+    kernel(
+        (void*)in, 
+        (void*)mask,
+        NULL,
+        (void*)&alpha,
+        NULL,
+        NULL,
+        (void*)out,
+        (void*)NULL);
+  }
+  void ref(Tin* in, Tout* out, Tin* in2, short* mask=NULL) {
+    float a = alpha;
+    for (int i = 0; i < rows; i++)
+      for (int j = 0; j < cols; j++){
+        float grad_out = in[i * ldi + j]; 
+        out[i * ldo + j] = in2[i * ldi + j] > 0
+            ? (Tout)grad_out
+            : (Tout)(a * grad_out);
+      }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  float alpha;
+  UnaryTPP kernel;
+};
+
+
 template <typename T>
 class SiLUFwdTPP {
  public:
