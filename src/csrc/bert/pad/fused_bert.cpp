@@ -5,43 +5,43 @@
 
 #include <iostream>
 #include <vector>
-#include "../ext_tpp.h"
-#include "../init.h"
-#include "../timing.h"
-#include "../xsmm_functors.h"
+#include "ext_tpp.h"
+#include "init.h"
+#include "timing.h"
+#include "xsmm_functors.h"
 
 using namespace pcl;
-#include "../tensor_helper.h"
+#include "tensor_helper.h"
 
 static int my_rank = guess_mpi_rank();
 
-REGISTER_LOCAL_SCOPE(b_emb, "b_emb");
-REGISTER_LOCAL_SCOPE(q_gemm, "q_gemm");
-REGISTER_LOCAL_SCOPE(k_gemm, "k_gemm");
-REGISTER_LOCAL_SCOPE(v_gemm, "v_gemm");
-REGISTER_LOCAL_SCOPE(a_gemm, "a_gemm");
-REGISTER_LOCAL_SCOPE(c_gemm, "c_gemm");
-REGISTER_LOCAL_SCOPE(o_gemm, "o_gemm");
-REGISTER_LOCAL_SCOPE(i_gemm, "i_gemm");
+REGISTER_SCOPE(b_emb, "b_emb");
+REGISTER_SCOPE(q_gemm, "q_gemm");
+REGISTER_SCOPE(k_gemm, "k_gemm");
+REGISTER_SCOPE(v_gemm, "v_gemm");
+REGISTER_SCOPE(a_gemm, "a_gemm");
+REGISTER_SCOPE(c_gemm, "c_gemm");
+REGISTER_SCOPE(o_gemm, "o_gemm");
+REGISTER_SCOPE(i_gemm, "i_gemm");
 
-REGISTER_LOCAL_SCOPE(db_emb, "db_emb");
-REGISTER_LOCAL_SCOPE(diq_gemm, "diq_gemm");
-REGISTER_LOCAL_SCOPE(dik_gemm, "dik_gemm");
-REGISTER_LOCAL_SCOPE(div_gemm, "div_gemm");
-REGISTER_LOCAL_SCOPE(dica_gemm, "dica_gemm");
-REGISTER_LOCAL_SCOPE(dii_gemm, "dii_gemm");
-REGISTER_LOCAL_SCOPE(dio_gemm, "dio_gemm");
-REGISTER_LOCAL_SCOPE(dwqkv_gemm, "dwqkv_gemm");
-REGISTER_LOCAL_SCOPE(dwq_gemm, "dwq_gemm");
-REGISTER_LOCAL_SCOPE(dwk_gemm, "dwk_gemm");
-REGISTER_LOCAL_SCOPE(dwv_gemm, "dwv_gemm");
-REGISTER_LOCAL_SCOPE(dwa_gemm, "dwa_gemm");
-REGISTER_LOCAL_SCOPE(dwc_gemm, "dwc_gemm");
-REGISTER_LOCAL_SCOPE(dwi_gemm, "dwi_gemm");
-REGISTER_LOCAL_SCOPE(dwo_gemm, "dwo_gemm");
-REGISTER_LOCAL_SCOPE(dqkv_bias, "dqkv_bias");
-REGISTER_LOCAL_SCOPE(di_bias, "di_bias");
-REGISTER_LOCAL_SCOPE(do_bias, "do_bias");
+REGISTER_SCOPE(db_emb, "db_emb");
+REGISTER_SCOPE(diq_gemm, "diq_gemm");
+REGISTER_SCOPE(dik_gemm, "dik_gemm");
+REGISTER_SCOPE(div_gemm, "div_gemm");
+REGISTER_SCOPE(dica_gemm, "dica_gemm");
+REGISTER_SCOPE(dii_gemm, "dii_gemm");
+REGISTER_SCOPE(dio_gemm, "dio_gemm");
+REGISTER_SCOPE(dwqkv_gemm, "dwqkv_gemm");
+REGISTER_SCOPE(dwq_gemm, "dwq_gemm");
+REGISTER_SCOPE(dwk_gemm, "dwk_gemm");
+REGISTER_SCOPE(dwv_gemm, "dwv_gemm");
+REGISTER_SCOPE(dwa_gemm, "dwa_gemm");
+REGISTER_SCOPE(dwc_gemm, "dwc_gemm");
+REGISTER_SCOPE(dwi_gemm, "dwi_gemm");
+REGISTER_SCOPE(dwo_gemm, "dwo_gemm");
+REGISTER_SCOPE(dqkv_bias, "dqkv_bias");
+REGISTER_SCOPE(di_bias, "di_bias");
+REGISTER_SCOPE(do_bias, "do_bias");
 
 template <typename T>
 inline void omp_reduce_buf(
@@ -65,7 +65,7 @@ inline void omp_reduce_buf(
   }
 }
 
-static std::vector<at::Tensor> fused_self_attention_fwd(
+std::vector<at::Tensor> fused_self_attention_fwd(
     float p,
     std::vector<at::Tensor> inputs,
     bool training) {
@@ -79,7 +79,7 @@ static std::vector<at::Tensor> fused_self_attention_fwd(
   }
 }
 
-static std::vector<at::Tensor> fused_self_attention_bwd(
+std::vector<at::Tensor> fused_self_attention_bwd(
     float p,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
@@ -92,7 +92,7 @@ static std::vector<at::Tensor> fused_self_attention_bwd(
   }
 }
 
-static std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
+std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
     float p,
     float eps,
     std::vector<at::Tensor> inputs,
@@ -107,7 +107,7 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
   }
 }
 
-static std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
+std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
     float p,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
@@ -120,7 +120,7 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
   }
 }
 
-static std::vector<at::Tensor> fused_dense_gelu_fwd(
+std::vector<at::Tensor> fused_dense_gelu_fwd(
     at::Tensor t_in,
     at::Tensor t_wt,
     at::Tensor t_bias,
@@ -135,7 +135,7 @@ static std::vector<at::Tensor> fused_dense_gelu_fwd(
   }
 }
 
-static std::vector<at::Tensor> fused_dense_gelu_bwd(
+std::vector<at::Tensor> fused_dense_gelu_bwd(
     at::Tensor t_grad_out,
     at::Tensor t_gelu_in,
     at::Tensor t_in,
@@ -150,7 +150,7 @@ static std::vector<at::Tensor> fused_dense_gelu_bwd(
   }
 }
 
-static std::vector<at::Tensor> fused_embedding_layernorm_dropout_fwd(
+std::vector<at::Tensor> fused_embedding_layernorm_dropout_fwd(
     float p,
     float eps,
     long H,
@@ -183,7 +183,7 @@ static std::vector<at::Tensor> fused_embedding_layernorm_dropout_fwd(
   }
 }
 
-static std::vector<at::Tensor> fused_embedding_layernorm_dropout_bwd(
+std::vector<at::Tensor> fused_embedding_layernorm_dropout_bwd(
     float p,
     long pad_id,
     std::vector<at::Tensor>& inputs) {
@@ -213,7 +213,7 @@ static std::vector<at::Tensor> fused_embedding_layernorm_dropout_bwd(
   }
 }
 
-REGISTER_SUBMODULE(_fused_bert_unpad, m) {
+REGISTER_SUBMODULE(_fused_bert, m) {
   m.def(
       "fused_self_attention_fwd",
       &fused_self_attention_fwd,

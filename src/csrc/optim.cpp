@@ -5,6 +5,57 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
+#if (defined(__x86_64__) || defined(__i386__))
+#include "ATen/native/cpu/Intrinsics.h"
+#else
+#define _mm_pause()
+#endif
+
+#include <atomic>
+
+static inline void atomic_add_float(double* dst, double fvalue) {
+  typedef union {
+    unsigned long long intV;
+    double floatV;
+  } uf64_t;
+
+  uf64_t new_value, old_value;
+  std::atomic<unsigned long long>* dst_intV =
+      (std::atomic<unsigned long long>*)(dst);
+
+  old_value.floatV = *dst;
+  new_value.floatV = old_value.floatV + fvalue;
+
+  unsigned long long* old_intV = (unsigned long long*)(&old_value.intV);
+  while (!std::atomic_compare_exchange_strong(
+      dst_intV, old_intV, new_value.intV)) {
+    _mm_pause();
+    old_value.floatV = *dst;
+    new_value.floatV = old_value.floatV + fvalue;
+  }
+}
+
+static inline void atomic_add_float(float* dst, float fvalue) {
+  typedef union {
+    unsigned intV;
+    float floatV;
+  } uf32_t;
+
+  uf32_t new_value, old_value;
+  std::atomic<unsigned>* dst_intV = (std::atomic<unsigned>*)(dst);
+
+  old_value.floatV = *dst;
+  new_value.floatV = old_value.floatV + fvalue;
+
+  unsigned* old_intV = (unsigned*)(&old_value.intV);
+  while (!std::atomic_compare_exchange_strong(
+      dst_intV, old_intV, new_value.intV)) {
+    _mm_pause();
+    old_value.floatV = *dst;
+    new_value.floatV = old_value.floatV + fvalue;
+  }
+}
+
 using namespace pcl;
 
 #define MYASSERT(x)                     \
@@ -301,17 +352,17 @@ void fused_split_adamw(
 }
 
 template <typename T>
-float norm2(T* ptr, long N) {
+double norm2(T* ptr, long N) {
   constexpr int BS = 256;
-  auto norm_tpp = SCOPEIT(Norm2TPP<T>(BS), OPTIM);
-  float sum = 0.0f;
+  auto norm_tpp = SCOPEIT((Norm2TPP<T, double>(BS)), OPTIM);
+  double sum = 0.0f;
   long i;
 #pragma omp parallel for reduction(+ : sum) lastprivate(i)
   for (i = 0; i < ALIGNDOWN(N, BS); i += BS) {
     norm_tpp(&ptr[i], &sum);
   }
   if (i < N) {
-    auto norm_tpp = SCOPEIT(Norm2TPP<T>(N - i), OPTIM);
+    auto norm_tpp = SCOPEIT((Norm2TPP<T, double>(N - i)), OPTIM);
     norm_tpp(&ptr[i], &sum);
   }
   return sum;
@@ -332,10 +383,10 @@ void tensor_scale(T* ptr, long N, float scale) {
   }
 }
 
-at::Tensor clip_grad_norm(std::vector<at::Tensor>& grads, float max_norm) {
+double clip_grad_norm(std::vector<at::Tensor>& grads, double max_norm) {
   GlobalPass _gp(UPD);
   RECORD_SCOPE(grad_norm);
-  float total_norm = 0.0;
+  double total_norm = 0.0;
   int N = grads.size();
 
   for (int i = 0; i < N; i++) {
@@ -348,7 +399,7 @@ at::Tensor clip_grad_norm(std::vector<at::Tensor>& grads, float max_norm) {
     }
   }
 
-  total_norm = sqrtf(total_norm);
+  total_norm = sqrt(total_norm);
   float clip_coef = max_norm / (total_norm + 1e-6);
   if (clip_coef < 1.0) {
     for (int i = 0; i < N; i++) {
@@ -363,7 +414,7 @@ at::Tensor clip_grad_norm(std::vector<at::Tensor>& grads, float max_norm) {
     }
   }
   // printf("total_norm = %g\n", total_norm);
-  return at::tensor(total_norm);
+  return total_norm;
 }
 
 float fused_lamb(
@@ -389,8 +440,9 @@ float fused_lamb(
   long sz = t_data.numel();
   constexpr int BS = 64;
 
-  auto adam_step_tpp =
-      SCOPEIT(FusedAdamStepTPP<T>(BS, beta1, beta2, weight_decay, eps), OPTIM);
+  auto adam_step_tpp = SCOPEIT(
+      FusedAdamStepTPP<T>(BS, beta1, beta2, eps, weight_decay > 0.0, false),
+      OPTIM);
   auto norm_tpp = SCOPEIT(Norm2TPP<T>(BS), OPTIM);
   auto scale_add_tpp = SCOPEIT((ScaleAddTPP<T, T>(BS)), OPTIM);
 
@@ -399,15 +451,27 @@ float fused_lamb(
 #pragma omp parallel for lastprivate(i) reduction(+ : adam_norm)
   for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
     adam_step_tpp(
-        &data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], &adam_step[i]);
+        &data[i],
+        &grad[i],
+        &exp_avg[i],
+        &exp_avg_sq[i],
+        &adam_step[i],
+        weight_decay);
     norm_tpp(&adam_step[i], &adam_norm);
   }
   if (i < sz) {
     auto adam_step_tpp = SCOPEIT(
-        FusedAdamStepTPP<T>(sz - i, beta1, beta2, weight_decay, eps), OPTIM);
+        FusedAdamStepTPP<T>(
+            sz - i, beta1, beta2, eps, weight_decay > 0.0, false),
+        OPTIM);
     auto norm_tpp = SCOPEIT(Norm2TPP<T>(sz - i), OPTIM);
     adam_step_tpp(
-        &data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], &adam_step[i]);
+        &data[i],
+        &grad[i],
+        &exp_avg[i],
+        &exp_avg_sq[i],
+        &adam_step[i],
+        weight_decay);
     norm_tpp(&adam_step[i], &adam_norm);
   }
 
@@ -442,6 +506,235 @@ float fused_lamb(
   return new_weight_norm;
 }
 
+template <typename T, typename TN>
+void fused_lamb_v2_impl(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_exp_avg,
+    at::Tensor& t_exp_avg_sq,
+    at::Tensor& t_adam_step,
+    at::Tensor& t_data_low,
+    at::Tensor& t_offsets,
+    at::Tensor& t_block_sizes,
+    at::Tensor& t_block2param,
+    at::Tensor& t_weight_norms,
+    at::Tensor& t_update_norms,
+    float weight_decay,
+    float beta1,
+    float beta2,
+    float lr,
+    float eps,
+    int block_size,
+    int step,
+    bool fused_param_norm) {
+  const int BS = block_size;
+  auto num_blocks = t_data.numel() / block_size;
+  DECL_VLA_PTR_PT(T, d, [BS], t_data);
+  DECL_VLA_PTR_PT(T, g, [BS], t_grad);
+  DECL_VLA_PTR_PT(T, m, [BS], t_exp_avg);
+  DECL_VLA_PTR_PT(T, v, [BS], t_exp_avg_sq);
+  DECL_VLA_PTR_PT(T, u, [BS], t_adam_step);
+  DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
+  // auto sz = t_block_sizes.data_ptr<int>();
+  auto b2p = t_block2param.data_ptr<int>();
+  auto wnorm = t_weight_norms.data_ptr<TN>();
+  auto unorm = t_update_norms.data_ptr<TN>();
+
+  auto adam_step_nwd_tpp =
+      SCOPEIT(FusedAdamStepTPP<T>(BS, beta1, beta2, eps, false, true), OPTIM);
+  auto adam_step_wwd_tpp =
+      SCOPEIT(FusedAdamStepTPP<T>(BS, beta1, beta2, eps, true, true), OPTIM);
+  auto norm_tpp = SCOPEIT((Norm2TPP<T, TN>(BS)), OPTIM);
+  auto scale_add_tpp = SCOPEIT((ScaleAddTPP<T, T>(BS)), OPTIM);
+  auto scale_add_split_bf16_tpp = SCOPEIT((SplitSGDTPP(BS)), OPTIM);
+
+  long i;
+  float b1_scale = 1.0 / (1.0 - pow(beta1, step));
+  float b2_scale = 1.0 / (1.0 - pow(beta2, step));
+  if (!fused_param_norm) {
+    t_weight_norms.zero_();
+    t_update_norms.zero_();
+  }
+  TN fused_adam_norm = 0.0;
+  TN fused_weight_norm = 0.0;
+#pragma omp parallel for reduction(+ : fused_adam_norm, fused_weight_norm)
+  for (i = 0; i < num_blocks; i++) {
+    TN adam_norm = 0.0f;
+    TN wt_norm = 0.0f;
+    int p_i = b2p[i] + 1;
+    float wd = weight_decay;
+    bool use_wd = (wd > 0.0);
+    if (use_wd) {
+      adam_step_wwd_tpp(d[i], g[i], m[i], v[i], u[i], wd, b1_scale, b2_scale);
+      norm_tpp(d[i], &wt_norm);
+      norm_tpp(u[i], &adam_norm);
+      if (!fused_param_norm) {
+        atomic_add_float(&wnorm[p_i], wt_norm);
+        atomic_add_float(&unorm[p_i], adam_norm);
+      }
+      fused_adam_norm += adam_norm;
+      fused_weight_norm += wt_norm;
+    } else {
+      adam_step_nwd_tpp(d[i], g[i], m[i], v[i], u[i], wd, b1_scale, b2_scale);
+    }
+  }
+  if (weight_decay > 0.0) {
+    wnorm[0] = fused_weight_norm;
+    unorm[0] = fused_adam_norm;
+  }
+
+#pragma omp parallel for
+  for (i = 0; i < num_blocks; i++) {
+    auto trust_ratio = 1.0;
+    int p_i = b2p[i] + 1;
+    float wd = weight_decay;
+    bool use_wd = (wd > 0.0);
+    if (use_wd) {
+      float weight_norm = fused_weight_norm;
+      float adam_norm = fused_adam_norm;
+      if (!fused_param_norm) {
+        weight_norm = wnorm[p_i];
+        adam_norm = unorm[p_i];
+      }
+      adam_norm = sqrtf(adam_norm);
+      weight_norm = sqrtf(weight_norm);
+      if (weight_norm != 0 && adam_norm != 0) {
+        trust_ratio = weight_norm / adam_norm;
+      }
+    }
+    float final_lr = -lr * trust_ratio;
+    if (std::is_same<T, float>::value) {
+      scale_add_tpp(u[i], d[i], final_lr);
+    } else {
+      scale_add_split_bf16_tpp(
+          (at::BFloat16*)d[i],
+          (at::BFloat16*)dl[i],
+          (at::BFloat16*)u[i],
+          final_lr);
+    }
+  }
+}
+
+void fused_lamb_v2(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_exp_avg,
+    at::Tensor& t_exp_avg_sq,
+    at::Tensor& t_adam_step,
+    at::Tensor& t_data_low,
+    at::Tensor& t_offsets,
+    at::Tensor& t_block_sizes,
+    at::Tensor& t_block2param,
+    at::Tensor& t_weight_norms,
+    at::Tensor& t_update_norms,
+    float weight_decay,
+    float beta1,
+    float beta2,
+    float lr,
+    float eps,
+    int block_size,
+    int step,
+    bool fused_param_norm) {
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(fused_lamb, {t_data});
+
+  if (t_weight_norms.dtype() == at::kFloat) {
+    if (t_data.dtype() == at::kFloat) {
+      fused_lamb_v2_impl<float, float>(
+          t_data,
+          t_grad,
+          t_exp_avg,
+          t_exp_avg_sq,
+          t_adam_step,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          t_weight_norms,
+          t_update_norms,
+          weight_decay,
+          beta1,
+          beta2,
+          lr,
+          eps,
+          block_size,
+          step,
+          fused_param_norm);
+    } else if (t_data.dtype() == at::kBFloat16) {
+      fused_lamb_v2_impl<bfloat16, float>(
+          t_data,
+          t_grad,
+          t_exp_avg,
+          t_exp_avg_sq,
+          t_adam_step,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          t_weight_norms,
+          t_update_norms,
+          weight_decay,
+          beta1,
+          beta2,
+          lr,
+          eps,
+          block_size,
+          step,
+          fused_param_norm);
+    } else {
+      PCL_ASSERT(0, "Should not come here\n");
+    }
+  } else if (t_weight_norms.dtype() == at::kDouble) {
+    if (t_data.dtype() == at::kFloat) {
+      fused_lamb_v2_impl<float, double>(
+          t_data,
+          t_grad,
+          t_exp_avg,
+          t_exp_avg_sq,
+          t_adam_step,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          t_weight_norms,
+          t_update_norms,
+          weight_decay,
+          beta1,
+          beta2,
+          lr,
+          eps,
+          block_size,
+          step,
+          fused_param_norm);
+    } else if (t_data.dtype() == at::kBFloat16) {
+      fused_lamb_v2_impl<bfloat16, double>(
+          t_data,
+          t_grad,
+          t_exp_avg,
+          t_exp_avg_sq,
+          t_adam_step,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          t_weight_norms,
+          t_update_norms,
+          weight_decay,
+          beta1,
+          beta2,
+          lr,
+          eps,
+          block_size,
+          step,
+          fused_param_norm);
+    } else {
+      PCL_ASSERT(0, "Should not come here\n");
+    }
+  } else {
+    PCL_ASSERT(0, "Should not come here\n");
+  }
+}
+
 REGISTER_SUBMODULE(_optim, m) {
   m.def("dense_sparse_add_", &dense_sparse_add_, "Pcl pcl_dense_sparse_add");
   m.def("bf16_split_add_", &bf16_split_add_, "Pcl pcl_bf16_update");
@@ -452,4 +745,5 @@ REGISTER_SUBMODULE(_optim, m) {
       "Fused AdamW optimizer for BF16");
   m.def("clip_grad_norm", &clip_grad_norm, "Pcl BERT clip_grad_norm");
   m.def("fused_lamb", &fused_lamb, "Fused LAMB optimizer");
+  m.def("fused_lamb_v2", &fused_lamb_v2, "Fused LAMB optimizer version 2");
 }

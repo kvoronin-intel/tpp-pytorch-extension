@@ -22,4 +22,8 @@ def print_debug_timers(tid=0):
     _C.print_debug_timers(tid)
 
 
+def print_debug_thread_imbalance():
+    _C.print_debug_thread_imbalance()
+
+
 reset_debug_timers()

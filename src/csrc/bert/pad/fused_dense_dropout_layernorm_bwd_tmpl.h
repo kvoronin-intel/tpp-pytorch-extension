@@ -53,7 +53,8 @@ if (t_grad_dout.dtype() == at::kBFloat16) {
 DECL_VLA_PTR_PT(T, in_T, [S1][Nc][Hc][S2], t_in_T);
 DECL_VLA_PTR_PT(T, grad_in2, [S1][Nk][S2][Hk], t_grad_in2);
 DECL_VLA_PTR_PT(T, grad_in, [S1][Nc][S2][Hc], t_grad_in);
-DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk / 2][Hc][2], t_wt_TV);
+// DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk / 2][Hc][2], t_wt_TV);
+DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
 DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc][Hk], t_grad_wt);
 DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
 DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
@@ -62,7 +63,8 @@ DECL_VLA_PTR_PT(T, grad_beta, [Hk], t_grad_beta);
 DECL_VLA_PTR_PT(float, mean, [S1][S2], t_mean);
 DECL_VLA_PTR_PT(float, var, [S1][S2], t_var);
 DECL_VLA_PTR_PT(T, grad_dout, [S1][Nk][S2][Hk], t_grad_dout);
-DECL_VLA_PTR_PT(T, grad_dout_V, [S1][Nk][S2 / 2][Hk][2], t_grad_dout_V);
+// DECL_VLA_PTR_PT(T, grad_dout_V, [S1][Nk][S2 / 2][Hk][2], t_grad_dout_V);
+DECL_VLA_PTR_PT(T, grad_dout_V, [S1][Nk][S2 * Hk], t_grad_dout_V);
 DECL_VLA_PTR_PT(T, dout, [S1][Nk][S2][Hk], t_dout);
 DECL_VLA_PTR_PT(T, grad_out, [S1][Nk][S2][Hk], t_grad_out);
 DECL_VLA_PTR_PT(short, dp_mask, [S1][Nk][(S2 * Hk + 15) / 16], t_dp_mask);
@@ -159,7 +161,7 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
                   dp_mask[b][s1][nk]);
             }
             grad_bias_tpp(grad_dout[b][s1][nk][0], prv_grad_bias[nk]);
-            n2v_tpp(grad_dout[b][s1][nk][0], grad_dout_V[b][s1][nk][0][0]);
+            n2v_tpp(grad_dout[b][s1][nk][0], grad_dout_V[b][s1][nk]);
           }
         }
       }
@@ -184,13 +186,13 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
           if (Nk != Nkb)
             di_gemm_b1_tpp(
                 grad_dout[b][s1][nk][0],
-                wt_TV[nk][nc][0][0],
+                wt_TV[nk][nc],
                 grad_in[b][s1][nc][0],
                 Nkb);
           else
             di_gemm_b0_tpp(
                 grad_dout[b][s1][nk][0],
-                wt_TV[nk][nc][0][0],
+                wt_TV[nk][nc],
                 grad_in[b][s1][nc][0],
                 Nkb);
         }
@@ -208,10 +210,7 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     for (int nk = 0; nk < Nk; nk++) {
       for (int nc = 0; nc < Nc; nc++) {
         dw_gemm_tpp(
-            in_T[b][0][nc][0],
-            grad_dout_V[b][0][nk][0][0],
-            grad_wt[nk][nc][0],
-            S1);
+            in_T[b][0][nc][0], grad_dout_V[b][0][nk], grad_wt[nk][nc][0], S1);
       }
     }
   }

@@ -211,7 +211,7 @@ if (training) {
     RECORD_SCOPE(a_gemm, {t_QL, t_KL_TV});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2) schedule(dynamic, 1)
+#pragma omp parallel for collapse(2) schedule(static, 1)
       for (int b = 0; b < B; b++) {
         for (int n = 0; n < N; n++) {
           long start = offs[b];
@@ -260,7 +260,7 @@ if (training) {
     RECORD_SCOPE(c_gemm, {t_APD, t_VL_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2) schedule(dynamic, 1)
+#pragma omp parallel for collapse(2) schedule(static, 1)
       for (int b = 0; b < B; b++) {
         for (int n = 0; n < N; n++) {
           long start = offs[b];

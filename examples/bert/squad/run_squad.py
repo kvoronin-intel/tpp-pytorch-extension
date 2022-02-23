@@ -29,14 +29,6 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from pcl_pytorch_extension import fused_bert as pcl_bert
-import pcl_pytorch_extension as ppx
-
-try:
-    import torch_ccl
-except ImportError as e:
-    torch_ccl = False
-
 import transformers
 from transformers import (
     MODEL_FOR_QUESTION_ANSWERING_MAPPING,
@@ -66,6 +58,8 @@ try:
 except ImportError:
     from tensorboardX import SummaryWriter
 
+from pcl_pytorch_extension import bert as pcl_bert
+
 logger = logging.getLogger(__name__)
 
 MODEL_CONFIG_CLASSES = list(MODEL_FOR_QUESTION_ANSWERING_MAPPING.keys())
@@ -77,7 +71,7 @@ def set_seed(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if args.use_pcl:
-        ppx.manual_seed(args.seed)
+        pcl_bert.set_rnd_seed(args.seed)
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
@@ -136,7 +130,7 @@ def train(args, train_dataset, model, tokenizer):
         },
     ]
     if args.use_pcl:
-        optimizer = ppx.optim.AdamW(
+        optimizer = pcl_bert.AdamW(
             optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon
         )
     else:
@@ -263,7 +257,7 @@ def train(args, train_dataset, model, tokenizer):
                     continue
 
                 if prof and args.use_pcl:
-                    ppx.reset_debug_timers()
+                    pcl_bert.reset_debug_timers()
                 start_fwd_time = timeit.default_timer()
                 model.train()
                 batch = tuple(t.to(args.device) for t in batch)
@@ -329,7 +323,7 @@ def train(args, train_dataset, model, tokenizer):
                                 amp.master_params(optimizer), args.max_grad_norm
                             )
                         elif args.use_pcl and args.pcl_bf16:
-                            ppx.optim.clip_grad_norm_(
+                            pcl_bert.clip_grad_norm_(
                                 model.parameters(), args.max_grad_norm
                             )
                         else:
@@ -404,7 +398,7 @@ def train(args, train_dataset, model, tokenizer):
                         f"Step: {global_step-1}, loss: {step_loss:6g}  tr_loss: {tr_loss/(global_step-1):6g} DT: {data_time*1e3:6g} FT: {(start_bwd_time-start_fwd_time)*1e3:6g} BT: {(start_opt_time-start_bwd_time)*1e3:6g} OT: {(end_time-start_opt_time)*1e3:6g} TT: {(end_time-start_fwd_time+data_time)*1e3:6g}"
                     )
                 if prof and args.use_pcl:
-                    ppx.print_debug_timers()
+                    pcl_bert.print_debug_timers()
                 if args.max_steps > 0 and global_step > args.max_steps:
                     epoch_iterator.close()
                     break
@@ -418,8 +412,7 @@ def train(args, train_dataset, model, tokenizer):
                             sort_by="cpu_time_total"
                         )
                     )
-                if ppx.extend_profiler:
-                    # try:
+                try:
                     with open("%s.nested.prof" % file_prefix, "w") as prof_f:
                         # prof_f.write(prof.nested_key_averages().table(sort_by="cpu_time_total"))
                         prof_f.write(
@@ -433,8 +426,8 @@ def train(args, train_dataset, model, tokenizer):
                                 sort_by="cpu_time_total"
                             )
                         )
-                    prof.print_op_timings(prefix=file_prefix)
-                    # except:
+                    prof.print_op_timings(prof, prefix=file_prefix)
+                except:
                     pass
                 end_time = timeit.default_timer()
         if args.max_steps > 0 and global_step > args.max_steps:
@@ -926,6 +919,17 @@ def main():
         help="Whether to use PCL Fused impl when available",
     )
     parser.add_argument(
+        "--unpad",
+        action="store_true",
+        help="Whether to use PCL Fused impl when available",
+    )
+    parser.add_argument(
+        "--dist_backend",
+        type=str,
+        default="ccl",
+        help="Specify distributed backend to use.",
+    )
+    parser.add_argument(
         "--overwrite_output_dir",
         action="store_true",
         help="Overwrite the content of the output directory",
@@ -1003,14 +1007,34 @@ def main():
         ptvsd.wait_for_attach()
 
     # Setup CUDA, GPU & distributed training
-    if torch_ccl and int(os.environ.get("PMI_SIZE", "0")) > 1:
+    if int(os.environ.get("PMI_SIZE", "0")) > 1:
+        if args.dist_backend == "ccl":
+            try:
+                import torch_ccl
+            except:
+                print("CCL backend requested but import torch_ccl failed")
+                raise
+        elif args.dist_backend == "mpi":
+            if not torch.distributed.is_mpi_available():
+                try:
+                    import torch_mpi
+                except:
+                    print(
+                        "MPI backend requested but not available try installing torch_mpi module"
+                    )
+                    raise
+        else:
+            raise ValueError(f"{args.dist_backend} backend requested but not supported")
+
         os.environ["RANK"] = os.environ.get("PMI_RANK", "0")
         os.environ["WORLD_SIZE"] = os.environ.get("PMI_SIZE", "1")
-        torch.distributed.init_process_group(backend="ccl")
+        torch.distributed.init_process_group(backend=args.dist_backend)
         device = torch.device("cpu")
         args.n_gpu = 0
         args.local_rank = torch.distributed.get_rank()
-        print("Using CCL dist run")
+        print(
+            f"Using {args.dist_backend.upper()} dist run with {torch.distributed.get_world_size()} ranks"
+        )
     elif args.local_rank == -1 or args.no_cuda:
         device = torch.device(
             "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
@@ -1061,7 +1085,7 @@ def main():
         cache_dir=args.cache_dir if args.cache_dir else None,
         use_fast=False,  # SquadDataset is not compatible with Fast tokenizers which have a smarter overflow handeling
     )
-    with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16):
+    with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16, args.unpad):
         model = AutoModelForQuestionAnswering.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -1153,7 +1177,7 @@ def main():
         for checkpoint in checkpoints:
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16):
+            with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16, args.unpad):
                 model = AutoModelForQuestionAnswering.from_pretrained(
                     checkpoint
                 )  # , force_download=True)

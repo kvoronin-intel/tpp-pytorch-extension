@@ -10,7 +10,7 @@ typedef void (*submodule_init_func)(pybind11::module&);
 extern std::vector<std::pair<std::string, submodule_init_func>> _submodule_list;
 
 inline int register_submodule(std::string name, submodule_init_func func) {
-  printf("Registering %s submodule\n", name.c_str());
+  // printf("Registering %s submodule\n", name.c_str());
   _submodule_list.push_back(std::make_pair(name, func));
   return _submodule_list.size();
 }

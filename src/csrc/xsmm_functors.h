@@ -154,6 +154,13 @@ inline void _mm512_mask_split_storeu_ps(
 }
 #endif
 
+inline void debug_print_eqn_tree(libxsmm_blasint eqn_no) {
+  if (false) {
+    libxsmm_matrix_eqn_tree_print(eqn_no);
+    libxsmm_matrix_eqn_rpn_print(eqn_no);
+  }
+}
+
 class BaseTPP {
  public:
   void* get_kernel() {
@@ -716,7 +723,7 @@ class ScaleTPP {
   BinaryTPP kernel;
 };
 
-template <typename T>
+template <typename T, typename TN = float>
 class Norm2TPP {
  public:
   Norm2TPP() {}
@@ -732,17 +739,17 @@ class Norm2TPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X2_OP_ADD) {}
-  void operator()(T* in, float* sum) {
+  void operator()(T* in, TN* sum) {
     float lsum = 0.0f;
     kernel((void*)in, (void*)&lsum);
-    *sum += lsum;
+    *sum += (TN)lsum;
   }
-  void ref(T* in, float* sum) {
+  void ref(T* in, TN* sum) {
     float lsum = 0.0f;
     for (int i = 0; i < N; i++) {
       lsum += (float)in[i] * (float)in[i];
     }
-    *sum += lsum;
+    *sum += (TN)lsum;
   }
 
  private:
@@ -820,6 +827,7 @@ class MulNormTPP {
         kernel(
             rows,
             cols,
+            1,
             ldi,
             cols,
             XsmmDtype<Tin>(),
@@ -1574,24 +1582,20 @@ class BrgemmTPP : public BaseTPP {
     if (type != 0)
       PCL_ASSERT(a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
     brgemm_type = type;
-    kernel.smrs = (libxsmm_smmfunction_reducebatch_strd)get_kernel();
+    kernel.gemm = (libxsmm_gemmfunction)get_kernel();
     initialized = true;
   }
   void operator()(Tin* A, Tin* B, Tout* C, unsigned long long count) {
     if (!initialized)
       return;
-    if (brgemm_type == 0) {
-      kernel.smrs((float*)B, (float*)A, (float*)C, &count);
-    } else if (brgemm_type == 1) {
-      kernel.bsmrs(
-          (libxsmm_bfloat16*)B, (libxsmm_bfloat16*)A, (float*)C, &count);
-    } else {
-      kernel.bmrs(
-          (libxsmm_bfloat16*)B,
-          (libxsmm_bfloat16*)A,
-          (libxsmm_bfloat16*)C,
-          &count);
-    }
+    libxsmm_gemm_param gemm_param;
+    memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
+    // unsigned long long l_br = count;
+    gemm_param.op.tertiary = &count;
+    gemm_param.c.primary = (void*)C;
+    gemm_param.a.primary = (void*)B;
+    gemm_param.b.primary = (void*)A;
+    kernel.gemm(&gemm_param);
   }
   void ref(Tin* A, Tin* B, Tout* C, unsigned long long count) {
     for (uint64_t c = 0; c < count; c++) {
@@ -1656,64 +1660,41 @@ class BrgemmTPP : public BaseTPP {
     return std::string(hash);
   }
   void* build_kernel() override {
-    float alpha = 1.0;
-    if (brgemm_type == 0) {
-      int flags = LIBXSMM_GEMM_FLAGS('N', 'N');
-      if (a_trans == 1)
-        flags = LIBXSMM_GEMM_FLAGS('N', 'T');
-      libxsmm_smmfunction_reducebatch_strd kernel =
-          libxsmm_smmdispatch_reducebatch_strd_unroll(
-              N,
-              M,
-              K,
-              str_b * sizeof(float),
-              str_a * sizeof(float),
-              unroll_hint,
-              &ldb,
-              &lda,
-              &ldc,
-              &alpha,
-              &beta,
-              &flags,
-              NULL);
-      return (void*)kernel;
-    } else if (brgemm_type == 1) {
-      int flags = LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N');
-      libxsmm_bsmmfunction_reducebatch_strd kernel =
-          libxsmm_bsmmdispatch_reducebatch_strd_unroll(
-              N,
-              M,
-              K,
-              str_b * sizeof(bfloat16),
-              str_a * sizeof(bfloat16),
-              unroll_hint,
-              &ldb,
-              &lda,
-              &ldc,
-              &alpha,
-              &beta,
-              &flags,
-              NULL);
-      return (void*)kernel;
-    } else {
-      int flags = LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N');
-      libxsmm_bmmfunction_reducebatch_strd kernel =
-          libxsmm_bmmdispatch_reducebatch_strd_unroll(
-              N,
-              M,
-              K,
-              str_b * sizeof(bfloat16),
-              str_a * sizeof(bfloat16),
-              unroll_hint,
-              &ldb,
-              &lda,
-              &ldc,
-              &alpha,
-              &beta,
-              &flags,
-              NULL);
-      return (void*)kernel;
-    }
+    // float alpha = 1.0;
+    libxsmm_gemm_shape l_shape;
+    libxsmm_gemm_batch_reduce_config l_brconfig;
+    libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N');
+    libxsmm_bitfield l_prefetch_flags = 0;
+    libxsmm_xmmfunction l_test_jit = {NULL};
+
+    if (a_trans == 1)
+      l_flags |= LIBXSMM_GEMM_FLAG_TRANS_B;
+    if (brgemm_type != 0)
+      l_flags |= LIBXSMM_GEMM_FLAG_VNNI_A;
+    if (beta == 0)
+      l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+
+    /* setting update GEMM struct */
+    l_shape.m = N;
+    l_shape.n = M;
+    l_shape.k = K;
+    l_shape.lda = ldb;
+    l_shape.ldb = lda;
+    l_shape.ldc = ldc;
+    l_shape.a_in_type = XsmmDtype<Tin>();
+    l_shape.b_in_type = XsmmDtype<Tin>();
+    l_shape.out_type = XsmmDtype<Tout>();
+    l_shape.comp_type = LIBXSMM_DATATYPE_F32;
+
+    l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_STRIDE;
+    l_brconfig.br_stride_a_hint = str_b * sizeof(Tin);
+    l_brconfig.br_stride_b_hint = str_a * sizeof(Tin);
+    l_brconfig.br_unroll_hint = unroll_hint;
+
+    l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
+        l_shape, l_flags, l_prefetch_flags, l_brconfig);
+
+    return (void*)l_test_jit.gemm;
   }
 
  private:
@@ -1945,8 +1926,7 @@ class GeluBwdTPP : public BaseTPP {
         LIBXSMM_MELTW_FLAG_UNARY_NONE,
         LIBXSMM_DATATYPE_F32);
     libxsmm_matrix_eqn_push_back_arg(my_eqn0, N, 1, N, 1, 0, dt2);
-    libxsmm_matrix_eqn_tree_print(my_eqn0);
-    libxsmm_matrix_eqn_rpn_print(my_eqn0);
+    debug_print_eqn_tree(my_eqn0);
     return (void*)libxsmm_dispatch_matrix_eqn(N, 1, &ld, dt3, my_eqn0);
   }
 
@@ -2169,7 +2149,7 @@ class LeakyRELUFwdTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_LEAKY_RELU) {}
-  void operator()(Tin* in,  Tout* out, short* mask=NULL) {
+  void operator()(Tin* in, Tout* out, short* mask = NULL) {
     kernel(
         (void*)in,
         NULL,
@@ -2180,14 +2160,13 @@ class LeakyRELUFwdTPP {
         (void*)out,
         (void*)mask);
   }
-  void ref(Tin* in, Tout* out, short* mask=NULL) {
+  void ref(Tin* in, Tout* out, short* mask = NULL) {
     float a = alpha;
     // std::cout << " op: " << out << " inp: "<< in << std::endl;
     for (int i = 0; i < rows; i++)
-      for (int j = 0; j < cols; j++){
-        out[i * ldo + j] = in[i * ldi + j] > 0 
-                            ? (Tout)in[i * ldi + j]
-                            : (Tout)(a * (in[i * ldi + j]));
+      for (int j = 0; j < cols; j++) {
+        out[i * ldo + j] = in[i * ldi + j] > 0 ? (Tout)in[i * ldi + j]
+                                               : (Tout)(a * (in[i * ldi + j]));
       }
   }
 
@@ -2223,9 +2202,9 @@ class LeakyRELUBwdTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_LEAKY_RELU_INV) {}
-  void operator()(Tin* in, Tout* out, Tin* in2=NULL, short* mask= NULL) {
+  void operator()(Tin* in, Tout* out, Tin* in2 = NULL, short* mask = NULL) {
     kernel(
-        (void*)in, 
+        (void*)in,
         (void*)mask,
         NULL,
         (void*)&alpha,
@@ -2234,14 +2213,13 @@ class LeakyRELUBwdTPP {
         (void*)out,
         (void*)NULL);
   }
-  void ref(Tin* in, Tout* out, Tin* in2, short* mask=NULL) {
+  void ref(Tin* in, Tout* out, Tin* in2, short* mask = NULL) {
     float a = alpha;
     for (int i = 0; i < rows; i++)
-      for (int j = 0; j < cols; j++){
-        float grad_out = in[i * ldi + j]; 
-        out[i * ldo + j] = in2[i * ldi + j] > 0
-            ? (Tout)grad_out
-            : (Tout)(a * grad_out);
+      for (int j = 0; j < cols; j++) {
+        float grad_out = in[i * ldi + j];
+        out[i * ldo + j] =
+            in2[i * ldi + j] > 0 ? (Tout)grad_out : (Tout)(a * grad_out);
       }
   }
 
@@ -2253,7 +2231,6 @@ class LeakyRELUBwdTPP {
   float alpha;
   UnaryTPP kernel;
 };
-
 
 template <typename T>
 class SiLUFwdTPP {
@@ -2688,7 +2665,7 @@ class SoftMaxFwdTPP {
           LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
           LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
-      libxsmm_matrix_eqn_tree_print(my_eqn0); // printf
+      debug_print_eqn_tree(my_eqn0); // printf
       return (void*)libxsmm_dispatch_matrix_eqn(
           S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn0);
     }
@@ -2760,7 +2737,7 @@ class SoftMaxFwdTPP {
           LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_arg(
           my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-      /*libxsmm_matrix_eqn_tree_print( my_eqn1 );*/
+      /*debug_print_eqn_tree( my_eqn1 );*/
       return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_out, my_eqn1);
     }
 
@@ -2923,7 +2900,7 @@ class SoftMaxBwdTPP {
             LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 0, 0, dt_2);
         libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 1, 0, dt_3);
-        libxsmm_matrix_eqn_tree_print(my_eqn2); // printf
+        debug_print_eqn_tree(my_eqn2); // printf
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 1) {
@@ -2978,7 +2955,7 @@ class SoftMaxBwdTPP {
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
 #endif
-        libxsmm_matrix_eqn_tree_print(my_eqn3);
+        debug_print_eqn_tree(my_eqn3);
         func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_1, my_eqn3);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
@@ -3001,17 +2978,82 @@ class VarSoftMaxFwdTPP {
  public:
   VarSoftMaxFwdTPP() {}
   VarSoftMaxFwdTPP(int S2, int S3)
-      : S2(S2), S3(S3) /*, eqn0(S1, S2, S3), eqn1(S1, S2, S3)*/ {}
+      : S2(S2),
+        S3(S3),
+        kmax(
+            1,
+            S3,
+            S3,
+            S3,
+            XsmmDtype<Tin>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX),
+        ksub(
+            1,
+            S3,
+            S3,
+            S3,
+            XsmmDtype<Tin>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+            LIBXSMM_MELTW_TYPE_BINARY_SUB),
+        kexp(
+            1,
+            S3,
+            S3,
+            S3,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_EXP),
+        ksum(
+            1,
+            S3,
+            S3,
+            S3,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD),
+        kmul(
+            1,
+            S3,
+            S3,
+            S3,
+            LIBXSMM_DATATYPE_F32,
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL) {}
   void operator()(int S1, Tin* in, Tout* out) {
-#if 0
     LIBXSMM_ALIGNED(float tmp[S1 * S3], 64);
     for (int s2 = 0; s2 < S2; s2++) {
-      eqn0(&in[s2 * S3], tmp);
-      eqn1(tmp, &out[s2 * S3]);
+      Tin max = in[s2 * S3];
+      float sum = 0.0f;
+      for (int s1 = 0; s1 < S1; s1++) {
+        float rmax = 0;
+        kmax(&in[s1 * S2 * S3 + s2 * S3], &rmax);
+        if (max < rmax)
+          max = rmax;
+      }
+      for (int s1 = 0; s1 < S1; s1++) {
+        LIBXSMM_ALIGNED(float tmp2[S3], 64);
+        ksub(&in[s1 * S2 * S3 + s2 * S3], &max, tmp2);
+        kexp(tmp2, &tmp[s1 * S3]);
+        float lsum;
+        ksum(&tmp[s1 * S3], &lsum);
+        sum += lsum;
+      }
+      sum = 1.0 / sum;
+      for (int s1 = 0; s1 < S1; s1++) {
+        kmul(&tmp[s1 * S3], &sum, &out[s1 * S2 * S3 + s2 * S3]);
+      }
     }
-#else
-    ref(S1, in, out);
-#endif
   }
   void ref(int S1, Tin* pinp, Tout* pout) {
     int s1, s2, s3;
@@ -3086,7 +3128,7 @@ class VarSoftMaxFwdTPP {
       }
     }
 #else
-#warning "Not using AVX512 path for VarSoftMax"
+    //#warning "Not using AVX512 path for VarSoftMax"
     for (s2 = 0; s2 < S2; s2++) {
       float tmp[S1][S3];
       float max =
@@ -3121,162 +3163,44 @@ class VarSoftMaxFwdTPP {
     }
 #endif
   }
-#if 0
-  class Eqn0 : BaseTPP {
-   public:
-    Eqn0() {}
-    Eqn0(int S1, int S2, int S3) : S1(S1), S2(S2), S3(S3) {
-      kernel = (libxsmm_matrix_eqn_function)get_kernel();
-      initialized = true;
-    }
-    void operator()(Tin* in, float* out) {
-      if (!initialized)
-        return;
-      libxsmm_matrix_eqn_param eqn_param;
-      libxsmm_matrix_arg arg_array[1];
-      arg_array[0].primary = (void*)in;
-      eqn_param.inputs = arg_array;
-      eqn_param.output.primary = (void*)out;
 
-      kernel(&eqn_param);
-    }
-
-   protected:
-    std::string hash_str() override {
-      char hash[200];
-      snprintf(
-          hash,
-          200,
-          "softmax_fwd_eqn0_ti%d_to%d_S1%d_S2%d_S3%d",
-          XsmmDtype<Tin>(),
-          LIBXSMM_DATATYPE_F32,
-          S1,
-          S2,
-          S3);
-      return std::string(hash);
-    }
-    void* build_kernel() override {
-      auto dt_in = XsmmDtype<Tin>();
-      libxsmm_blasint tmp_ld = S2;
-      libxsmm_blasint ld = S2 * S3;
-      libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn0,
-          LIBXSMM_MELTW_TYPE_UNARY_EXP,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_binary_op(
-          my_eqn0,
-          LIBXSMM_MELTW_TYPE_BINARY_SUB,
-          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn0,
-          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn0,
-          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
-      libxsmm_matrix_eqn_tree_print(my_eqn0); // printf
-      return (void*)libxsmm_dispatch_matrix_eqn(
-          S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn0);
-    }
-
-   private:
-    int S1, S2, S3;
-    libxsmm_matrix_eqn_function kernel = NULL;
-  };
-
-  class Eqn1 : BaseTPP {
-   public:
-    Eqn1() {}
-    Eqn1(int S1, int S2, int S3) : S1(S1), S2(S2), S3(S3) {
-      kernel = (libxsmm_matrix_eqn_function)get_kernel();
-      initialized = true;
-    }
-    void operator()(float* in, Tout* out) {
-      if (!initialized)
-        return;
-      libxsmm_matrix_eqn_param eqn_param;
-      libxsmm_matrix_arg arg_array[1];
-      arg_array[0].primary = (void*)in;
-      eqn_param.inputs = arg_array;
-      eqn_param.output.primary = (void*)out;
-
-      kernel(&eqn_param);
-    }
-
-   protected:
-    std::string hash_str() override {
-      char hash[200];
-      snprintf(
-          hash,
-          200,
-          "softmax_fwd_eqn1_ti%d_to%d_S1%d_S2%d_S3%d",
-          LIBXSMM_DATATYPE_F32,
-          XsmmDtype<Tout>(),
-          S1,
-          S2,
-          S3);
-      return std::string(hash);
-    }
-    void* build_kernel() override {
-      auto dt_out = XsmmDtype<Tout>();
-      libxsmm_blasint tmp_ld = S2;
-      libxsmm_blasint ld = S2 * S3;
-      libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_binary_op(
-          my_eqn1,
-          LIBXSMM_MELTW_TYPE_BINARY_MUL,
-          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn1,
-          LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn1,
-          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn1,
-          LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-      /*libxsmm_matrix_eqn_tree_print( my_eqn1 );*/
-      return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_out, my_eqn1);
-    }
-
-   private:
-    int S1, S2, S3;
-    libxsmm_matrix_eqn_function kernel = NULL;
-  };
-#endif
  private:
   int S2, S3;
-  // Eqn0 eqn0;
-  // Eqn1 eqn1;
+  UnaryTPP kmax;
+  BinaryTPP ksub;
+  UnaryTPP kexp;
+  UnaryTPP ksum;
+  BinaryTPP kmul;
 };
 
 template <typename T1, typename T2, typename T3>
 class VarSoftMaxBwdTPP {
  public:
   VarSoftMaxBwdTPP() {}
-  VarSoftMaxBwdTPP(int S2, int S3)
-      : S2(S2), S3(S3) /*, eqn0(S1, S2, S3, 0), eqn1(S1, S2, S3, 1)*/ {}
+  VarSoftMaxBwdTPP(int S2, int S3) : S2(S2), S3(S3), eqn0(S3, 0), eqn1(S3, 1) {}
   void operator()(int S1, T1* gin, T2* gout, T3* out) {
-    ref(S1, gin, gout, out);
+    long S23 = S2 * S3;
+    for (int s2 = 0; s2 < S2; s2++) {
+      float tmp = 0.0f;
+      libxsmm_matrix_eqn_param eqn_param;
+      libxsmm_matrix_arg arg_array[3];
+      arg_array[2].primary = (void*)&tmp;
+      eqn_param.inputs = arg_array;
+      eqn_param.output.primary = (void*)&tmp;
+      for (int s1 = 0; s1 < S1; s1++) {
+        long ind = s1 * S23 + s2 * S3;
+        arg_array[0].primary = (void*)&gout[ind];
+        arg_array[1].primary = (void*)&out[ind];
+        eqn0(&eqn_param);
+      }
+      for (int s1 = 0; s1 < S1; s1++) {
+        long ind = s1 * S23 + s2 * S3;
+        arg_array[0].primary = (void*)&gout[ind];
+        arg_array[1].primary = (void*)&out[ind];
+        eqn_param.output.primary = (void*)&gin[ind];
+        eqn1(&eqn_param);
+      }
+    }
   }
   void ref(int S1, T1* pgradinp, T2* pgradout, T3* pout) {
     int s1, s2, s3;
@@ -3357,12 +3281,10 @@ class VarSoftMaxBwdTPP {
     }
 #endif
   }
-#if 0
   class Eqn : BaseTPP {
    public:
     Eqn() {}
-    Eqn(int S1, int S2, int S3, int eqn_no)
-        : S1(S1), S2(S2), S3(S3), eqn_no(eqn_no) {
+    Eqn(int S3, int eqn_no) : S3(S3), eqn_no(eqn_no) {
       kernel = (libxsmm_matrix_eqn_function)get_kernel();
       initialized = true;
     }
@@ -3378,13 +3300,11 @@ class VarSoftMaxBwdTPP {
       snprintf(
           hash,
           200,
-          "softmax_bwd_eqn%d_t1%d_t2%d_t3%d_S1%d_S2%d_S3%d",
+          "varsoftmax_bwd_eqn%d_t1%d_t2%d_t3%d_S3%d",
           eqn_no,
+          XsmmDtype<T1>(),
           XsmmDtype<T2>(),
           XsmmDtype<T3>(),
-          LIBXSMM_DATATYPE_F32,
-          S1,
-          S2,
           S3);
       return std::string(hash);
     }
@@ -3393,74 +3313,50 @@ class VarSoftMaxBwdTPP {
       auto dt_2 = XsmmDtype<T2>();
       auto dt_3 = XsmmDtype<T3>();
       libxsmm_blasint tmp_ld = S3;
-      libxsmm_blasint ld = S2 * S3;
+      libxsmm_blasint ld = S3;
       libxsmm_matrix_eqn_function func;
       if (eqn_no == 0) {
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
         libxsmm_matrix_eqn_push_back_binary_op(
             my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_TYPE_BINARY_ADD,
             LIBXSMM_MELTW_FLAG_BINARY_NONE,
             LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 0, 0, dt_2);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 1, 0, dt_3);
-        libxsmm_matrix_eqn_tree_print(my_eqn2); // printf
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
-      } else if (eqn_no == 1) {
-        libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
-#if 1
-        libxsmm_matrix_eqn_push_back_ternary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_TERNARY_NMULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_0 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(
+            my_eqn2, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
         libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn3,
+            my_eqn2,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
             LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
             LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn2,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
             LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
-#else
+        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, 1, ld, 0, 0, dt_2);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, 1, ld, 1, 0, dt_3);
+        debug_print_eqn_tree(my_eqn2); // printf
+        func = libxsmm_dispatch_matrix_eqn(
+            S3, 1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
+      } else if (eqn_no == 1) {
+        libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
+        libxsmm_matrix_eqn_push_back_binary_op(
+            my_eqn3,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
+            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, 1, ld, 1, 0, dt_3);
         libxsmm_matrix_eqn_push_back_binary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_BINARY_SUB,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
             LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
             LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-            LIBXSMM_DATATYPE_F32);
+        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, 1, ld, 0, 0, dt_2);
         libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-#endif
-        libxsmm_matrix_eqn_tree_print(my_eqn3);
-        func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_1, my_eqn3);
+            my_eqn3, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+        debug_print_eqn_tree(my_eqn3);
+        func = libxsmm_dispatch_matrix_eqn(S3, 1, &ld, dt_1, my_eqn3);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
       }
@@ -3468,13 +3364,13 @@ class VarSoftMaxBwdTPP {
     }
 
    private:
-    int S1, S2, S3, eqn_no;
+    int S3, eqn_no;
     libxsmm_matrix_eqn_function kernel = NULL;
   };
-#endif
+
  private:
   int S2, S3;
-  // Eqn eqn0, eqn1;
+  Eqn eqn0, eqn1;
 };
 
 template <typename T>
@@ -3623,7 +3519,7 @@ class LayerNormFwdTPP {
           my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, in_dt);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, in_dt);
-      libxsmm_matrix_eqn_tree_print(my_eqn0); // printf
+      debug_print_eqn_tree(my_eqn0); // printf
       return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, out_dt, my_eqn0);
     }
 
@@ -3808,7 +3704,7 @@ class LayerNormBwdTPP {
         libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
-        /*libxsmm_matrix_eqn_tree_print( my_eqn1 );*/
+        /*debug_print_eqn_tree( my_eqn1 );*/
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
       } else if (eqn_no == 2) {
@@ -3822,7 +3718,7 @@ class LayerNormBwdTPP {
         libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
-        /*libxsmm_matrix_eqn_tree_print( my_eqn1 );*/
+        /*debug_print_eqn_tree( my_eqn1 );*/
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 3) {
@@ -4049,7 +3945,7 @@ class GroupNormFwdTPP {
           my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, 1, S1, 1, 3, 0, in_dt);
       libxsmm_matrix_eqn_push_back_arg(my_eqn0, 1, S1, 1, 4, 0, in_dt);
-      libxsmm_matrix_eqn_tree_print(my_eqn0); // printf
+      debug_print_eqn_tree(my_eqn0); // printf
       return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, out_dt, my_eqn0);
     }
 
@@ -4237,7 +4133,7 @@ class GroupNormBwdTPP {
         libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_tree_print(my_eqn1);
+        debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
       } else if (eqn_no == 2) {
@@ -4256,7 +4152,7 @@ class GroupNormBwdTPP {
         libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_tree_print(my_eqn2);
+        debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 3) {
@@ -4362,6 +4258,7 @@ class SplitSGDTPP : public BaseTPP {
     kernel(&eqn_param);
   }
   void ref(bfloat16* hi, bfloat16* lo, bfloat16* grad, float lr) {
+#ifndef __AVX512F__
     auto dwt = (libxsmm_bfloat16*)grad;
     auto out_hi = (libxsmm_bfloat16*)hi;
     auto out_lo = (libxsmm_bfloat16*)lo;
@@ -4376,6 +4273,25 @@ class SplitSGDTPP : public BaseTPP {
       out_lo[i] = bf16_hp.i[0];
       out_hi[i] = bf16_hp.i[1];
     }
+#else
+    long sz = N;
+    auto vlr = _mm512_set1_ps(lr);
+    long i;
+    for (i = 0; i < ALIGNDOWN(sz, 16); i += 16) {
+      auto grad_i = _mm512_loadu_ps_auto(&grad[i]);
+      auto data_i = _mm512_split_loadu_ps(&hi[i], &lo[i]);
+      data_i = _mm512_add_ps(data_i, _mm512_mul_ps(grad_i, vlr));
+      _mm512_split_storeu_ps(&hi[i], &lo[i], data_i);
+    }
+    if (i < sz) {
+      int rem = sz - i;
+      __mmask16 mask = (1 << rem) - 1;
+      auto grad_i = _mm512_maskz_loadu_ps_auto(mask, &grad[i]);
+      auto data_i = _mm512_maskz_split_loadu_ps(mask, &hi[i], &lo[i]);
+      data_i = _mm512_add_ps(data_i, _mm512_mul_ps(grad_i, vlr));
+      _mm512_mask_split_storeu_ps(&hi[i], &lo[i], mask, data_i);
+    }
+#endif
   }
 
  protected:
@@ -4436,8 +4352,7 @@ class SplitSGDTPP : public BaseTPP {
         1,
         0,
         LIBXSMM_DATATYPE_I16); /* This is the tensor with hi bits  */
-    libxsmm_matrix_eqn_tree_print(my_eqn0);
-    libxsmm_matrix_eqn_rpn_print(my_eqn0);
+    debug_print_eqn_tree(my_eqn0);
     auto func0 =
         libxsmm_dispatch_matrix_eqn(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
     return (void*)func0;
@@ -4700,8 +4615,7 @@ class FusedAdamWTPP {
             my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
-        libxsmm_matrix_eqn_tree_print(my_eqn0);
-        libxsmm_matrix_eqn_rpn_print(my_eqn0);
+        debug_print_eqn_tree(my_eqn0);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
@@ -4731,8 +4645,7 @@ class FusedAdamWTPP {
             my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
-        libxsmm_matrix_eqn_tree_print(my_eqn1);
-        libxsmm_matrix_eqn_rpn_print(my_eqn1);
+        debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for data_i (with decay)
@@ -4789,8 +4702,7 @@ class FusedAdamWTPP {
               0,
               LIBXSMM_DATATYPE_F32); // this scalar is (1-lr*weight_decay)
         }
-        libxsmm_matrix_eqn_tree_print(my_eqn2);
-        libxsmm_matrix_eqn_rpn_print(my_eqn2);
+        debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
@@ -5009,8 +4921,7 @@ class FusedSplitAdamWTPP {
             my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
-        libxsmm_matrix_eqn_tree_print(my_eqn0);
-        libxsmm_matrix_eqn_rpn_print(my_eqn0);
+        debug_print_eqn_tree(my_eqn0);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
@@ -5040,8 +4951,7 @@ class FusedSplitAdamWTPP {
             my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
-        libxsmm_matrix_eqn_tree_print(my_eqn1);
-        libxsmm_matrix_eqn_rpn_print(my_eqn1);
+        debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for data_i (with decay)
@@ -5111,8 +5021,7 @@ class FusedSplitAdamWTPP {
               0,
               LIBXSMM_DATATYPE_F32); // this scalar is (1-lr*weight_decay)
         }
-        libxsmm_matrix_eqn_tree_print(my_eqn2);
-        libxsmm_matrix_eqn_rpn_print(my_eqn2);
+        debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(
             N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2);
       } else {
@@ -5142,22 +5051,31 @@ class FusedAdamStepTPP {
       int N,
       float beta1,
       float beta2,
-      float weight_decay,
-      float eps)
+      float eps,
+      bool use_weight_decay,
+      bool use_bias_correction)
       : N(N),
         beta1(beta1),
         beta2(beta2),
-        weight_decay(weight_decay),
         eps(eps),
+        use_weight_decay(use_weight_decay),
+        use_bias_correction(use_bias_correction),
         eqn0(this, 0),
         eqn1(this, 1),
         eqn2(this, 2) {}
-  void operator()(T* data, T* grad, T* exp_avg, T* exp_avg_sq, T* adam_step) {
+  void operator()(
+      T* data,
+      T* grad,
+      T* exp_avg,
+      T* exp_avg_sq,
+      T* adam_step,
+      float weight_decay = 0.0,
+      float exp_avg_scale = 1.0,
+      float exp_avg_sq_scale = 1.0) {
     float beta1_1 = 1.0f - beta1;
     float beta2_1 = 1.0f - beta2;
-    float wd = weight_decay;
     libxsmm_matrix_eqn_param eqn_param;
-    libxsmm_matrix_arg arg_array[6];
+    libxsmm_matrix_arg arg_array[7];
     arg_array[0].primary = (void*)grad;
     arg_array[1].primary = (void*)&beta1_1;
     arg_array[2].primary = (void*)exp_avg;
@@ -5177,28 +5095,44 @@ class FusedAdamStepTPP {
     arg_array[1].primary = (void*)&eps;
     arg_array[2].primary = (void*)exp_avg;
     arg_array[3].primary = (void*)data;
-    arg_array[4].primary = (void*)&wd;
+    arg_array[4].primary = (void*)&weight_decay;
+    arg_array[5].primary = (void*)&exp_avg_scale;
+    arg_array[6].primary = (void*)&exp_avg_sq_scale;
     eqn_param.output.primary = (void*)adam_step;
     eqn2(&eqn_param);
   }
 
-  void ref(T* data, T* grad, T* exp_avg, T* exp_avg_sq, T* adam_step) {
+  void ref(
+      T* data,
+      T* grad,
+      T* exp_avg,
+      T* exp_avg_sq,
+      T* adam_step,
+      float weight_decay = 0.0,
+      float exp_avg_scale = 1.0,
+      float exp_avg_sq_scale = 1.0) {
     long sz = N;
     float beta1_1 = 1.0f - beta1;
     float beta2_1 = 1.0f - beta2;
 #ifndef __AVX512F__
     for (long i = 0; i < sz; i++) {
-      auto avg_i = exp_avg[i];
-      auto avg_sq_i = exp_avg_sq[i];
-      auto grad_i = grad[i];
+      float avg_i = exp_avg[i];
+      float avg_sq_i = exp_avg_sq[i];
+      float grad_i = grad[i];
       avg_i = avg_i * beta1 + grad_i * beta1_1;
       avg_sq_i = avg_sq_i * beta2 + grad_i * grad_i * beta2_1;
-      auto denom = sqrtf(avg_sq_i) + eps;
-      auto adam_step_i = avg_i / denom;
-      if (weight_decay > 0.0)
-        adam_step_i += data[i] * weight_decay;
       exp_avg[i] = avg_i;
       exp_avg_sq[i] = avg_sq_i;
+      if (use_bias_correction) {
+        avg_i = avg_i * exp_avg_scale;
+        avg_sq_i = avg_sq_i * exp_avg_sq_scale;
+      }
+      float denom = sqrtf(avg_sq_i) + eps;
+      float adam_step_i = avg_i / denom;
+      if (use_weight_decay) {
+        float data_i = data[i];
+        adam_step_i += data_i * weight_decay;
+      }
       adam_step[i] = adam_step_i;
     }
 #else
@@ -5209,48 +5143,58 @@ class FusedAdamStepTPP {
     auto veps = _mm512_set1_ps(eps);
     // auto vstep_size = _mm512_set1_ps(step_size);
     auto vweight_decay = _mm512_set1_ps(weight_decay);
+    auto vexp_avg_scale = _mm512_set1_ps(exp_avg_scale);
+    auto vexp_avg_sq_scale = _mm512_set1_ps(exp_avg_sq_scale);
     long i;
     for (i = 0; i < ALIGNDOWN(sz, 16); i += 16) {
-      auto avg_i = _mm512_loadu_ps(&exp_avg[i]);
-      auto avg_sq_i = _mm512_loadu_ps(&exp_avg_sq[i]);
-      auto grad_i = _mm512_loadu_ps(&grad[i]);
+      auto avg_i = _mm512_loadu_ps_auto(&exp_avg[i]);
+      auto avg_sq_i = _mm512_loadu_ps_auto(&exp_avg_sq[i]);
+      auto grad_i = _mm512_loadu_ps_auto(&grad[i]);
       avg_i = _mm512_add_ps(
           _mm512_mul_ps(avg_i, vbeta1), _mm512_mul_ps(grad_i, vbeta1_1));
       avg_sq_i = _mm512_add_ps(
           _mm512_mul_ps(avg_sq_i, vbeta2),
           _mm512_mul_ps(_mm512_mul_ps(grad_i, grad_i), vbeta2_1));
+      _mm512_storeu_ps_auto(&exp_avg[i], avg_i);
+      _mm512_storeu_ps_auto(&exp_avg_sq[i], avg_sq_i);
+      if (use_bias_correction) {
+        avg_i = _mm512_mul_ps(avg_i, vexp_avg_scale);
+        avg_sq_i = _mm512_mul_ps(avg_sq_i, vexp_avg_sq_scale);
+      }
       auto denom = _mm512_add_ps(_mm512_sqrt_ps(avg_sq_i), veps);
       auto adam_step_i = _mm512_div_ps(avg_i, denom);
-      if (weight_decay > 0.0) {
-        auto data_i = _mm512_loadu_ps(&data[i]);
+      if (use_weight_decay) {
+        auto data_i = _mm512_loadu_ps_auto(&data[i]);
         adam_step_i =
             _mm512_add_ps(adam_step_i, _mm512_mul_ps(data_i, vweight_decay));
       }
-      _mm512_storeu_ps(&exp_avg[i], avg_i);
-      _mm512_storeu_ps(&exp_avg_sq[i], avg_sq_i);
-      _mm512_storeu_ps(&adam_step[i], adam_step_i);
+      _mm512_storeu_ps_auto(&adam_step[i], adam_step_i);
     }
     if (i < sz) {
       int rem = sz - i;
       __mmask16 mask = (1 << rem) - 1;
-      auto avg_i = _mm512_maskz_loadu_ps(mask, &exp_avg[i]);
-      auto avg_sq_i = _mm512_maskz_loadu_ps(mask, &exp_avg_sq[i]);
-      auto grad_i = _mm512_maskz_loadu_ps(mask, &grad[i]);
+      auto avg_i = _mm512_maskz_loadu_ps_auto(mask, &exp_avg[i]);
+      auto avg_sq_i = _mm512_maskz_loadu_ps_auto(mask, &exp_avg_sq[i]);
+      auto grad_i = _mm512_maskz_loadu_ps_auto(mask, &grad[i]);
       avg_i = _mm512_add_ps(
           _mm512_mul_ps(avg_i, vbeta1), _mm512_mul_ps(grad_i, vbeta1_1));
       avg_sq_i = _mm512_add_ps(
           _mm512_mul_ps(avg_sq_i, vbeta2),
           _mm512_mul_ps(_mm512_mul_ps(grad_i, grad_i), vbeta2_1));
+      _mm512_mask_storeu_ps_auto(&exp_avg[i], mask, avg_i);
+      _mm512_mask_storeu_ps_auto(&exp_avg_sq[i], mask, avg_sq_i);
+      if (use_bias_correction) {
+        avg_i = _mm512_mul_ps(avg_i, vexp_avg_scale);
+        avg_sq_i = _mm512_mul_ps(avg_sq_i, vexp_avg_sq_scale);
+      }
       auto denom = _mm512_add_ps(_mm512_sqrt_ps(avg_sq_i), veps);
       auto adam_step_i = _mm512_div_ps(avg_i, denom);
-      if (weight_decay > 0.0) {
-        auto data_i = _mm512_maskz_loadu_ps(mask, &data[i]);
+      if (use_weight_decay) {
+        auto data_i = _mm512_maskz_loadu_ps_auto(mask, &data[i]);
         adam_step_i =
             _mm512_add_ps(adam_step_i, _mm512_mul_ps(data_i, vweight_decay));
       }
-      _mm512_mask_storeu_ps(&exp_avg[i], mask, avg_i);
-      _mm512_mask_storeu_ps(&exp_avg_sq[i], mask, avg_sq_i);
-      _mm512_mask_storeu_ps(&adam_step[i], mask, adam_step_i);
+      _mm512_mask_storeu_ps_auto(&adam_step[i], mask, adam_step_i);
     }
 #endif
   }
@@ -5277,14 +5221,15 @@ class FusedAdamStepTPP {
           eqn_no,
           XsmmDtype<T>(),
           p->N,
-          (p->weight_decay == 0.0 ? 0 : 1));
+          p->use_weight_decay);
       return std::string(hash);
     }
     void* build_kernel() override {
       auto in_dt = XsmmDtype<T>();
       libxsmm_blasint ld = p->N;
       auto N = p->N;
-      int use_wd = p->weight_decay == 0.0 ? 0 : 1;
+      int use_wd = p->use_weight_decay;
+      int use_bc = p->use_bias_correction;
       libxsmm_matrix_eqn_function func;
       if (eqn_no == 0) {
         // Equation for exp_avg
@@ -5309,8 +5254,7 @@ class FusedAdamStepTPP {
             my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
-        libxsmm_matrix_eqn_tree_print(my_eqn0);
-        libxsmm_matrix_eqn_rpn_print(my_eqn0);
+        debug_print_eqn_tree(my_eqn0);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
@@ -5340,8 +5284,7 @@ class FusedAdamStepTPP {
             my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
-        libxsmm_matrix_eqn_tree_print(my_eqn1);
-        libxsmm_matrix_eqn_rpn_print(my_eqn1);
+        debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for adam_step_i (with decay)
@@ -5373,6 +5316,15 @@ class FusedAdamStepTPP {
             LIBXSMM_MELTW_TYPE_BINARY_DIV,
             LIBXSMM_MELTW_FLAG_BINARY_NONE,
             LIBXSMM_DATATYPE_F32);
+        if (use_bc) {
+          libxsmm_matrix_eqn_push_back_binary_op(
+              my_eqn2,
+              LIBXSMM_MELTW_TYPE_BINARY_MUL,
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0,
+              LIBXSMM_DATATYPE_F32);
+          libxsmm_matrix_eqn_push_back_arg(
+              my_eqn2, 1, 1, 1, 5, 0, LIBXSMM_DATATYPE_F32); // avg_i_scale
+        }
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
         libxsmm_matrix_eqn_push_back_binary_op(
@@ -5385,12 +5337,20 @@ class FusedAdamStepTPP {
             LIBXSMM_MELTW_TYPE_UNARY_SQRT,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_DATATYPE_F32);
+        if (use_bc) {
+          libxsmm_matrix_eqn_push_back_binary_op(
+              my_eqn2,
+              LIBXSMM_MELTW_TYPE_BINARY_MUL,
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0,
+              LIBXSMM_DATATYPE_F32);
+          libxsmm_matrix_eqn_push_back_arg(
+              my_eqn2, 1, 1, 1, 6, 0, LIBXSMM_DATATYPE_F32); // avg_sq_i_scale
+        }
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
         libxsmm_matrix_eqn_push_back_arg(
             my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
-        libxsmm_matrix_eqn_tree_print(my_eqn2);
-        libxsmm_matrix_eqn_rpn_print(my_eqn2);
+        debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
@@ -5406,53 +5366,11 @@ class FusedAdamStepTPP {
 
  private:
   int N = 0;
-  float beta1, beta2, weight_decay, eps;
+  float beta1, beta2, eps;
+  bool use_weight_decay, use_bias_correction;
   Eqn eqn0, eqn1, eqn2;
   friend class Eqn;
 };
-
-#if 0
-  template<typename T>
-    class TPP : public BaseTPP {
-      public:
-        TPP() { }
-        TPP(int N) : N(N){
-          kernel = (libxsmm_matrix_eqn_function)get_kernel();
-          initialized = true;
-        }
-        void operator()(T *gout, T *in, T *gin) {
-          if (!initialized) return;
-          libxsmm_matrix_eqn_param eqn_param;
-          libxsmm_matrix_arg arg_array[2];
-          arg_array[0].primary = (void*)gout;
-          arg_array[1].primary = (void*)in;
-          eqn_param.inputs = arg_array;
-          eqn_param.output.primary = (void*)gin;
-
-          kernel(&eqn_param);
-        }
-      protected:
-        std::string hash_str() override {
-          char hash[200];
-          snprintf(hash, 200, "gelu_bwd_eqn_i%d", N);
-          return std::string(hash);
-        }
-        void *build_kernel() override {
-          auto dtype = XsmmDtype<T>();
-          libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-          libxsmm_matrix_eqn_push_back_binary_op( my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_MELTW_FLAG_BINARY_NONE, LIBXSMM_DATATYPE_F32 );
-          libxsmm_matrix_eqn_push_back_arg( my_eqn0, 1, N, N, 0, 0, dtype );
-          libxsmm_matrix_eqn_push_back_unary_op( my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_GELU_INV, LIBXSMM_MELTW_FLAG_UNARY_NONE, LIBXSMM_DATATYPE_F32 );
-          libxsmm_matrix_eqn_push_back_arg( my_eqn0, 1, N, N, 1, 0, dtype );
-          libxsmm_matrix_eqn_tree_print( my_eqn0 );
-          libxsmm_matrix_eqn_rpn_print( my_eqn0 );
-          return (void*)libxsmm_dispatch_matrix_eqn( M, N, &ld, out_dt, my_eqn0 );
-        }
-      private:
-        int N = 0;
-        libxsmm_matrix_eqn_function kernel = NULL;
-    };
-#endif
 
 }; // namespace pcl
 

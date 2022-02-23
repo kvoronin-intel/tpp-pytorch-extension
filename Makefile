@@ -1,4 +1,10 @@
 
 format:
-	clang-format -i src/csrc/*.cpp src/csrc/*.h src/csrc/bert/*.cpp src/csrc/bert/*.h src/csrc/bert_unpad/*.cpp src/csrc/bert_unpad/*.h src/csrc/gnn/graphsage/*.cpp src/csrc/gnn/graphsage/*.h
+	find src -name "*.cpp" -or -name "*.h"  |  xargs -t -n 1 clang-format -i -style=file
 	black src/pcl_pytorch_extension examples setup.py
+
+install:
+	python setup.py install
+
+clean:
+	python setup.py clean

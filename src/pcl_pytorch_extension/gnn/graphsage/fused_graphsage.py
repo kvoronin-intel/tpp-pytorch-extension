@@ -260,20 +260,10 @@ class SAGEConvOpt(BlockedModule):
         if aggregator_type != "gcn":
             self.res = True
             self.fc_self = DummyLinear(self._in_dst_feats, out_feats, bias=False)
-            self.fc_self.weight.set_blocking_param(
-                (
-                    [self.bk, self.bc],
-                    [0, 2, 3, 1],
-                )
-            )
+            self.fc_self.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
 
         self.fc_neigh = DummyLinear(self._in_dst_feats, out_feats, bias=False)
-        self.fc_neigh.weight.set_blocking_param(
-            (
-                [self.bk, self.bc],
-                [0, 2, 3, 1],
-            )
-        )
+        self.fc_neigh.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
 
         if bias:
             self.bias = BlockedParameter(torch.zeros(out_feats))
@@ -501,19 +491,11 @@ class SAGEConvOptBF16(SAGEConvOpt):
         )
         if USE_BF16_PARAMS:
             self.fc_neigh.weight.set_blocking_param(
-                (
-                    [self.bk, [self.bc // 2, 2]],
-                    [0, 2, 3, 1, 4],
-                    torch.bfloat16,
-                )
+                ([self.bk, [self.bc // 2, 2]], [0, 2, 3, 1, 4], torch.bfloat16,)
             )
             if aggregator_type != "gcn":
                 self.fc_self.weight.set_blocking_param(
-                    (
-                        [self.bk, [self.bc // 2, 2]],
-                        [0, 2, 3, 1, 4],
-                        torch.bfloat16,
-                    )
+                    ([self.bk, [self.bc // 2, 2]], [0, 2, 3, 1, 4], torch.bfloat16,)
                 )
 
         self.use_bf16 = True

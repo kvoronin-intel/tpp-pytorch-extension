@@ -34,7 +34,8 @@ if (p > 0)
 
 DECL_VLA_PTR_PT(T, in, [Nc][S2][Hc], t_in);
 DECL_VLA_PTR_PT(T, in2, [Nk][S2][Hk], t_in2);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc / 2][Hk][2], t_wt_V);
+// DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc / 2][Hk][2], t_wt_V);
+DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
 DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
 DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
 DECL_VLA_PTR_PT(T, beta, [Hk], t_beta);
@@ -78,7 +79,7 @@ auto layer_norm_fwd_tpp =
             if (nc == 0) {
               copy_bias_tpp(bias[nk], dout[s1][nk][0]);
             }
-            brgemm_tpp(in[s1][nc][0], wt_V[nk][nc][0][0], dout[s1][nk][0], Ncb);
+            brgemm_tpp(in[s1][nc][0], wt_V[nk][nc], dout[s1][nk][0], Ncb);
             if (p > 0) {
               dropout_fwd_tpp(
                   dout[s1][nk][0],
@@ -103,7 +104,7 @@ auto layer_norm_fwd_tpp =
             if (nc == 0) {
               copy_bias_tpp(bias[nk], dout[s1][nk][0]);
             }
-            brgemm_tpp(in[s1][nc][0], wt_V[nk][nc][0][0], dout[s1][nk][0], Ncb);
+            brgemm_tpp(in[s1][nc][0], wt_V[nk][nc], dout[s1][nk][0], Ncb);
             if (p > 0) {
               dropout_fwd_tpp(
                   dout[s1][nk][0],
@@ -133,7 +134,7 @@ auto layer_norm_fwd_tpp =
           if (nc == 0) {
             copy_bias_tpp(bias[nk], dout[s1][nk][0]);
           }
-          brgemm_tpp(in[s1][nc][0], wt_V[nk][nc][0][0], dout[s1][nk][0], Ncb);
+          brgemm_tpp(in[s1][nc][0], wt_V[nk][nc], dout[s1][nk][0], Ncb);
         }
       }
     }

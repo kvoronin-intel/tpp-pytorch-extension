@@ -1,4 +1,8 @@
-from torch.autograd.profiler import *
+try:
+    from torch.autograd.profiler_util import *
+    from torch.autograd.profiler import profile
+except ImportError:
+    from torch.autograd.profiler import *
 
 
 def el_nested_key_averages(self, only_top_level):
@@ -80,7 +84,6 @@ def fe_nested_key(self):
         plist.insert(0, p.name)
         p = getattr(p, "cpu_parent", None)
     nested_name = ".".join(plist)
-    self.nested_name = nested_name
     return nested_name
 
 

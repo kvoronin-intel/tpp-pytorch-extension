@@ -15,33 +15,31 @@ enum DebugTimer {
   EW_COPY,
   EW_ADD,
   EW_SCL,
-  EW_RECP,
-  EW_RECP_SQRT,
-  EW_MUL,
   EW_ZERO,
   EW_RED,
   OPTIM,
   LAST_TIMER
 };
 
-static const char* DebugTimerNames[] = {"BRGEMM",
-                                        "XPOSE",
-                                        "DROPOUT",
-                                        "LYR_NRM",
-                                        "SOFTMAX",
-                                        "ACT",
-                                        "BIAS",
-                                        "VNNI",
-                                        "COPY",
-                                        "ADD",
-                                        "SCALE",
-                                        "RECP",
-                                        "RECP_SQRT",
-                                        "MUL",
-                                        "ZERO",
-                                        "REDUCE",
-                                        "OPTIM",
-                                        "LAST_TIMER"};
+inline const char* DebugTimerName(int t) {
+  const char* names[] = {"BRGEMM",
+                         "XPOSE",
+                         "DROPOUT",
+                         "LYR_NRM",
+                         "SOFTMAX",
+                         "ACT",
+                         "BIAS",
+                         "VNNI",
+                         "COPY",
+                         "ADD",
+                         "SCALE",
+                         "ZERO",
+                         "REDUCE",
+                         "OPTIM",
+                         "LAST_TIMER"};
+  return names[t];
+}
+
 enum PassType { OTH, FWD, BWD, UPD };
 
 extern PassType globalPass;
@@ -63,7 +61,7 @@ extern std::vector<Scope> _pass_list;
 inline int register_scope(std::string name) {
   _scope_list.emplace_back(name);
   int idx = _scope_list.size() - 1;
-  printf("Registering %s scope @%d\n", name.c_str(), idx);
+  // printf("Registering %s scope @%d\n", name.c_str(), idx);
   return idx;
 }
 

@@ -183,7 +183,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
       // dVL = APD_T * dCL
-#pragma omp parallel for collapse(2) schedule(dynamic, 1)
+#pragma omp parallel for collapse(2) schedule(static, 1)
       for (int b = 0; b < B; b++) {
         for (int n = 0; n < N; n++) {
           long start = offs[b];
@@ -205,7 +205,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
       // dAPD = dCL * VL_TV
-#pragma omp parallel for collapse(2) schedule(dynamic, 1)
+#pragma omp parallel for collapse(2) schedule(static, 1)
       for (int b = 0; b < B; b++) {
         for (int n = 0; n < N; n++) {
           long start = offs[b];
@@ -252,7 +252,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
     RECORD_SCOPE(dwa_gemm, {t_QL_T, t_dAPD_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2) schedule(dynamic, 1)
+#pragma omp parallel for collapse(2) schedule(static, 1)
       for (int b = 0; b < B; b++) {
         for (int n = 0; n < N; n++) {
           long start = offs[b];
