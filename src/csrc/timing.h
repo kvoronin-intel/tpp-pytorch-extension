@@ -131,49 +131,6 @@ class GlobalPass {
 };
 
 template <typename T, int impl = 0>
-class ScopedGEMMTPP {
- public:
-  ScopedGEMMTPP(T func) : func(std::move(func)), t(BRGEMM) {}
-  template <typename Tin, typename Tout>
-  void operator()(Tin* A, Tin* B, Tout* C, long count) {
-    if (impl == 0) {
-      func(A, B, C, count);
-    } else if (impl == 1) {
-      func.ref(A, B, C, count);
-    } else {
-      printf("invalid impl requested\n");
-      exit(1);
-    }
-  }
-
- private:
-  T func;
-  DebugTimer t;
-};
-
-template <typename T, int impl = 0>
-class ScopedGEMMTPP2 {
- public:
-  ScopedGEMMTPP2(T func) : func(std::move(func)), t(BRGEMM) {}
-  template <typename Tin, typename Tout>
-  void operator()(Tin* A, Tin* B, Tout* C, long count) {
-    ScopedTimer _t(t, func.flops() * count);
-    if (impl == 0) {
-      func(A, B, C, count);
-    } else if (impl == 1) {
-      func.ref(A, B, C, count);
-    } else {
-      printf("invalid impl requested\n");
-      exit(1);
-    }
-  }
-
- private:
-  T func;
-  DebugTimer t;
-};
-
-template <typename T, int impl = 0>
 class ScopedTPP {
  public:
   ScopedTPP(T func, DebugTimer t) : func(std::move(func)), t(t) {}
@@ -196,13 +153,12 @@ class ScopedTPP {
 };
 
 #if 1
-#define SCOPEITGEMM(f) ScopedGEMMTPP<decltype(f)>(f)
-#define SCOPEITGEMM_REF(f) ScopedGEMMTPP<decltype(f), 1>(f)
-#define SCOPEITGEMM2(f) ScopedGEMMTPP2<decltype(f)>(f)
-#define SCOPEITGEMM2_REF(f) ScopedGEMMTPP2<decltype(f), 1>(f)
-#define SCOPEIT(f, t) ScopedTPP<decltype(f)>(f, t)
-//#define SCOPEIT(f,t) ScopedTPP<decltype(f),1>(f, t)
-#define SCOPEIT_REF(f, t) ScopedTPP<decltype(f), 1>(f, t)
+// Keeping below two definitions for backward compatibility for now
+#define SCOPEITGEMM SCOPEIT
+#define SCOPEITGEMM2 SCOPEIT
+
+#define SCOPEIT(f, ...) ScopedTPP<decltype(f), 0>(f, ##__VA_ARGS__)
+#define SCOPEIT_REF(f, ...) ScopedTPP<decltype(f), 1>(f, ##__VA_ARGS__)
 #else
 #define SCOPEIT(f, t) f
 #endif

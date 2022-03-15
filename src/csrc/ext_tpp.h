@@ -49,15 +49,20 @@ class BrgemmExtTPP {
     xform_type = c_trans == XformTPP::XFORM_N2V_TPP ? VNNI : XPOSE;
   }
 
-  void operator()(Tin* A, Tin* B, Tout* C, long count) {
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      long count,
+      bool no_tile_cfg = false) {
     if (c_trans == XformTPP::XFORM_NONE_TPP) {
       ScopedTimer _t(BRGEMM, 2 * M * N * K * count);
-      brgemm(A, B, C, count);
+      brgemm(A, B, C, count, no_tile_cfg);
     } else {
       Tout tmp_C[M * N];
       {
         ScopedTimer _t(BRGEMM, 2 * M * N * K * count);
-        brgemm(A, B, tmp_C, count);
+        brgemm(A, B, tmp_C, count, no_tile_cfg);
       }
       if (beta == 0.0) {
         ScopedTimer _t(xform_type);
@@ -76,15 +81,15 @@ class BrgemmExtTPP {
     }
   }
 
-  void ref(Tin* A, Tin* B, Tout* C, long count) {
+  void ref(Tin* A, Tin* B, Tout* C, long count, bool no_tile_cfg = false) {
     if (c_trans == XformTPP::XFORM_NONE_TPP) {
       ScopedTimer _t(BRGEMM, 2 * M * N * K * count);
-      brgemm.ref(A, B, C, count);
+      brgemm.ref(A, B, C, count, no_tile_cfg);
     } else {
       Tout tmp_C[M * N];
       {
         ScopedTimer _t(BRGEMM, 2 * M * N * K * count);
-        brgemm(A, B, tmp_C, count);
+        brgemm.ref(A, B, tmp_C, count, no_tile_cfg);
       }
       if (beta == 0.0) {
         ScopedTimer _t(xform_type);
@@ -103,6 +108,14 @@ class BrgemmExtTPP {
     }
   }
 
+  void config() {
+    brgemm.config();
+  }
+
+  void release() {
+    brgemm.release();
+  }
+
  private:
   long M, N, K;
   float beta;
@@ -114,5 +127,72 @@ class BrgemmExtTPP {
 };
 
 } // namespace pcl
+
+template <typename Tin, typename Tout, int impl>
+class ScopedTPP<pcl::BrgemmTPP<Tin, Tout>, impl> {
+ public:
+  ScopedTPP(pcl::BrgemmTPP<Tin, Tout> func) : func(std::move(func)) {}
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      long count,
+      bool no_tile_cfg = false) {
+    ScopedTimer _t(BRGEMM, func.flops() * count);
+    if (impl == 0) {
+      func(A, B, C, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
+
+  void config() {
+    func.config();
+  }
+
+  void release() {
+    func.release();
+  }
+
+ private:
+  pcl::BrgemmTPP<Tin, Tout> func;
+};
+
+template <typename Tin, typename Tout, int impl>
+class ScopedTPP<pcl::BrgemmExtTPP<Tin, Tout>, impl> {
+ public:
+  ScopedTPP(pcl::BrgemmExtTPP<Tin, Tout> func) : func(std::move(func)) {}
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      long count,
+      bool no_tile_cfg = false) {
+    if (impl == 0) {
+      func(A, B, C, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
+
+  void config() {
+    func.config();
+  }
+
+  void release() {
+    func.release();
+  }
+
+ private:
+  pcl::BrgemmExtTPP<Tin, Tout> func;
+};
+
+//#define TCBrgemmTPP BrgemmTPP
 
 #endif // _EXT_TPP_H_
