@@ -47,20 +47,20 @@ class DummyLinear(BlockedModule):
 
 class SAGEMLPFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, align, p, act, res, training, *inputs):
-        # breakpoint()
+    def forward(ctx, align, apply_bias, p, act, res, training, *inputs):
         if res:
             (inp, inp_res, wt, res_wt, bias) = inputs
+            N = inp.size(0)
             (out, act_mask, dp_mask,) = fused_gsage_cpp.fused_gsage_mlp_fwd(
-                align, p, act, res, training, inputs
+                align if N > align else N, apply_bias, p, act, res, training, inputs
             )
         else:
             (inp, wt, bias) = inputs
+            N = inp.size(0)
             out, act_mask, dp_mask = fused_gsage_cpp.fused_gsage_mlp_fwd(
-                align, p, act, res, training, inputs
+                align if N > align else N, apply_bias, p, act, res, training, inputs
             )
 
-        # breakpoint()
         if act == "None":
             act_mask = torch.tensor([], dtype=torch.short)
         if p == 0.0:
@@ -71,10 +71,12 @@ class SAGEMLPFunction(torch.autograd.Function):
         else:
             ctx.save_for_backward(inp, wt, act_mask, dp_mask)
 
+        N = inp.size(0)
         ctx.act = act
         ctx.res = res
         ctx.p = p
-        ctx.align = align
+        ctx.align = align if N > align else N
+        ctx.apply_bias = apply_bias
         return out
 
     @staticmethod
@@ -90,10 +92,11 @@ class SAGEMLPFunction(torch.autograd.Function):
                 grad_res_wt,
                 grad_bias,
             ) = fused_gsage_cpp.fused_gsage_mlp_bwd(
-                ctx.align, ctx.p, ctx.act, ctx.res, inputs
+                ctx.align, ctx.apply_bias, ctx.p, ctx.act, ctx.res, inputs
             )
 
             return (
+                None,
                 None,
                 None,
                 None,
@@ -107,9 +110,9 @@ class SAGEMLPFunction(torch.autograd.Function):
             )
         else:
             grad_inp, grad_wt, grad_bias = fused_gsage_cpp.fused_gsage_mlp_bwd(
-                ctx.align, ctx.p, ctx.res, inputs
+                ctx.align, ctx.apply_bias, ctx.p, ctx.act, ctx.res, inputs
             )
-            return (None, None, None, None, grad_inp, grad_wt, grad_bias)
+            return (None, None, None, None, None, None, grad_inp, grad_wt, grad_bias)
 
 
 class DropoutFunction(torch.autograd.Function):
@@ -239,6 +242,7 @@ class SAGEConvOpt(BlockedModule):
         self.bc = self._in_dst_feats
         self.bk = self._out_feats
         self.res = False
+        self.apply_bias = False
         self.align = 32
 
         for cbf in [50, 32, 16]:
@@ -251,21 +255,36 @@ class SAGEConvOpt(BlockedModule):
                 self.bk = kbf
                 break
 
-        if aggregator_type == "pool":
-            self.fc_pool = nn.Linear(self._in_src_feats, self._in_src_feats)
+        if aggregator_type.startswith("pool"):
+            self.fc_pool = DummyLinear(self._in_src_feats, self._in_src_feats)
+            bc = self._in_src_feats
+            for cb in [50, 32, 16]:
+                if self._in_src_feats % cb == 0:
+                    bc = cb
+                    break
+            bk = bc
+
+            self.fc_pool.weight.set_blocking_param(([bk, bc], [0, 2, 3, 1],))
         if aggregator_type == "lstm":
             self.lstm = nn.LSTM(
                 self._in_src_feats, self._in_src_feats, batch_first=True
             )
-        if aggregator_type != "gcn":
+        if aggregator_type != "gcn" and ("concat" not in aggregator_type):
             self.res = True
             self.fc_self = DummyLinear(self._in_dst_feats, out_feats, bias=False)
             self.fc_self.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
 
-        self.fc_neigh = DummyLinear(self._in_dst_feats, out_feats, bias=False)
+        if "concat" not in aggregator_type:
+            self.fc_neigh = DummyLinear(self._in_dst_feats, out_feats, bias=False)
+        else:
+            self.fc_neigh = DummyLinear(
+                self._in_dst_feats + self._in_dst_feats, out_feats, bias=False
+            )
+
         self.fc_neigh.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
 
         if bias:
+            self.apply_bias = True
             self.bias = BlockedParameter(torch.zeros(out_feats))
         else:
             self.register_buffer("bias", None)
@@ -279,8 +298,10 @@ class SAGEConvOpt(BlockedModule):
 
     def maybe_block_params(self):
         self.fc_neigh.weight.block()
-        if self._aggre_type != "gcn":
+        if self._aggre_type != "gcn" and ("concat" not in self._aggre_type):
             self.fc_self.weight.block()
+        if self._aggre_type.startswith("pool"):
+            self.fc_pool.weight.block()
 
     def reset_parameters(self):
         r"""
@@ -295,11 +316,11 @@ class SAGEConvOpt(BlockedModule):
         The LSTM module is using xavier initialization method for its weights.
         """
         gain = nn.init.calculate_gain("relu")
-        if self._aggre_type == "pool":
+        if self._aggre_type.startswith("pool"):
             nn.init.xavier_uniform_(self.fc_pool.weight, gain=gain)
         if self._aggre_type == "lstm":
             self.lstm.reset_parameters()
-        if self._aggre_type != "gcn":
+        if self._aggre_type != "gcn" and ("concat" not in self._aggre_type):
             nn.init.xavier_uniform_(self.fc_self.weight, gain=gain)
         nn.init.xavier_uniform_(self.fc_neigh.weight, gain=gain)
 
@@ -413,8 +434,19 @@ class SAGEConvOpt(BlockedModule):
                 )
                 # if not lin_before_mp:
                 #    h_neigh = self.fc_neigh(h_neigh)
-            elif self._aggre_type == "pool":
-                graph.srcdata["h"] = F.relu(self.fc_pool(feat_src))
+            elif self._aggre_type.startswith("pool"):
+                inputs = [feat_src, self.fc_pool.weight]
+                if self.use_bf16:
+                    inputs = [
+                        i.to(torch.bfloat16) if i.is_floating_point() else i
+                        for i in inputs
+                    ]
+                inputs.append(self.fc_pool.bias)
+                graph.srcdata["h"] = SAGEMLPFunction.apply(
+                    self.align, 0.0, self.activation, False, self.training, *inputs
+                )
+
+                # graph.srcdata["h"] = F.relu(self.fc_pool(feat_src))
                 graph.update_all(msg_fn, fn.max("m", "neigh"))
                 h_neigh = graph.dstdata["neigh"]
                 # h_neigh = self.fc_neigh(h_neigh)
@@ -423,6 +455,8 @@ class SAGEConvOpt(BlockedModule):
                 graph.update_all(msg_fn, self._lstm_reducer)
                 h_neigh = graph.dstdata["neigh"]
                 # h_neigh = self.fc_neigh(h_neigh)
+            elif self._aggre_type == "none":
+                h_neigh = feat_src
             else:
                 raise KeyError(
                     "Aggregator type {} not recognized.".format(self._aggre_type)
@@ -442,12 +476,32 @@ class SAGEConvOpt(BlockedModule):
 
                 rst = SAGEMLPFunction.apply(
                     self.align,
+                    self.apply_bias,
                     self.feat_drop,
                     self.activation,
                     self.res,
                     self.training,
                     *inputs
                 )
+            elif "concat" in self._aggre_type:
+                h = torch.cat((h_self, h_neigh), 1)
+                inputs = [h, self.fc_neigh.weight]
+                if self.use_bf16:
+                    inputs = [
+                        i.to(torch.bfloat16) if i.is_floating_point() else i
+                        for i in inputs
+                    ]
+                inputs.append(self.bias)
+                rst = SAGEMLPFunction.apply(
+                    self.align,
+                    self.apply_bias,
+                    self.self.feat_drop,
+                    self.activation,
+                    self.res,
+                    self.training,
+                    *inputs
+                )
+
             else:
                 inputs = [
                     h_self,
@@ -463,6 +517,7 @@ class SAGEConvOpt(BlockedModule):
                 inputs.append(self.bias)
                 rst = SAGEMLPFunction.apply(
                     self.align,
+                    self.apply_bias,
                     self.feat_drop,
                     self.activation,
                     self.res,
@@ -499,25 +554,6 @@ class SAGEConvOptBF16(SAGEConvOpt):
                 )
 
         self.use_bf16 = True
-
-
-@contextmanager
-def pcl_impl(enable=True, use_bf16=False):
-    try:
-        import dgl
-
-        orig_SAGEConv = dgl.nn.pytorch.conv.SAGEConv
-        try:
-            if enable:
-                if use_bf16:
-                    dgl.nn.pytorch.conv.SAGEConv = SAGEConvOptBF16
-                else:
-                    dgl.nn.pytorch.conv.SAGEConv = SAGEConvOpt
-            yield
-        finally:
-            dgl.nn.pytorch.conv.SAGEConv = orig_SAGEConv
-    except ImportError as e:
-        pass
 
 
 def block(model):

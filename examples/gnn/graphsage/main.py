@@ -5,14 +5,33 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import dgl.nn.pytorch as dglnn
+from dgl.nn.pytorch.conv import SAGEConv
 import time
 import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
-from pcl_pytorch_extension.gnn.graphsage import fused_graphsage as pcl_graphsage
+from pcl_pytorch_extension.gnn.graphsage import fused_graphsage
 import pcl_pytorch_extension as ppx
-import os
-import psutil
+import os, psutil
+from contextlib import contextmanager
+
+
+@contextmanager
+def opt_impl(enable=True, use_bf16=False):
+    try:
+        global SAGEConv
+        orig_SAGEConv = SAGEConv
+        try:
+            if enable:
+                if use_bf16:
+                    SAGEConv = fused_graphsage.SAGEConvOptBF16
+                else:
+                    SAGEConv = fused_graphsage.SAGEConvOpt
+            yield
+        finally:
+            SAGEConv = orig_SAGEConv
+    except ImportError as e:
+        pass
 
 
 class SAGE(nn.Module):
@@ -23,19 +42,17 @@ class SAGE(nn.Module):
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
         self.layers.append(
-            dgl.nn.pytorch.conv.SAGEConv(
+            SAGEConv(
                 in_feats, n_hidden, "mean", feat_drop=dropout, activation=activation
             )
         )
         for i in range(1, n_layers - 1):
             self.layers.append(
-                dgl.nn.pytorch.conv.SAGEConv(
+                SAGEConv(
                     n_hidden, n_hidden, "mean", feat_drop=dropout, activation=activation
                 )
             )
-        self.layers.append(dgl.nn.pytorch.conv.SAGEConv(n_hidden, n_classes, "mean"))
-        # self.dropout = nn.Dropout(dropout)
-        # self.activation = activation
+        self.layers.append(SAGEConv(n_hidden, n_classes, "mean"))
 
     def forward(self, blocks, x):
         h = x
@@ -48,9 +65,6 @@ class SAGE(nn.Module):
             # Then we compute the updated representation on the RHS.
             # The shape of h now becomes (num_nodes_RHS, D)
             h = layer(block, (h, h_dst))
-            # if l != len(self.layers) - 1:
-            # h = self.activation(h)
-            # h = self.dropout(h)
         return h
 
     def inference(self, g, x, device):
@@ -66,47 +80,46 @@ class SAGE(nn.Module):
         # Therefore, we compute the representation of all nodes layer by layer.  The nodes
         # on each layer are of course splitted in batches.
         # TODO: can we standardize this?
-        for l, layer in enumerate(self.layers):
-            if args.use_bf16:
-                y = (
-                    th.zeros(
-                        g.num_nodes(),
-                        self.n_hidden if l != len(self.layers) - 1 else self.n_classes,
-                    )
-                    .to(device)
-                    .to(th.bfloat16)
-                )
-            else:
+        if device.type != "cpu":
+            for l, layer in enumerate(self.layers):
                 y = th.zeros(
                     g.num_nodes(),
                     self.n_hidden if l != len(self.layers) - 1 else self.n_classes,
                 ).to(device)
 
-            sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
-            dataloader = dgl.dataloading.NodeDataLoader(
-                g,
-                th.arange(g.num_nodes()),
-                sampler,
-                batch_size=args.batch_size,
-                shuffle=True,
-                drop_last=False,
-                num_workers=args.num_workers,
-            )
+                sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
+                dataloader = dgl.dataloading.NodeDataLoader(
+                    g,
+                    th.arange(g.num_nodes()),
+                    sampler,
+                    batch_size=args.batch_size,
+                    shuffle=True,
+                    drop_last=False,
+                    num_workers=args.num_workers,
+                )
 
-            for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
-                block = blocks[0].int().to(device)
+                for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
+                    block = blocks[0].int().to(device)
 
-                h = x[input_nodes]
-                h_dst = h[: block.num_dst_nodes()]
-                h = layer(block, (h, h_dst))
-                # if l != len(self.layers) - 1:
-                # h = self.activation(h)
-                # h = self.dropout(h)
+                    h = x[input_nodes]
+                    h_dst = h[: block.num_dst_nodes()]
+                    h = layer(block, (h, h_dst))
+                    if l != len(self.layers) - 1:
+                        h = self.activation(h)
+                        h = self.dropout(h)
 
-                y[output_nodes] = h
+                    y[output_nodes] = h
 
-            x = y
-        return y
+                x = y
+            return y
+        else:
+            if args.use_bf16:
+                x = x.to(th.bfloat16)
+
+            for l, layer in enumerate(self.layers):
+                x = layer(g, (x, x))
+
+            return x
 
 
 def compute_acc(pred, labels):
@@ -136,31 +149,35 @@ def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     )
 
 
-def load_subtensor(nfeat, labels, seeds, input_nodes):
+def load_subtensor(nfeat, labels, seeds, input_nodes, use_bf16):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes]
+    if use_bf16:
+        batch_inputs = nfeat[input_nodes].to(th.bfloat16)
+    else:
+        batch_inputs = nfeat[input_nodes]
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
 
-def worker_init_fn(worker_id):
-    cpu_aff = psutil.Process().cpu_affinity()
-    cpu_aff_new = [cpu_aff[0] - worker_id - 1]
-    try:
-        psutil.Process().cpu_affinity(cpu_aff_new)
-        print(
-            "Worker {} with pid {} called, new affinity = {}".format(
-                worker_id, os.getpid(), psutil.Process().cpu_affinity()
-            )
-        )
-    except:
-        print(
-            "Unable to set worker affinity {} for worker {}".format(
-                cpu_aff_new, worker_id
-            )
-        )
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
 #### Entry point
@@ -172,7 +189,7 @@ def run(args, device, data):
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(",")]
     )
-    """
+
     dataloader = dgl.dataloading.NodeDataLoader(
         g,
         train_nid,
@@ -181,27 +198,18 @@ def run(args, device, data):
         shuffle=True,
         drop_last=False,
         num_workers=args.num_workers,
-        worker_init_fn=worker_init_fn
-    )
-    """
-    dataloader = dgl.dataloading.NodeDataLoader(
-        g,
-        train_nid,
-        sampler,
-        batch_size=args.batch_size,
-        shuffle=True,
-        drop_last=False,
-        num_workers=args.num_workers,
+        use_cpu_worker_affinity=True,
     )
 
     # Define model and optimizer
-    with pcl_graphsage.pcl_impl(args.use_pcl, args.use_bf16):
+    with opt_impl(args.opt_mlp, args.use_bf16):
         model = SAGE(
             in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout
         )
         model = model.to(device)
     loss_fcn = nn.CrossEntropyLoss()
-    if args.use_pcl:
+
+    if args.opt_mlp:
         no_decay = ["bias"]
         optimizer_grouped_parameters = [
             {
@@ -233,35 +241,39 @@ def run(args, device, data):
             m.maybe_block_params()
 
     # Training loop
-    avg = 0
-    iter_tput = []
+    avgb = 0
     best_eval_acc = 0
     best_test_acc = 0
-    if args.use_pcl:
+    if args.opt_mlp:
         ppx.manual_seed(args.seed)
     record_shapes = False
     with th.autograd.profiler.profile(
         enabled=args.profile, use_cuda=(args.gpu > 0), record_shapes=record_shapes
     ) as prof:
-        if prof and args.use_pcl:
+        if prof and args.opt_mlp:
             ppx.reset_debug_timers()
-        # if args.use_pcl: ppx.reset_debug_timers()
         for epoch in range(args.num_epochs):
-            # if args.use_pcl:
-            #    ppx.reset_debug_timers()
+            batch_time = AverageMeter()
+            data_time = AverageMeter()
+
+            iter_time = []
+
             tic = time.time()
 
             # Loop over the dataloader to sample the computation dependency graph as a list of
             # blocks.
+            end = time.time()
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
-                tic_step = time.time()
+                # measure data loading time
+                data_time.update(time.time() - end)
 
                 # copy block to gpu
-                blocks = [blk.int().to(device) for blk in blocks]
+                if args.gpu > 0:
+                    blocks = [blk.int().to(device) for blk in blocks]
 
                 # Load the input features as well as output labels
                 batch_inputs, batch_labels = load_subtensor(
-                    nfeat, labels, seeds, input_nodes
+                    nfeat, labels, seeds, input_nodes, args.use_bf16
                 )
 
                 # Compute loss and prediction
@@ -270,47 +282,34 @@ def run(args, device, data):
                 optimizer.zero_grad()
                 loss.backward()
 
-                # with th.autograd.profiler.record_function("optimizer"):
-                #  optimizer.step()
                 optimizer.step()
 
-                iter_tput.append(len(seeds) / (time.time() - tic_step))
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
+
+                if step > 0:
+                    iter_time.append(batch_time.val)
                 if step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
-                    gpu_mem_alloc = (
-                        th.cuda.max_memory_allocated() / 1000000
-                        if th.cuda.is_available()
-                        else 0
-                    )
                     print(
-                        "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB".format(
+                        "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
+                        "Time (s) {batch_time.val:.3f} ({batch_time.avg:.3f}) |"
+                        "Data {data_time.val:.3f} ({data_time.avg:.3f})".format(
                             epoch,
                             step,
                             loss.item(),
                             acc.item(),
-                            np.mean(iter_tput[3:]),
-                            gpu_mem_alloc,
+                            batch_time=batch_time,
+                            data_time=data_time,
                         )
                     )
 
-                """
-            if prof:
-              with open("gsage.prof", "w") as prof_f:
-                prof_f.write(prof.key_averages(group_by_input_shape=record_shapes).table(sort_by="cpu_time_total"))
-              if ppx.extend_profiler:
-                with open("gsage_nested.prof", "w") as prof_f:
-                  prof_f.write(prof.nested_key_averages().table(sort_by=None, row_limit=1000))
-                with open("gsage_top_level.prof", "w") as prof_f:
-                  prof_f.write(prof.nested_key_averages(only_top_level=True).table(sort_by="cpu_time_total"))
-                prof.print_op_timings(prefix="gsage_time_")
-            """
+            print("Epoch Time(s): {:.4f}".format(np.sum(iter_time)))
 
-            toc = time.time()
-            print("Epoch Time(s): {:.4f}".format(toc - tic))
-            # if args.use_pcl:
-            #    ppx.print_debug_timers(0)
             if epoch >= 5:
-                avg += toc - tic
+                avgb += np.sum(iter_time)
+
             if epoch % args.eval_every == 0 and epoch != 0:
                 eval_acc, test_acc, pred = evaluate(
                     model, g, nfeat, labels, val_nid, test_nid, device
@@ -331,9 +330,8 @@ def run(args, device, data):
                     )
                 )
 
-    if prof and args.use_pcl:
+    if prof and args.opt_mlp:
         ppx.print_debug_timers(0)
-    # if args.use_pcl: ppx.print_debug_timers(0)
 
     if prof:
         with open("gsage.prof", "w") as prof_f:
@@ -353,10 +351,9 @@ def run(args, device, data):
                         sort_by="cpu_time_total"
                     )
                 )
-            prof.print_op_timings(prefix="gsage_time_")
 
-    print("Avg epoch time: {}".format(avg / (epoch - 4)))
-    return best_test_acc
+    print("Avg epoch time: {}".format(avgb / (epoch - 4)))
+    return best_test_acc, avgb / (epoch - 4)
 
 
 if __name__ == "__main__":
@@ -383,14 +380,14 @@ if __name__ == "__main__":
     argparser.add_argument("--save-pred", type=str, default="")
     argparser.add_argument("--wd", type=float, default=0)
     argparser.add_argument(
-        "--use_pcl",
+        "--opt_mlp",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use optimized MLP impl when available",
     )
     argparser.add_argument(
         "--use_bf16",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use BF16 datatype when available",
     )
     argparser.add_argument(
         "--seed", type=int, default=42, help="random seed for initialization"
@@ -399,9 +396,7 @@ if __name__ == "__main__":
         "--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer."
     )
     argparser.add_argument(
-        "--profile",
-        action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        "--profile", action="store_true", help="Whether to profile or not",
     )
 
     args = argparser.parse_args()
@@ -425,17 +420,23 @@ if __name__ == "__main__":
 
     in_feats = nfeat.shape[1]
     n_classes = (labels.max() + 1).item()
+
     # Create csr/coo/csc formats before launching sampling processes
     # This avoids creating certain formats in each data loader process, which saves momory and CPU.
     graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
 
+    # Run 10 times
+    test_accs = []
+    epoch_time = []
     if not args.profile:
-        # Run 10 times
-        test_accs = []
         for i in range(10):
-            test_accs.append(run(args, device, data).cpu().numpy())
+            # test_accs.append(run(args, device, data).cpu().numpy())
+            acc, et = run(args, device, data)
+            test_accs.append(acc)
+            epoch_time.append(et)
             print("Average test accuracy:", np.mean(test_accs), "±", np.std(test_accs))
+            print("Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time))
     else:
         run(args, device, data)

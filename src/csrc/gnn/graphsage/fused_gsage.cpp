@@ -20,6 +20,7 @@ REGISTER_SCOPE(go_gemm, "go_gemm");
 REGISTER_SCOPE(gdi_gemm, "gdi_gemm");
 REGISTER_SCOPE(gdw_gemm, "gdw_gemm");
 REGISTER_SCOPE(gdbias, "gdbias");
+REGISTER_SCOPE(gdout, "gdout");
 REGISTER_SCOPE(go_dropout, "go_dropout");
 REGISTER_SCOPE(gdo_dropout, "gdo_dropout");
 
@@ -47,6 +48,7 @@ inline void omp_reduce_buf(
 
 std::vector<at::Tensor> fused_gsage_mlp_fwd(
     int align,
+    bool apply_bias,
     float p,
     std::string act,
     bool res,
@@ -64,6 +66,7 @@ std::vector<at::Tensor> fused_gsage_mlp_fwd(
 
 std::vector<at::Tensor> fused_gsage_mlp_bwd(
     int align,
+    bool apply_bias,
     float p,
     std::string act,
     bool res,
@@ -78,7 +81,6 @@ std::vector<at::Tensor> fused_gsage_mlp_bwd(
   }
 }
 
-#if 1
 std::vector<at::Tensor> dropout_fwd(float p, at::Tensor inp, bool training) {
   GlobalPass _gp(FWD);
   if (inp.dtype() == at::kFloat) {
@@ -100,7 +102,6 @@ at::Tensor dropout_bwd(float p, std::vector<at::Tensor> inputs) {
 #include "dropout_bwd.h"
   }
 }
-#endif
 
 REGISTER_SUBMODULE(_fused_gsage, m) {
   m.def(
@@ -109,6 +110,6 @@ REGISTER_SUBMODULE(_fused_gsage, m) {
       "fused_gsage_mlp_bwd",
       &fused_gsage_mlp_bwd,
       "Pcl GraphSAGE MLP backward");
-  // m.def("dropout_fwd", &dropout_fwd, "Pcl Optimized Dropout FWD");
-  // m.def("dropout_bwd", &dropout_bwd, "Pcl Optimized Dropout BWD");
+  m.def("dropout_fwd", &dropout_fwd, "Pcl Optimized Dropout FWD");
+  m.def("dropout_bwd", &dropout_bwd, "Pcl Optimized Dropout BWD");
 }

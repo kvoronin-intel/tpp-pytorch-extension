@@ -93,6 +93,8 @@ sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp"]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
+sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
+
 print(sources)
 
 setup(
