@@ -89,15 +89,15 @@ if (training) {
 {
   // float (*QL)[S1][N][S2][H] = (float
   // (*)[S1][N][S2][H])t_QL.data_ptr<float>();
-  DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
-  DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
+  // DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
+  //  DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
   DECL_VLA_PTR_PT(T, Wv_V, [N][H * H], t_Wv_V);
-  DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
-  DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
+  // DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
+  // DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
   DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
   DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
-  DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
-  DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
+  // DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
+  //DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
   DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
   DECL_VLA_PTR_PT(T, VL_V, [N][S2 * H], t_VL_V);
   DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
@@ -106,10 +106,10 @@ if (training) {
   DECL_VLA_PTR_PT(T, APD_T, [SS1][S2 * S2], t_APD_T); // For BWD only
   DECL_VLA_PTR_PT(short, APD_mask, [SS1][(S2 * S2 + 15) / 16], t_APD_mask);
   DECL_VLA_PTR_PT(T, CL, [N][S2 * H], t_CL);
-  DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
-  DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
+  // DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
+  // DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
   DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
-  DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
+  // DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
   DECL_VLA_PTR_PT(T, AM, [S2], t_AM);
   auto offs = t_offs.data_ptr<long>();
   auto offs2 = t_offs2.data_ptr<long>();
@@ -144,6 +144,13 @@ if (training) {
   {
     RECORD_SCOPE(q_gemm, {t_HS, t_Wq_V});
     {
+#if 0
+        DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
+        DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
+        DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
+        DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
+        DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
+        DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
@@ -156,6 +163,28 @@ if (training) {
             xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
         }
       }
+#else
+      long BN = 8;
+      auto qkv_loop =
+          //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
+          //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "aBC");
+          ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N, {4}}}, "acBC");
+      qkv_loop([&](int *ind) {
+        int bn = ind[0], s1 = ind[1], nk = ind[2];
+        DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
+        DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
+        DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
+        DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
+        DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
+        DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
+        if (bf16_training && nk == 0)
+          xpose_tpp(BN, S2 * H, S2 * H, HS[s1][bn], HS_T[s1][bn]);
+        if (bn == 0) copy_bias_tpp(Bq[nk], QL[s1][nk]);
+        qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN);
+        if (bf16_training)
+          if (bn == N - BN) xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
+      });
+#endif
     }
   }
 
@@ -164,6 +193,7 @@ if (training) {
   {
     RECORD_SCOPE(k_gemm, {t_EHS, t_Wk_V});
     {
+#if 0
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
@@ -179,6 +209,29 @@ if (training) {
             kv_xpose_tpp_2(tmpp, KL_TV[s1][nk]);
         }
       }
+#else
+      auto qkv_loop =
+          ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "AB");
+      qkv_loop([&](int *ind) {
+        int s1 = ind[0], nk = ind[1];
+        DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
+        DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
+        DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
+        DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
+        DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
+        DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
+
+          T tmp[S2 * H];
+          T* tmpp = (training && !bf16_training) ? KL_V[s1][nk] : tmp;
+          if (!null_EHS && bf16_training && nk == 0)
+            xpose_tpp(N, S2 * H, S2 * H, EHS[s1][0], EHS_T[s1][0]);
+          copy_bias_tpp(Bk[nk], tmpp);
+          qkv_gemm_tpp(EHS[s1][0], Wk_V[nk][0], tmpp, N);
+          k_xpose_tpp_1(tmpp, KL_V[s1][nk]); // KL_V = KL_VT if not training
+          if (training)
+            kv_xpose_tpp_2(tmpp, KL_TV[s1][nk]);
+      });
+#endif
     }
   }
   // PRINT_T(t_EHS);
@@ -190,6 +243,7 @@ if (training) {
   {
     RECORD_SCOPE(v_gemm, {t_EHS, t_Wv_V});
     {
+      DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {

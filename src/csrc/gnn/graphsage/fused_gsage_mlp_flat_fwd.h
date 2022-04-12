@@ -101,7 +101,8 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
           cpy_bias_tpp(bias[k], out_f32[n][0][k]);
         brgemm_tpp(in[n][0][0], wt_V[k][0], out_f32[n][0][k], nc, true);
         if (res) {
-          brgemm_tpp(in_res[n][0][0], wt_res_V[k][0], out_f32[n][0][k], nc, true);
+          brgemm_tpp(
+              in_res[n][0][0], wt_res_V[k][0], out_f32[n][0][k], nc, true);
         }
         if (act == "relu") {
           relu_fwd_tpp(out_f32[n][0][k], out_f32[n][0][k], relu_mask[n][0][k]);
@@ -145,7 +146,11 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
           brgemm_tpp(in[nn * bn][0], wt_V[k][0], out_f32[nn * bn][k], nc, true);
           if (res) {
             brgemm_tpp(
-                in_res[nn * bn][0], wt_res_V[k][0], out_f32[nn * bn][k], nc, true);
+                in_res[nn * bn][0],
+                wt_res_V[k][0],
+                out_f32[nn * bn][k],
+                nc,
+                true);
           }
 
           for (int r = 0; r < rem; r++) {
