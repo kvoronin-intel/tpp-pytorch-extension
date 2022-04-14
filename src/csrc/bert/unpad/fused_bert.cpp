@@ -20,8 +20,7 @@ REGISTER_LOCAL_SCOPE(b_emb, "b_emb");
 REGISTER_LOCAL_SCOPE(q_gemm, "q_gemm");
 REGISTER_LOCAL_SCOPE(k_gemm, "k_gemm");
 REGISTER_LOCAL_SCOPE(v_gemm, "v_gemm");
-REGISTER_LOCAL_SCOPE(a_gemm, "a_gemm");
-REGISTER_LOCAL_SCOPE(c_gemm, "c_gemm");
+REGISTER_LOCAL_SCOPE(ac_gemm, "ac_gemm");
 REGISTER_LOCAL_SCOPE(o_gemm, "o_gemm");
 REGISTER_LOCAL_SCOPE(i_gemm, "i_gemm");
 

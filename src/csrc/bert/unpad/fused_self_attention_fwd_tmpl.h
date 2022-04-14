@@ -164,11 +164,12 @@ if (training) {
         }
       }
 #else
-      long BN = 8;
+      long BN = N;
       auto qkv_loop =
+          ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
           //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
           //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "aBC");
-          ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N, {4}}}, "acBC");
+          //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N, {4}}}, "acBC");
       qkv_loop([&](int *ind) {
         int bn = ind[0], s1 = ind[1], nk = ind[2];
         DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
@@ -180,10 +181,10 @@ if (training) {
         if (bf16_training && nk == 0)
           xpose_tpp(BN, S2 * H, S2 * H, HS[s1][bn], HS_T[s1][bn]);
         if (bn == 0) copy_bias_tpp(Bq[nk], QL[s1][nk]);
-        qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN);
+        qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN, true);
         if (bf16_training)
           if (bn == N - BN) xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
-      });
+      }, [&]() {qkv_gemm_tpp.config();}, [&]() {qkv_gemm_tpp.release();});
 #endif
     }
   }
@@ -194,6 +195,10 @@ if (training) {
     RECORD_SCOPE(k_gemm, {t_EHS, t_Wk_V});
     {
 #if 0
+        DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
+        DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
+        DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
+        DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
@@ -211,7 +216,7 @@ if (training) {
       }
 #else
       auto qkv_loop =
-          ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "AB");
+          ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
       qkv_loop([&](int *ind) {
         int s1 = ind[0], nk = ind[1];
         DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
@@ -230,7 +235,7 @@ if (training) {
           k_xpose_tpp_1(tmpp, KL_V[s1][nk]); // KL_V = KL_VT if not training
           if (training)
             kv_xpose_tpp_2(tmpp, KL_TV[s1][nk]);
-      });
+      }, [&]() {qkv_gemm_tpp.config();}, [&]() {qkv_gemm_tpp.release();});
 #endif
     }
   }
@@ -243,6 +248,7 @@ if (training) {
   {
     RECORD_SCOPE(v_gemm, {t_EHS, t_Wv_V});
     {
+#if 0
       DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -257,12 +263,32 @@ if (training) {
             kv_xpose_tpp_2(tmpp, VL_TV[s1][nk]);
         }
       }
+#else
+      auto qkv_loop =
+          ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
+      qkv_loop([&](int *ind) {
+        int s1 = ind[0], nk = ind[1];
+        DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
+        DECL_VLA_PTR_PT(T, Wv_V, [N][H * H], t_Wv_V);
+        DECL_VLA_PTR_PT(T, VL_V, [N][S2 * H], t_VL_V);
+        DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
+        DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
+
+          T tmp[S2 * H];
+          T* tmpp = (!dt_bf16) ? VL_V[s1][nk] : tmp;
+          copy_bias_tpp(Bv[nk], tmpp);
+          qkv_gemm_tpp(EHS[s1][0], Wv_V[nk][0], tmpp, N);
+          v_xpose_tpp_1(tmpp, VL_V[s1][nk]);
+          if (training)
+            kv_xpose_tpp_2(tmpp, VL_TV[s1][nk]);
+      }, [&]() {qkv_gemm_tpp.config();}, [&]() {qkv_gemm_tpp.release();});
+#endif
     }
   }
   // Take the dot product between "query" and "key" to get the raw attention
   // scores.
   {
-    RECORD_SCOPE(a_gemm, {t_QL, t_KL_TV});
+    RECORD_SCOPE(ac_gemm, {t_QL, t_KL_TV});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2) schedule(static, 1)
@@ -304,24 +330,6 @@ if (training) {
               a_xpose_tpp(
                   len, S2 * S2, len * S2 * S2, APD[n][ss1], APD_T[n][ss + l]);
             }
-          }
-        }
-      }
-    }
-  }
-
-  {
-    RECORD_SCOPE(c_gemm, {t_APD, t_VL_V});
-    {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2) schedule(static, 1)
-      for (int b = 0; b < B; b++) {
-        for (int n = 0; n < N; n++) {
-          long start = offs[b];
-          long ss1 = offs2[b];
-          long end = offs[b + 1];
-          long len = end - start;
-          for (int s11 = start; s11 < end; s11++, ss1 += len) {
             c_gemm_tpp(APD[n][ss1], VL_V[start][n], CL[s11][n], len);
           }
         }
