@@ -97,7 +97,7 @@ if (training) {
   DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
   DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
   // DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
-  //DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
+  // DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
   DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
   DECL_VLA_PTR_PT(T, VL_V, [N][S2 * H], t_VL_V);
   DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
@@ -165,26 +165,32 @@ if (training) {
       }
 #else
       long BN = N;
-      auto qkv_loop =
-          ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
-          //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
-          //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}}, "aBC");
-          //ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N, {4}}}, "acBC");
-      qkv_loop([&](int *ind) {
-        int bn = ind[0], s1 = ind[1], nk = ind[2];
-        DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
-        DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
-        DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
-        DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
-        DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
-        DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
-        if (bf16_training && nk == 0)
-          xpose_tpp(BN, S2 * H, S2 * H, HS[s1][bn], HS_T[s1][bn]);
-        if (bn == 0) copy_bias_tpp(Bq[nk], QL[s1][nk]);
-        qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN, true);
-        if (bf16_training)
-          if (bn == N - BN) xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
-      }, [&]() {qkv_gemm_tpp.config();}, [&]() {qkv_gemm_tpp.release();});
+      auto qkv_loop = ThreadedLoop<3>(
+          {LoopSpecs{0L, N, BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
+      // ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}},
+      // "acB");  ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1},
+      // LoopSpecs{N}}, "aBC");  ThreadedLoop<3>({LoopSpecs{0L,N,BN},
+      // LoopSpecs{S1}, LoopSpecs{N, {4}}}, "acBC");
+      qkv_loop(
+          [&](int* ind) {
+            int bn = ind[0], s1 = ind[1], nk = ind[2];
+            DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
+            DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
+            DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
+            DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
+            DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
+            DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
+            if (bf16_training && nk == 0)
+              xpose_tpp(BN, S2 * H, S2 * H, HS[s1][bn], HS_T[s1][bn]);
+            if (bn == 0)
+              copy_bias_tpp(Bq[nk], QL[s1][nk]);
+            qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN, true);
+            if (bf16_training)
+              if (bn == N - BN)
+                xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
+          },
+          [&]() { qkv_gemm_tpp.config(); },
+          [&]() { qkv_gemm_tpp.release(); });
 #endif
     }
   }
@@ -215,27 +221,29 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop =
-          ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
-      qkv_loop([&](int *ind) {
-        int s1 = ind[0], nk = ind[1];
-        DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
-        DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
-        DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
-        DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
-        DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
-        DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
+      auto qkv_loop = ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
+      qkv_loop(
+          [&](int* ind) {
+            int s1 = ind[0], nk = ind[1];
+            DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
+            DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
+            DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
+            DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
+            DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
+            DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
 
-          T tmp[S2 * H];
-          T* tmpp = (training && !bf16_training) ? KL_V[s1][nk] : tmp;
-          if (!null_EHS && bf16_training && nk == 0)
-            xpose_tpp(N, S2 * H, S2 * H, EHS[s1][0], EHS_T[s1][0]);
-          copy_bias_tpp(Bk[nk], tmpp);
-          qkv_gemm_tpp(EHS[s1][0], Wk_V[nk][0], tmpp, N);
-          k_xpose_tpp_1(tmpp, KL_V[s1][nk]); // KL_V = KL_VT if not training
-          if (training)
-            kv_xpose_tpp_2(tmpp, KL_TV[s1][nk]);
-      }, [&]() {qkv_gemm_tpp.config();}, [&]() {qkv_gemm_tpp.release();});
+            T tmp[S2 * H];
+            T* tmpp = (training && !bf16_training) ? KL_V[s1][nk] : tmp;
+            if (!null_EHS && bf16_training && nk == 0)
+              xpose_tpp(N, S2 * H, S2 * H, EHS[s1][0], EHS_T[s1][0]);
+            copy_bias_tpp(Bk[nk], tmpp);
+            qkv_gemm_tpp(EHS[s1][0], Wk_V[nk][0], tmpp, N);
+            k_xpose_tpp_1(tmpp, KL_V[s1][nk]); // KL_V = KL_VT if not training
+            if (training)
+              kv_xpose_tpp_2(tmpp, KL_TV[s1][nk]);
+          },
+          [&]() { qkv_gemm_tpp.config(); },
+          [&]() { qkv_gemm_tpp.release(); });
 #endif
     }
   }
@@ -264,24 +272,26 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop =
-          ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
-      qkv_loop([&](int *ind) {
-        int s1 = ind[0], nk = ind[1];
-        DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
-        DECL_VLA_PTR_PT(T, Wv_V, [N][H * H], t_Wv_V);
-        DECL_VLA_PTR_PT(T, VL_V, [N][S2 * H], t_VL_V);
-        DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
-        DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
+      auto qkv_loop = ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
+      qkv_loop(
+          [&](int* ind) {
+            int s1 = ind[0], nk = ind[1];
+            DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
+            DECL_VLA_PTR_PT(T, Wv_V, [N][H * H], t_Wv_V);
+            DECL_VLA_PTR_PT(T, VL_V, [N][S2 * H], t_VL_V);
+            DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
+            DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
 
-          T tmp[S2 * H];
-          T* tmpp = (!dt_bf16) ? VL_V[s1][nk] : tmp;
-          copy_bias_tpp(Bv[nk], tmpp);
-          qkv_gemm_tpp(EHS[s1][0], Wv_V[nk][0], tmpp, N);
-          v_xpose_tpp_1(tmpp, VL_V[s1][nk]);
-          if (training)
-            kv_xpose_tpp_2(tmpp, VL_TV[s1][nk]);
-      }, [&]() {qkv_gemm_tpp.config();}, [&]() {qkv_gemm_tpp.release();});
+            T tmp[S2 * H];
+            T* tmpp = (!dt_bf16) ? VL_V[s1][nk] : tmp;
+            copy_bias_tpp(Bv[nk], tmpp);
+            qkv_gemm_tpp(EHS[s1][0], Wv_V[nk][0], tmpp, N);
+            v_xpose_tpp_1(tmpp, VL_V[s1][nk]);
+            if (training)
+              kv_xpose_tpp_2(tmpp, VL_TV[s1][nk]);
+          },
+          [&]() { qkv_gemm_tpp.config(); },
+          [&]() { qkv_gemm_tpp.release(); });
 #endif
     }
   }

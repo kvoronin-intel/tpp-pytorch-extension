@@ -17,7 +17,6 @@ if (training) {
   t_out = t_in.new_empty({S1, Nk, S2, Hk});
 }
 
-
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {
   Ncb = Nk;
@@ -60,15 +59,16 @@ DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
     }
   }
 #else
-  auto gemm_loop =
-    ThreadedLoop<3>({LoopSpecs{0,Nc,Ncb,false}, LoopSpecs{S1}, LoopSpecs{Nk}}, "acB");
-  gemm_loop([&](int *ind) {
-      int nc = ind[0], s1 = ind[1], nk = ind[2];
-DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
-DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
+  auto gemm_loop = ThreadedLoop<3>(
+      {LoopSpecs{0, Nc, Ncb, false}, LoopSpecs{S1}, LoopSpecs{Nk}}, "acB");
+  gemm_loop(
+      [&](int* ind) {
+        int nc = ind[0], s1 = ind[1], nk = ind[2];
+        DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
+        DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
+        DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
+        DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
+        DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
 
         if (nc == 0) {
           copy_bias_tpp(bias[nk], out[s1][nk]);
@@ -77,8 +77,9 @@ DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
         if (nc == Nc - Ncb) { // last iter
           gelu_fwd_tpp(out[s1][nk], gelu_out[s1][nk]);
         }
-      }, [&]() {brgemm_tpp.config(); }, [&]() {brgemm_tpp.release();});
-
+      },
+      [&]() { brgemm_tpp.config(); },
+      [&]() { brgemm_tpp.release(); });
 
 #endif
 }

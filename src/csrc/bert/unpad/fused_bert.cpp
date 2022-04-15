@@ -7,9 +7,9 @@
 #include <vector>
 #include "ext_tpp.h"
 #include "init.h"
+#include "threaded_loops.h"
 #include "timing.h"
 #include "xsmm_functors.h"
-#include "threaded_loops.h"
 
 using namespace pcl;
 #include "tensor_helper.h"

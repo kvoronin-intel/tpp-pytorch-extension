@@ -116,14 +116,14 @@ auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
     16)));
 
 // BF16 del-wt brgemms
-auto brgemm_dw_bf16_tpp = SCOPEIT(
-    (BrgemmTPP<
-        T,
-        float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 0.0, 0, 16)));
-auto brgemm_dw_bf16_tpp_b1 = SCOPEIT(
-    (BrgemmTPP<
-        T,
-        float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 1.0, 0, 16)));
+auto brgemm_dw_bf16_tpp =
+    SCOPEIT((BrgemmTPP<
+             T,
+             float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 0.0, 0, 16)));
+auto brgemm_dw_bf16_tpp_b1 =
+    SCOPEIT((BrgemmTPP<
+             T,
+             float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 1.0, 0, 16)));
 
 {
   RECORD_SCOPE(rgdbias, {t_grad_out});
@@ -201,7 +201,8 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEIT(
         for (int n3c = chunk_start; n3c < chunk_end; n3c++) {
           int n = n3c / nc;
           int c = n3c % nc;
-          brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk, true);
+          brgemm_di_tpp(
+              grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk, true);
         }
         brgemm_di_tpp.release();
       }
@@ -374,7 +375,8 @@ auto trans_tpp = SCOPEIT(
                   global_tmp_inT[tid][ifm1 - my_ifm_start][0],
                   global_tmp_go[tid][0],
                   grad_wt_priv[team_id][ofm1][ifm1],
-                  blocks, true);
+                  blocks,
+                  true);
             }
           }
         }
