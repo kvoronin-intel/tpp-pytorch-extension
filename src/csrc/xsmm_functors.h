@@ -1778,6 +1778,7 @@ class GeluBwdTPP : public BaseTPP {
     auto dt3 = XsmmDtype<T3>();
     libxsmm_blasint ld = N;
     libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
+#if 0
     libxsmm_matrix_eqn_push_back_binary_op(
         my_eqn0,
         LIBXSMM_MELTW_TYPE_BINARY_MUL,
@@ -1792,6 +1793,28 @@ class GeluBwdTPP : public BaseTPP {
     libxsmm_matrix_eqn_push_back_arg(my_eqn0, N, 1, N, 1, 0, dt2);
     debug_print_eqn_tree(my_eqn0);
     return (void*)libxsmm_dispatch_matrix_eqn(N, 1, &ld, dt3, my_eqn0);
+#else
+    libxsmm_matrix_eqn_arg_metadata arg_metadata;
+    libxsmm_matrix_eqn_op_metadata  op_metadata;
+    libxsmm_meqn_arg_shape          arg_shape_in, arg_shape_out;
+    // This "singular" type dictates that the arg is a regular tensor (and not a set of tensors)
+    libxsmm_matrix_arg_attributes   arg_singular_attr = libxsmm_create_matrix_arg_attributes( LIBXSMM_MATRIX_ARG_TYPE_SINGULAR, LIBXSMM_MATRIX_ARG_SET_TYPE_NONE, 0, 0);
+    // OP metadata include equation id and an integer dictating where the op metadata at runtime (if any) are located in the op arg array. -1 dictates there are no op metadata needed
+    op_metadata   = libxsmm_create_matrix_eqn_op_metadata(my_eqn0, -1);
+    libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_DATATYPE_F32, LIBXSMM_MELTW_FLAG_BINARY_NONE);
+    // Create shape for input arg (m,n,ld,datatype)
+    arg_shape_in  = libxsmm_create_meqn_arg_shape( N, 1, ld, dt1 );
+    // Arg metadata include equation id and pos in arg array at runtime
+    arg_metadata  = libxsmm_create_matrix_eqn_arg_metadata(my_eqn0, 0);
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape_in, arg_singular_attr);
+    libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_GELU_INV, LIBXSMM_DATATYPE_F32, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+    arg_shape_in  = libxsmm_create_meqn_arg_shape( N, 1, ld, dt2 );
+    arg_metadata  = libxsmm_create_matrix_eqn_arg_metadata(my_eqn0, 1);
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape_in, arg_singular_attr);
+    debug_print_eqn_tree(my_eqn0);
+    arg_shape_out = libxsmm_create_meqn_arg_shape( N, 1, ld, dt3);
+    return (void*)libxsmm_dispatch_matrix_eqn_v2( my_eqn0, arg_shape_out );
+#endif
   }
 
  private:
@@ -4245,7 +4268,7 @@ class EmbBagFwdTPP {
                 LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC |
                 (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
                                    : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX) {}
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX_OP_ADD) {}
   void operator()(Tout* output, Tin* weight, Tind* input, int N) {
     unsigned long long _N = N;
     kernel((void*)weight, (void*)input, (void*)&_N, (void*)output, NULL);
