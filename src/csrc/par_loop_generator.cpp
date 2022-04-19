@@ -186,7 +186,8 @@ void emit_loop_header(loop_code* i_code, loop_param_t* i_loop_param) {
     sprintf(str_step, "%s", i_loop_param->step_var_name);
   }
 
-  if ((i_loop_param->is_par_across_col_teams > 0) || (i_loop_param->is_par_across_row_teams > 0)) {
+  if ((i_loop_param->is_par_across_col_teams > 0) ||
+      (i_loop_param->is_par_across_row_teams > 0)) {
     char prefix[16];
     if (i_loop_param->is_par_across_col_teams > 0) {
       sprintf(prefix, "col");
@@ -194,16 +195,51 @@ void emit_loop_header(loop_code* i_code, loop_param_t* i_loop_param) {
       sprintf(prefix, "row");
     }
     align_line(i_code);
-    sprintf(tmp_buf, "int %s_tasks = ((%s) - (%s) + ((%s) - 1))/(%s);\n", prefix, str_end, str_start, str_step, str_step);
+    sprintf(
+        tmp_buf,
+        "int %s_tasks = ((%s) - (%s) + ((%s) - 1))/(%s);\n",
+        prefix,
+        str_end,
+        str_start,
+        str_step,
+        str_step);
     add_buf_to_code(i_code, tmp_buf);
     align_line(i_code);
-    sprintf(tmp_buf, "int %s_tasks_chunksize = (%s_tasks + %s_teams - 1)/%s_teams;\n", prefix, prefix, prefix, prefix);
-    add_buf_to_code(i_code, tmp_buf);  
-    align_line(i_code);
-    sprintf(tmp_buf, "int my_%s_start = (%s_id * %s_tasks_chunksize < %s_tasks) ? %s + (%s_id * %s_tasks_chunksize) * %s : %s;\n", prefix, prefix, prefix, prefix, str_start, prefix, prefix, str_step, str_end );
+    sprintf(
+        tmp_buf,
+        "int %s_tasks_chunksize = (%s_tasks + %s_teams - 1)/%s_teams;\n",
+        prefix,
+        prefix,
+        prefix,
+        prefix);
     add_buf_to_code(i_code, tmp_buf);
     align_line(i_code);
-    sprintf(tmp_buf, "int my_%s_end = ((%s_id+1) * %s_tasks_chunksize < %s_tasks) ? %s + ((%s_id+1) * %s_tasks_chunksize) * %s : %s;\n", prefix, prefix, prefix, prefix, str_start, prefix, prefix, str_step, str_end );
+    sprintf(
+        tmp_buf,
+        "int my_%s_start = (%s_id * %s_tasks_chunksize < %s_tasks) ? %s + (%s_id * %s_tasks_chunksize) * %s : %s;\n",
+        prefix,
+        prefix,
+        prefix,
+        prefix,
+        str_start,
+        prefix,
+        prefix,
+        str_step,
+        str_end);
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(
+        tmp_buf,
+        "int my_%s_end = ((%s_id+1) * %s_tasks_chunksize < %s_tasks) ? %s + ((%s_id+1) * %s_tasks_chunksize) * %s : %s;\n",
+        prefix,
+        prefix,
+        prefix,
+        prefix,
+        str_start,
+        prefix,
+        prefix,
+        str_step,
+        str_end);
     add_buf_to_code(i_code, tmp_buf);
     align_line(i_code);
     sprintf(
@@ -487,7 +523,7 @@ void extract_2d_par_info(
 
   while (i < strlen(in_desc)) {
     char cur = in_desc[i];
-    if ( cur != '{') {
+    if (cur != '{') {
       out_desc[k] = cur;
       k++;
       i++;
@@ -495,41 +531,41 @@ void extract_2d_par_info(
         loop_id++;
       }
     } else {
-      /* Start reading parallelization string {R or C:parallelization degree}] */
+      /* Start reading parallelization string {R or C:parallelization degree}]
+       */
       int j = 0;
       i++;
       /* Consume par dimension */
       cur = in_desc[i];
       if (cur == 'R' || cur == 'r') {
-        loop_params[loop_id-1].is_par_across_row_teams = 1;
-        loop_params[loop_id-1].is_par_across_col_teams = 0;    
-      } else if (cur == 'C' || cur == 'c')  {
-        loop_params[loop_id-1].is_par_across_col_teams = 1;
-        loop_params[loop_id-1].is_par_across_row_teams = 0;    
+        loop_params[loop_id - 1].is_par_across_row_teams = 1;
+        loop_params[loop_id - 1].is_par_across_col_teams = 0;
+      } else if (cur == 'C' || cur == 'c') {
+        loop_params[loop_id - 1].is_par_across_col_teams = 1;
+        loop_params[loop_id - 1].is_par_across_row_teams = 0;
       }
       /* Consume :  */
-      i+=2;
+      i += 2;
       cur = in_desc[i];
       while (cur != '}') {
         jit_params_str[j] = cur;
         j++;
         i++;
-        cur = in_desc[i];          
+        cur = in_desc[i];
       }
       i++;
       jit_params_str[j] = '\0';
-      if (loop_params[loop_id-1].is_par_across_row_teams == 1) {
-        loop_params[loop_id-1].n_row_teams = atoi(jit_params_str);
-        i_code->n_row_teams = loop_params[loop_id-1].n_row_teams;
+      if (loop_params[loop_id - 1].is_par_across_row_teams == 1) {
+        loop_params[loop_id - 1].n_row_teams = atoi(jit_params_str);
+        i_code->n_row_teams = loop_params[loop_id - 1].n_row_teams;
       } else {
-        loop_params[loop_id-1].n_col_teams = atoi(jit_params_str);
-        i_code->n_col_teams = loop_params[loop_id-1].n_col_teams;
+        loop_params[loop_id - 1].n_col_teams = atoi(jit_params_str);
+        i_code->n_col_teams = loop_params[loop_id - 1].n_col_teams;
       }
     }
   }
   out_desc[k] = '\0';
 }
-
 
 // void loop_generator( FILE *fp_out, const char *__loop_nest_desc_extended ) {
 std::string loop_generator(const char* __loop_nest_desc_extended) {
@@ -561,7 +597,10 @@ std::string loop_generator(const char* __loop_nest_desc_extended) {
   l_code.use_2d_par = use_2d_par;
   if (use_2d_par > 0) {
     extract_2d_par_info(
-        __loop_nest_desc_extended, _loop_nest_desc_extended, loop_params, &l_code);
+        __loop_nest_desc_extended,
+        _loop_nest_desc_extended,
+        loop_params,
+        &l_code);
   } else {
     strcpy(_loop_nest_desc_extended, __loop_nest_desc_extended);
   }
@@ -750,7 +789,9 @@ std::string loop_generator(const char* __loop_nest_desc_extended) {
   for (i = 0; i < n_loops; i++) {
     cur_loop = loop_params[i];
     /* Emit parallel for if need be*/
-    if ((cur_loop.is_parallelizable == 1) && (have_emitted_parallel_for == 0) && (cur_loop.is_par_across_col_teams == 0) && (cur_loop.is_par_across_row_teams == 0)) {
+    if ((cur_loop.is_parallelizable == 1) && (have_emitted_parallel_for == 0) &&
+        (cur_loop.is_par_across_col_teams == 0) &&
+        (cur_loop.is_par_across_row_teams == 0)) {
       int collapse_level = 1;
       int j = i + 1;
       int is_parallel = 1;

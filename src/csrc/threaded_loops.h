@@ -143,7 +143,7 @@ class LoopingScheme {
       if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
         int l;
         assert(curLoop < MAX_LOOPS);
-        if ((i >= 1) && (scheme[i-1] == '{')) {
+        if ((i >= 1) && (scheme[i - 1] == '{')) {
           printf(
               "LoopingScheme: '%s': Ignoring unknown scheme character: '%c' at position %d\n",
               scheme.c_str(),
