@@ -143,19 +143,27 @@ class LoopingScheme {
       if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
         int l;
         assert(curLoop < MAX_LOOPS);
-        if (c >= 'a' && c <= 'z') {
-          isParallel[curLoop] = false;
-          l = c - 'a';
+        if ((i >= 1) && (scheme[i-1] == '{')) {
+          printf(
+              "LoopingScheme: '%s': Ignoring unknown scheme character: '%c' at position %d\n",
+              scheme.c_str(),
+              scheme[i],
+              i);
         } else {
-          isParallel[curLoop] = true;
-          l = c - 'A';
-          if (ompforBefore == -1)
-            ompforBefore = curLoop;
-          if (ompforBefore + nCollapsed == curLoop)
-            nCollapsed++;
+          if (c >= 'a' && c <= 'z') {
+            isParallel[curLoop] = false;
+            l = c - 'a';
+          } else {
+            isParallel[curLoop] = true;
+            l = c - 'A';
+            if (ompforBefore == -1)
+              ompforBefore = curLoop;
+            if (ompforBefore + nCollapsed == curLoop)
+              nCollapsed++;
+          }
+          p2lMap[curLoop] = l;
+          curLoop++;
         }
-        p2lMap[curLoop] = l;
-        curLoop++;
       } else if (c == '|') {
         barrierAfter = curLoop;
       } else {

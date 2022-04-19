@@ -7,6 +7,7 @@
 #include <string>
 
 #define MAX_CODE_SIZE 1048576
+//#define STAND_ALONE
 
 typedef struct {
   long start;
@@ -33,6 +34,10 @@ typedef struct {
   int is_blocked;
   int is_blocked_outer;
   long block_size[8];
+  int is_par_across_col_teams;
+  int is_par_across_row_teams;
+  int n_col_teams;
+  int n_row_teams;
 } loop_param_t;
 
 typedef struct {
@@ -44,6 +49,9 @@ typedef struct {
   int n_logical_loops;
   char occurence_map[256];
   int jit_loop_spec;
+  int use_2d_par;
+  int n_row_teams;
+  int n_col_teams;
 } loop_code;
 
 loop_param_t find_loop_param_at_pos(loop_param_t* i_loop_params, int pos) {
@@ -114,6 +122,27 @@ void emit_parallel_region(loop_code* i_code) {
   sprintf(tmp_buf, "{\n");
   add_buf_to_code(i_code, tmp_buf);
   increase_nest_level(i_code);
+  if (i_code->use_2d_par > 0) {
+    align_line(i_code);
+    sprintf(tmp_buf, "int tid = omp_get_thread_num();\n");
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "int row_teams = %d;\n", i_code->n_row_teams);
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "int col_teams = %d;\n", i_code->n_col_teams);
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "int row_id = tid/col_teams;\n");
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "int col_id = tid%%col_teams;\n");
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "if (tid < row_teams * col_teams) {\n");
+    add_buf_to_code(i_code, tmp_buf);
+    increase_nest_level(i_code);
+  }
   return;
 }
 
@@ -157,18 +186,51 @@ void emit_loop_header(loop_code* i_code, loop_param_t* i_loop_param) {
     sprintf(str_step, "%s", i_loop_param->step_var_name);
   }
 
-  align_line(i_code);
-  sprintf(
-      tmp_buf,
-      "for (int %s = %s; %s < %s; %s += %s) {\n",
-      str_idx,
-      str_start,
-      str_idx,
-      str_end,
-      str_idx,
-      str_step);
-  add_buf_to_code(i_code, tmp_buf);
-  increase_nest_level(i_code);
+  if ((i_loop_param->is_par_across_col_teams > 0) || (i_loop_param->is_par_across_row_teams > 0)) {
+    char prefix[16];
+    if (i_loop_param->is_par_across_col_teams > 0) {
+      sprintf(prefix, "col");
+    } else {
+      sprintf(prefix, "row");
+    }
+    align_line(i_code);
+    sprintf(tmp_buf, "int %s_tasks = ((%s) - (%s) + ((%s) - 1))/(%s);\n", prefix, str_end, str_start, str_step, str_step);
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "int %s_tasks_chunksize = (%s_tasks + %s_teams - 1)/%s_teams;\n", prefix, prefix, prefix, prefix);
+    add_buf_to_code(i_code, tmp_buf);  
+    align_line(i_code);
+    sprintf(tmp_buf, "int my_%s_start = (%s_id * %s_tasks_chunksize < %s_tasks) ? %s + (%s_id * %s_tasks_chunksize) * %s : %s;\n", prefix, prefix, prefix, prefix, str_start, prefix, prefix, str_step, str_end );
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(tmp_buf, "int my_%s_end = ((%s_id+1) * %s_tasks_chunksize < %s_tasks) ? %s + ((%s_id+1) * %s_tasks_chunksize) * %s : %s;\n", prefix, prefix, prefix, prefix, str_start, prefix, prefix, str_step, str_end );
+    add_buf_to_code(i_code, tmp_buf);
+    align_line(i_code);
+    sprintf(
+        tmp_buf,
+        "for (int %s = my_%s_start; %s < my_%s_end; %s += %s) {\n",
+        str_idx,
+        prefix,
+        str_idx,
+        prefix,
+        str_idx,
+        str_step);
+    add_buf_to_code(i_code, tmp_buf);
+    increase_nest_level(i_code);
+  } else {
+    align_line(i_code);
+    sprintf(
+        tmp_buf,
+        "for (int %s = %s; %s < %s; %s += %s) {\n",
+        str_idx,
+        str_start,
+        str_idx,
+        str_end,
+        str_idx,
+        str_step);
+    add_buf_to_code(i_code, tmp_buf);
+    increase_nest_level(i_code);
+  }
 
   return;
 }
@@ -184,7 +246,7 @@ void emit_func_signature(
   align_line(i_code);
   sprintf(
       tmp_buf,
-      "extern \"C\" void par_nested_loops(loop_rt_spec_t *%s, std::function<void(int *)> %s, std::function<void()> %s, std::function<void()> %s) {\n",
+      "#include <omp.h>\nextern \"C\" void par_nested_loops(loop_rt_spec_t *%s, std::function<void(int *)> %s, std::function<void()> %s, std::function<void()> %s) {\n",
       spec_func_name,
       body_func_name,
       init_func_name,
@@ -199,6 +261,12 @@ void emit_func_termination(loop_code* i_code) {
   align_line(i_code);
   sprintf(tmp_buf, "}\n");
   add_buf_to_code(i_code, tmp_buf);
+  if (i_code->use_2d_par > 0) {
+    decrease_nest_level(i_code);
+    align_line(i_code);
+    sprintf(tmp_buf, "}\n");
+    add_buf_to_code(i_code, tmp_buf);
+  }
   return;
 }
 
@@ -408,8 +476,63 @@ void extract_jit_info(
   out_desc[k] = '\0';
 }
 
-// void loop_generator( FILE *fp_out, const char *_loop_nest_desc_extended ) {
-std::string loop_generator(const char* _loop_nest_desc_extended) {
+void extract_2d_par_info(
+    const char* in_desc,
+    char* out_desc,
+    loop_param_t* loop_params,
+    loop_code* i_code) {
+  int i = 0, k = 0;
+  char jit_params_str[512];
+  char loop_id = 0;
+
+  while (i < strlen(in_desc)) {
+    char cur = in_desc[i];
+    if ( cur != '{') {
+      out_desc[k] = cur;
+      k++;
+      i++;
+      if (is_simple_char(cur) && cur != '|') {
+        loop_id++;
+      }
+    } else {
+      /* Start reading parallelization string {R or C:parallelization degree}] */
+      int j = 0;
+      i++;
+      /* Consume par dimension */
+      cur = in_desc[i];
+      if (cur == 'R' || cur == 'r') {
+        loop_params[loop_id-1].is_par_across_row_teams = 1;
+        loop_params[loop_id-1].is_par_across_col_teams = 0;    
+      } else if (cur == 'C' || cur == 'c')  {
+        loop_params[loop_id-1].is_par_across_col_teams = 1;
+        loop_params[loop_id-1].is_par_across_row_teams = 0;    
+      }
+      /* Consume :  */
+      i+=2;
+      cur = in_desc[i];
+      while (cur != '}') {
+        jit_params_str[j] = cur;
+        j++;
+        i++;
+        cur = in_desc[i];          
+      }
+      i++;
+      jit_params_str[j] = '\0';
+      if (loop_params[loop_id-1].is_par_across_row_teams == 1) {
+        loop_params[loop_id-1].n_row_teams = atoi(jit_params_str);
+        i_code->n_row_teams = loop_params[loop_id-1].n_row_teams;
+      } else {
+        loop_params[loop_id-1].n_col_teams = atoi(jit_params_str);
+        i_code->n_col_teams = loop_params[loop_id-1].n_col_teams;
+      }
+    }
+  }
+  out_desc[k] = '\0';
+}
+
+
+// void loop_generator( FILE *fp_out, const char *__loop_nest_desc_extended ) {
+std::string loop_generator(const char* __loop_nest_desc_extended) {
   char body_func_name[64] = "body_func";
   char init_func_name[64] = "init_func";
   char term_func_name[64] = "term_func";
@@ -424,7 +547,24 @@ std::string loop_generator(const char* _loop_nest_desc_extended) {
   char loop_nest_desc[256];
   char barrier_positions[256];
   int jit_loop_spec = 0;
+  int use_2d_par = 0;
+  char _loop_nest_desc_extended[strlen(__loop_nest_desc_extended)];
   char loop_nest_desc_extended[strlen(_loop_nest_desc_extended)];
+
+  /* Extract explicit 2D parallelization info */
+  for (i = 0; i < strlen(__loop_nest_desc_extended); i++) {
+    if (__loop_nest_desc_extended[i] == '{') {
+      use_2d_par = 1;
+      break;
+    }
+  }
+  l_code.use_2d_par = use_2d_par;
+  if (use_2d_par > 0) {
+    extract_2d_par_info(
+        __loop_nest_desc_extended, _loop_nest_desc_extended, loop_params, &l_code);
+  } else {
+    strcpy(_loop_nest_desc_extended, __loop_nest_desc_extended);
+  }
 
   /* Check if we have to jit the loop specs  */
   for (i = 0; i < strlen(_loop_nest_desc_extended); i++) {
@@ -609,8 +749,8 @@ std::string loop_generator(const char* _loop_nest_desc_extended) {
 
   for (i = 0; i < n_loops; i++) {
     cur_loop = loop_params[i];
-    /* Emit paralle for if need be*/
-    if ((cur_loop.is_parallelizable == 1) && (have_emitted_parallel_for == 0)) {
+    /* Emit parallel for if need be*/
+    if ((cur_loop.is_parallelizable == 1) && (have_emitted_parallel_for == 0) && (cur_loop.is_par_across_col_teams == 0) && (cur_loop.is_par_across_row_teams == 0)) {
       int collapse_level = 1;
       int j = i + 1;
       int is_parallel = 1;
@@ -664,9 +804,13 @@ int main(int argc, char** argv) {
   if (argc > 1) {
     sprintf(loop_nest_desc, "%s", argv[1]);
   }
+  std::string result_code = loop_generator(loop_nest_desc);
+
+  printf("\n%s\n", result_code.c_str());
+
   my_prog = fopen("nested_loops.c", "w");
 
-  loop_generator(my_prog, loop_nest_desc);
+  fprintf(my_prog, "%s", result_code.c_str());
 
   fclose(my_prog);
   return 0;
