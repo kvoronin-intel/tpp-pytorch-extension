@@ -596,6 +596,8 @@ std::string loop_generator(const char* __loop_nest_desc_extended) {
   }
   l_code.use_2d_par = use_2d_par;
   if (use_2d_par > 0) {
+    l_code.n_col_teams = 1;
+    l_code.n_row_teams = 1;
     extract_2d_par_info(
         __loop_nest_desc_extended,
         _loop_nest_desc_extended,
