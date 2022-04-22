@@ -161,9 +161,69 @@ inline void debug_print_eqn_tree(libxsmm_blasint eqn_no) {
   }
 }
 
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
+  // This "singular" type dictates that the arg is a regular tensor (and not a
+  // set of tensors)
+  libxsmm_matrix_arg_attributes arg_singular_attr =
+      libxsmm_create_matrix_arg_attributes(
+          LIBXSMM_MATRIX_ARG_TYPE_SINGULAR,
+          LIBXSMM_MATRIX_ARG_SET_TYPE_NONE,
+          0,
+          0);
+  // Arg metadata include equation id and pos in arg array at runtime
+  libxsmm_matrix_eqn_arg_metadata arg_metadata =
+      libxsmm_create_matrix_eqn_arg_metadata(idx, in_pos);
+  libxsmm_meqn_arg_shape arg_shape =
+      libxsmm_create_meqn_arg_shape(m, n, ld, dtype);
+  return libxsmm_matrix_eqn_push_back_arg_v2(
+      arg_metadata, arg_shape, arg_singular_attr);
+}
+
+inline int meqn_push_unary_op(
+    const libxsmm_blasint idx,
+    const libxsmm_meltw_unary_type type,
+    const libxsmm_bitfield flags = LIBXSMM_MELTW_FLAG_UNARY_NONE,
+    const libxsmm_datatype dtype = LIBXSMM_DATATYPE_F32) {
+  // OP metadata include equation id and an integer dictating where the op
+  // metadata at runtime (if any) are located in the op arg array. -1 dictates
+  // there are no op metadata needed
+  libxsmm_matrix_eqn_op_metadata op_metadata =
+      libxsmm_create_matrix_eqn_op_metadata(idx, -1);
+  return libxsmm_matrix_eqn_push_back_unary_op_v2(
+      op_metadata, type, dtype, flags);
+}
+inline int meqn_push_binary_op(
+    const libxsmm_blasint idx,
+    const libxsmm_meltw_binary_type type,
+    const libxsmm_bitfield flags = LIBXSMM_MELTW_FLAG_BINARY_NONE,
+    const libxsmm_datatype dtype = LIBXSMM_DATATYPE_F32) {
+  libxsmm_matrix_eqn_op_metadata op_metadata =
+      libxsmm_create_matrix_eqn_op_metadata(idx, -1);
+  return libxsmm_matrix_eqn_push_back_binary_op_v2(
+      op_metadata, type, dtype, flags);
+}
+inline int meqn_push_ternary_op(
+    const libxsmm_blasint idx,
+    const libxsmm_meltw_ternary_type type,
+    const libxsmm_bitfield flags = LIBXSMM_MELTW_FLAG_TERNARY_NONE,
+    const libxsmm_datatype dtype = LIBXSMM_DATATYPE_F32) {
+  libxsmm_matrix_eqn_op_metadata op_metadata =
+      libxsmm_create_matrix_eqn_op_metadata(idx, -1);
+  return libxsmm_matrix_eqn_push_back_ternary_op_v2(
+      op_metadata, type, dtype, flags);
+}
+
 class BaseTPP {
  public:
   void* get_kernel() {
+    auto& kernel_cache = get_kernel_cache();
     void* kernel = NULL;
     if (hash == "")
       hash = hash_str();
@@ -183,10 +243,13 @@ class BaseTPP {
   }
 
  protected:
+  std::unordered_map<std::string, void*>& get_kernel_cache() {
+    static std::unordered_map<std::string, void*> kernel_cache;
+    return kernel_cache;
+  }
   virtual std::string hash_str() = 0;
   virtual void* build_kernel() = 0;
   std::string hash = "";
-  inline static std::unordered_map<std::string, void*> kernel_cache;
   bool initialized = false;
 };
 
@@ -201,7 +264,7 @@ class UnaryTPP : public BaseTPP {
       libxsmm_datatype dt_in,
       libxsmm_datatype dt_out,
       libxsmm_datatype dt_compute,
-      libxsmm_meltw_unary_flags flags,
+      libxsmm_bitfield flags,
       libxsmm_meltw_unary_type type)
       : rows(rows),
         cols(cols),
@@ -287,8 +350,9 @@ class UnaryTPP : public BaseTPP {
     return std::string(hash);
   }
   void* build_kernel() override {
-    return (void*)libxsmm_dispatch_meltw_unary(
-        cols, rows, &ldi, &ldo, dt_in, dt_compute, dt_out, flags, type);
+    libxsmm_meltw_unary_shape shape = libxsmm_create_meltw_unary_shape(
+        cols, rows, ldi, ldo, dt_in, dt_out, dt_compute);
+    return (void*)libxsmm_dispatch_meltw_unary_v2(type, shape, flags);
   }
 
   libxsmm_blasint rows = 0;
@@ -298,7 +362,7 @@ class UnaryTPP : public BaseTPP {
   libxsmm_datatype dt_in;
   libxsmm_datatype dt_out;
   libxsmm_datatype dt_compute;
-  libxsmm_meltw_unary_flags flags;
+  libxsmm_bitfield flags;
   libxsmm_meltw_unary_type type;
   libxsmm_meltwfunction_unary kernel = NULL;
 };
@@ -314,7 +378,7 @@ class BinaryTPP : public BaseTPP {
       libxsmm_datatype dt_in,
       libxsmm_datatype dt_out,
       libxsmm_datatype dt_compute,
-      libxsmm_meltw_binary_flags flags,
+      libxsmm_bitfield flags,
       libxsmm_meltw_binary_type type)
       : BinaryTPP(
             rows,
@@ -322,6 +386,7 @@ class BinaryTPP : public BaseTPP {
             ldi,
             ldi,
             ldo,
+            dt_in,
             dt_in,
             dt_out,
             dt_compute,
@@ -333,17 +398,19 @@ class BinaryTPP : public BaseTPP {
       libxsmm_blasint ldi0,
       libxsmm_blasint ldi1,
       libxsmm_blasint ldo,
-      libxsmm_datatype dt_in,
+      libxsmm_datatype dt_in0,
+      libxsmm_datatype dt_in1,
       libxsmm_datatype dt_out,
       libxsmm_datatype dt_compute,
-      libxsmm_meltw_binary_flags flags,
+      libxsmm_bitfield flags,
       libxsmm_meltw_binary_type type)
       : rows(rows),
         cols(cols),
         ldi0(ldi0),
         ldi1(ldi1),
         ldo(ldo),
-        dt_in(dt_in),
+        dt_in0(dt_in0),
+        dt_in1(dt_in1),
         dt_out(dt_out),
         dt_compute(dt_compute),
         flags(flags),
@@ -368,13 +435,14 @@ class BinaryTPP : public BaseTPP {
     snprintf(
         hash,
         200,
-        "binary_r%d_c%d_i0%d_i1%d_o%d_di%d_do%d_dc%d_f%d_t%d",
+        "binary_r%d_c%d_i0%d_i1%d_o%d_di0%d_di1%d_do%d_dc%d_f%d_t%d",
         rows,
         cols,
         ldi0,
         ldi1,
         ldo,
-        dt_in,
+        dt_in0,
+        dt_in1,
         dt_out,
         dt_compute,
         flags,
@@ -382,8 +450,9 @@ class BinaryTPP : public BaseTPP {
     return std::string(hash);
   }
   void* build_kernel() override {
-    return (void*)libxsmm_dispatch_meltw_binary(
-        cols, rows, &ldi0, &ldi1, &ldo, dt_in, dt_compute, dt_out, flags, type);
+    libxsmm_meltw_binary_shape shape = libxsmm_create_meltw_binary_shape(
+        cols, rows, ldi0, ldi1, ldo, dt_in0, dt_in1, dt_out, dt_compute);
+    return (void*)libxsmm_dispatch_meltw_binary_v2(type, shape, flags);
   }
 
   libxsmm_blasint rows = 0;
@@ -391,10 +460,11 @@ class BinaryTPP : public BaseTPP {
   libxsmm_blasint ldi0;
   libxsmm_blasint ldi1;
   libxsmm_blasint ldo;
-  libxsmm_datatype dt_in;
+  libxsmm_datatype dt_in0;
+  libxsmm_datatype dt_in1;
   libxsmm_datatype dt_out;
   libxsmm_datatype dt_compute;
-  libxsmm_meltw_binary_flags flags;
+  libxsmm_bitfield flags;
   libxsmm_meltw_binary_type type;
   libxsmm_meltwfunction_binary kernel = NULL;
 };
@@ -1007,6 +1077,7 @@ class MulNormTPP {
             1, // ldi0
             ldi, // ldi1
             ldo,
+            XsmmDtype<Tin>(),
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
@@ -1778,18 +1849,10 @@ class GeluBwdTPP : public BaseTPP {
     auto dt3 = XsmmDtype<T3>();
     libxsmm_blasint ld = N;
     libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-    libxsmm_matrix_eqn_push_back_binary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_BINARY_MUL,
-        LIBXSMM_MELTW_FLAG_BINARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(my_eqn0, N, 1, N, 0, 0, dt1);
-    libxsmm_matrix_eqn_push_back_unary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_UNARY_GELU_INV,
-        LIBXSMM_MELTW_FLAG_UNARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(my_eqn0, N, 1, N, 1, 0, dt2);
+    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+    meqn_push_arg(my_eqn0, N, 1, N, 0, 0, dt1);
+    meqn_push_unary_op(my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_GELU_INV);
+    meqn_push_arg(my_eqn0, N, 1, N, 1, 0, dt2);
     debug_print_eqn_tree(my_eqn0);
     return (void*)libxsmm_dispatch_matrix_eqn(N, 1, &ld, dt3, my_eqn0);
   }
@@ -1862,20 +1925,10 @@ class ReLUBwdTPP {
                : LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {}
   void operator()(Tin* in, Tout* out, Tin* in2 = NULL, short* mask = NULL) {
-    kernel(
-        (void*)in,
-        bm ? (void*)mask : (void*)in2,
-        (void*)NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, bm ? (void*)mask : (void*)in2, NULL, out, NULL);
   }
   void ref(Tin* in, Tout* out, Tin* in2 = NULL, short* mask = NULL) {
-    kernel(
-        (void*)in,
-        bm ? (void*)mask : (void*)in2,
-        (void*)NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, bm ? (void*)mask : (void*)in2, NULL, out, NULL);
   }
 
  private:
@@ -1911,15 +1964,7 @@ class ELUFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_ELU) {}
   void operator()(Tin* in, Tout* out) {
-    kernel(
-        (void*)in,
-        NULL,
-        NULL,
-        (void*)&alpha,
-        NULL,
-        NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, NULL, NULL, &alpha, NULL, NULL, out, NULL);
   }
   void ref(Tin* in, Tout* out) {
     Tin a = alpha;
@@ -1962,15 +2007,7 @@ class ELUBwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_ELU_INV) {}
   void operator()(Tin* in, Tin* in2, Tout* out) {
-    kernel(
-        (void*)in,
-        (void*)in2,
-        NULL,
-        (void*)&alpha,
-        NULL,
-        NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, in2, NULL, &alpha, NULL, NULL, out, NULL);
   }
   void ref(Tin* in, Tin* in2, Tout* out) {
     Tin a = alpha;
@@ -2014,15 +2051,7 @@ class LeakyReLUFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_LEAKY_RELU) {}
   void operator()(Tin* in, Tout* out, short* mask = NULL) {
-    kernel(
-        (void*)in,
-        NULL,
-        NULL,
-        (void*)&alpha,
-        NULL,
-        NULL,
-        (void*)out,
-        (void*)mask);
+    kernel(in, NULL, NULL, &alpha, NULL, NULL, out, mask);
   }
   void ref(Tin* in, Tout* out, short* mask = NULL) {
     float a = alpha;
@@ -2067,15 +2096,7 @@ class LeakyReLUBwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_LEAKY_RELU_INV) {}
   void operator()(Tin* in, Tout* out, Tin* in2 = NULL, short* mask = NULL) {
-    kernel(
-        (void*)in,
-        (void*)mask,
-        NULL,
-        (void*)&alpha,
-        NULL,
-        NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, mask, NULL, &alpha, NULL, NULL, out, NULL);
   }
   void ref(Tin* in, Tout* out, Tin* in2, short* mask = NULL) {
     float a = alpha;
@@ -2195,36 +2216,18 @@ class SiLUBwdTPP : public BaseTPP {
   }
   void* build_kernel() override {
     libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-    libxsmm_matrix_eqn_push_back_binary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_BINARY_MUL,
-        LIBXSMM_MELTW_FLAG_BINARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0, cols, rows, ldo, 0, 0, LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_binary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_BINARY_ADD,
-        LIBXSMM_MELTW_FLAG_BINARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0, cols, rows, ldo, 1, 0, LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_binary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_BINARY_MUL,
-        LIBXSMM_MELTW_FLAG_BINARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0, cols, rows, ldo, 2, 0, LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_binary_op(
+    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+    meqn_push_arg(my_eqn0, cols, rows, ldo, 0, 0, LIBXSMM_DATATYPE_F32);
+    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_ADD);
+    meqn_push_arg(my_eqn0, cols, rows, ldo, 1, 0, LIBXSMM_DATATYPE_F32);
+    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+    meqn_push_arg(my_eqn0, cols, rows, ldo, 2, 0, LIBXSMM_DATATYPE_F32);
+    meqn_push_binary_op(
         my_eqn0,
         LIBXSMM_MELTW_TYPE_BINARY_SUB,
-        LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0, cols, rows, ldo, 3, 0, LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0, cols, rows, ldo, 4, 0, LIBXSMM_DATATYPE_F32);
+        LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0);
+    meqn_push_arg(my_eqn0, cols, rows, ldo, 3, 0, LIBXSMM_DATATYPE_F32);
+    meqn_push_arg(my_eqn0, cols, rows, ldo, 4, 0, LIBXSMM_DATATYPE_F32);
 
     auto func0 = libxsmm_dispatch_matrix_eqn(
         cols, rows, &ldo, XsmmDtype<Tout>(), my_eqn0);
@@ -2263,26 +2266,10 @@ class DropOutFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_DROPOUT) {}
   void operator()(Tin* in, void* rng_state, Tout* out, short* mask) {
-    kernel(
-        (void*)in,
-        NULL,
-        NULL,
-        (void*)&p,
-        rng_state,
-        NULL,
-        (void*)out,
-        (void*)mask);
+    kernel(in, NULL, NULL, &p, rng_state, NULL, out, mask);
   }
   void ref(Tin* in, void* rng_state, Tout* out, short* mask) {
-    kernel(
-        (void*)in,
-        NULL,
-        NULL,
-        (void*)&p,
-        rng_state,
-        NULL,
-        (void*)out,
-        (void*)mask);
+    kernel(in, NULL, NULL, &p, rng_state, NULL, out, mask);
   }
 
  private:
@@ -2318,26 +2305,10 @@ class DropOutBwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT,
             LIBXSMM_MELTW_TYPE_UNARY_DROPOUT_INV) {}
   void operator()(Tin* in, Tout* out, short* mask) {
-    kernel(
-        (void*)in,
-        (void*)mask,
-        (void*)NULL,
-        (void*)&p,
-        NULL,
-        NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, mask, NULL, &p, NULL, NULL, out, NULL);
   }
   void ref(Tin* in, Tout* out, short* mask) {
-    kernel(
-        (void*)in,
-        (void*)mask,
-        (void*)NULL,
-        (void*)&p,
-        NULL,
-        NULL,
-        (void*)out,
-        (void*)NULL);
+    kernel(in, mask, NULL, &p, NULL, NULL, out, NULL);
   }
 
  private:
@@ -2507,28 +2478,21 @@ class SoftMaxFwdTPP {
       libxsmm_blasint tmp_ld = S2;
       libxsmm_blasint ld = S2 * S3;
       libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn0,
-          LIBXSMM_MELTW_TYPE_UNARY_EXP,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_binary_op(
+      meqn_push_unary_op(my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_EXP);
+      meqn_push_binary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_BINARY_SUB,
-          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
-      libxsmm_matrix_eqn_push_back_unary_op(
+          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+      meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
+      meqn_push_unary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+      meqn_push_unary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_MAX,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS);
+      meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
       debug_print_eqn_tree(my_eqn0); // printf
       return (void*)libxsmm_dispatch_matrix_eqn(
           S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn0);
@@ -2577,30 +2541,21 @@ class SoftMaxFwdTPP {
       libxsmm_blasint tmp_ld = S2;
       libxsmm_blasint ld = S2 * S3;
       libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_binary_op(
+      meqn_push_binary_op(
           my_eqn1,
           LIBXSMM_MELTW_TYPE_BINARY_MUL,
-          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
-          my_eqn1,
-          LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL,
-          LIBXSMM_MELTW_FLAG_UNARY_NONE,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
+          LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+      meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+      meqn_push_unary_op(my_eqn1, LIBXSMM_MELTW_TYPE_UNARY_RECIPROCAL);
+      meqn_push_unary_op(
           my_eqn1,
           LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_unary_op(
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+      meqn_push_unary_op(
           my_eqn1,
           LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+          LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS);
+      meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
       /*debug_print_eqn_tree( my_eqn1 );*/
       return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_out, my_eqn1);
     }
@@ -2757,67 +2712,48 @@ class SoftMaxBwdTPP {
       libxsmm_matrix_eqn_function func;
       if (eqn_no == 0) {
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 0, 0, dt_2);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 1, 0, dt_3);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+        meqn_push_arg(my_eqn2, S3, S1, ld, 0, 0, dt_2);
+        meqn_push_arg(my_eqn2, S3, S1, ld, 1, 0, dt_3);
         debug_print_eqn_tree(my_eqn2); // printf
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 1) {
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
 #if 1
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_TERNARY_NMULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_0 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_0 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_unary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+        meqn_push_unary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
 #else
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_BINARY_SUB,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_binary_op(my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_SUB);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_binary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
-        libxsmm_matrix_eqn_push_back_unary_op(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn3, S3, S1, ld, 1, 0, dt_3);
+        meqn_push_unary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+        meqn_push_unary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
 #endif
         debug_print_eqn_tree(my_eqn3);
         func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_1, my_eqn3);
@@ -3181,44 +3117,28 @@ class VarSoftMaxBwdTPP {
       libxsmm_matrix_eqn_function func;
       if (eqn_no == 0) {
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_ADD);
+        meqn_push_arg(my_eqn2, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_unary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, 1, ld, 0, 0, dt_2);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, 1, ld, 1, 0, dt_3);
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+        meqn_push_arg(my_eqn2, S3, 1, ld, 0, 0, dt_2);
+        meqn_push_arg(my_eqn2, S3, 1, ld, 1, 0, dt_3);
         debug_print_eqn_tree(my_eqn2); // printf
         func = libxsmm_dispatch_matrix_eqn(
             S3, 1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 1) {
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, 1, ld, 1, 0, dt_3);
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_binary_op(my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+        meqn_push_arg(my_eqn3, S3, 1, ld, 1, 0, dt_3);
+        meqn_push_binary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_BINARY_SUB,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, 1, ld, 0, 0, dt_2);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn3, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn3, S3, 1, ld, 0, 0, dt_2);
+        meqn_push_arg(my_eqn3, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
         debug_print_eqn_tree(my_eqn3);
         func = libxsmm_dispatch_matrix_eqn(S3, 1, &ld, dt_1, my_eqn3);
       } else {
@@ -3363,26 +3283,21 @@ class LayerNormFwdTPP {
       libxsmm_blasint tmp_ld2 = S3;
       libxsmm_blasint ld = S2 * S3;
       libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_ternary_op(
+      meqn_push_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_ternary_op(
+          LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+      meqn_push_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          (libxsmm_meltw_ternary_flags)(
-              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
               LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
-              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn0, 1, 1, tmp_ld, 1, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, in_dt);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, in_dt);
+              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+      meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
+      meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 1, 0, LIBXSMM_DATATYPE_F32);
+      meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
+      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, in_dt);
+      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, in_dt);
       debug_print_eqn_tree(my_eqn0); // printf
       return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, out_dt, my_eqn0);
     }
@@ -3547,104 +3462,76 @@ class LayerNormBwdTPP {
       if (eqn_no == 1) {
         /* dgamma function  */
         libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_ternary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
                 LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 0, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn1, S3, S1, ld, 0, 0, in_dt);
+        meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn1, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
         /*debug_print_eqn_tree( my_eqn1 );*/
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
       } else if (eqn_no == 2) {
         /* dbeta function  */
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_ADD);
+        meqn_push_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
         /*debug_print_eqn_tree( my_eqn1 );*/
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 3) {
         /* db equation */
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn3,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, in_dt);
+        meqn_push_binary_op(
+            my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
+        meqn_push_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, in_dt);
         func = libxsmm_dispatch_matrix_eqn(
             1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
       } else if (eqn_no == 4) {
         /* ds equation */
         libxsmm_blasint my_eqn4 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn4,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn4,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
+        meqn_push_binary_op(
+            my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
+        meqn_push_binary_op(my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+        meqn_push_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, in_dt);
+        meqn_push_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
         func = libxsmm_dispatch_matrix_eqn(
             1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
       } else if (eqn_no == 5) {
         /* din equation */
         libxsmm_blasint my_eqn5 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_binary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, tmp_ld, 6, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn5, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_ternary_op(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn5, S3, S1, tmp_ld, 6, 0, in_dt);
+        meqn_push_arg(my_eqn5, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn5, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_ternary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
                 LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn5, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
+        meqn_push_arg(my_eqn5, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
         func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, in_dt, my_eqn5);
       } else {
         PCL_ASSERT(false, "LayerNormBwdTPP: invalid eqn. number %d\n", eqn_no);
@@ -3786,29 +3673,23 @@ class GroupNormFwdTPP {
       libxsmm_blasint tmp_ld2 = S3;
       libxsmm_blasint ld = S2 * S3;
       libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-      libxsmm_matrix_eqn_push_back_ternary_op(
+      meqn_push_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          (libxsmm_meltw_ternary_flags)(
-              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_1 |
+          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_1 |
               LIBXSMM_MELTW_FLAG_TERNARY_BCAST_ROW_IN_2 |
-              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_ternary_op(
+              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+      meqn_push_ternary_op(
           my_eqn0,
           LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-          (libxsmm_meltw_ternary_flags)(
-              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
               LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
-              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-          LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn0, 1, 1, tmp_ld, 1, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(
-          my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, 1, S1, 1, 3, 0, in_dt);
-      libxsmm_matrix_eqn_push_back_arg(my_eqn0, 1, S1, 1, 4, 0, in_dt);
+              LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+      meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
+      meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 1, 0, LIBXSMM_DATATYPE_F32);
+      meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
+      meqn_push_arg(my_eqn0, 1, S1, 1, 3, 0, in_dt);
+      meqn_push_arg(my_eqn0, 1, S1, 1, 4, 0, in_dt);
       debug_print_eqn_tree(my_eqn0); // printf
       return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, out_dt, my_eqn0);
     }
@@ -3966,121 +3847,88 @@ class GroupNormBwdTPP {
       if (eqn_no == 1) {
         /* dgamma function  */
         libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn1,
-            LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
+        meqn_push_binary_op(my_eqn1, LIBXSMM_MELTW_TYPE_BINARY_ADD);
+        meqn_push_unary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn1,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_ternary_op(
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+        meqn_push_binary_op(my_eqn1, LIBXSMM_MELTW_TYPE_BINARY_MUL);
+        meqn_push_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
                 LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 0, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn1, S3, S1, ld, 0, 0, in_dt);
+        meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn1, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
         debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
       } else if (eqn_no == 2) {
         /* dbeta function  */
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_ADD);
+        meqn_push_unary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS);
+        meqn_push_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
         debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(
             S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 3) {
         /* db equation */
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_binary_op(
             my_eqn3,
             LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn3, 1, S1, 1, 6, 0, in_dt);
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_1);
+        meqn_push_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn3, 1, S1, 1, 6, 0, in_dt);
         func = libxsmm_dispatch_matrix_eqn(
             1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
       } else if (eqn_no == 4) {
         /* ds equation */
         libxsmm_blasint my_eqn4 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn4,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_binary_op(
+            my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
+        meqn_push_binary_op(
             my_eqn4,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn4, 1, S1, 1, 6, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_1);
+        meqn_push_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_arg(my_eqn4, 1, S1, 1, 6, 0, in_dt);
+        meqn_push_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
         func = libxsmm_dispatch_matrix_eqn(
             1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
       } else if (eqn_no == 5) {
         /* din equation */
         libxsmm_blasint my_eqn5 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_binary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            (libxsmm_meltw_binary_flags)(
-                LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0 |
-                LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn5, 1, S1, 1, 6, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn5, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, ld, 3, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_ternary_op(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0 |
+                LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn5, 1, S1, 1, 6, 0, in_dt);
+        meqn_push_arg(my_eqn5, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn5, S3, S1, ld, 3, 0, in_dt);
+        meqn_push_ternary_op(
             my_eqn5,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
                 LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_2 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn5, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
+        meqn_push_arg(my_eqn5, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+        meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
         func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, in_dt, my_eqn5);
       } else {
         PCL_ASSERT(false, "GroupNormBwdTPP: invalid eqn. number %d\n", eqn_no);
@@ -4167,55 +4015,21 @@ class SplitSGDTPP : public BaseTPP {
   void* build_kernel() override {
     libxsmm_blasint ld = N;
     libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-    libxsmm_matrix_eqn_push_back_unary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS,
-        LIBXSMM_MELTW_FLAG_UNARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_ternary_op(
+    meqn_push_unary_op(my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS);
+    meqn_push_ternary_op(
         my_eqn0,
         LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-        (libxsmm_meltw_ternary_flags)(
-            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0,
-        N,
-        1,
-        ld,
-        3,
-        0,
-        LIBXSMM_DATATYPE_BF16); /* This is the "gradient" weights   */
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0,
-        1,
-        1,
-        1,
-        2,
-        0,
-        LIBXSMM_DATATYPE_F32); /* This is the scalar learning rate */
-    libxsmm_matrix_eqn_push_back_binary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_BINARY_PACK,
-        LIBXSMM_MELTW_FLAG_BINARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0,
-        N,
-        1,
-        ld,
-        0,
-        0,
-        LIBXSMM_DATATYPE_I16); /* This is the tensor with lo bits  */
-    libxsmm_matrix_eqn_push_back_arg(
-        my_eqn0,
-        N,
-        1,
-        ld,
-        1,
-        0,
-        LIBXSMM_DATATYPE_I16); /* This is the tensor with hi bits  */
+        LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+    /* This is the "gradient" weights   */
+    meqn_push_arg(my_eqn0, N, 1, ld, 3, 0, LIBXSMM_DATATYPE_BF16);
+    /* This is the scalar learning rate */
+    meqn_push_arg(my_eqn0, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_PACK);
+    /* This is the tensor with lo bits  */
+    meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, LIBXSMM_DATATYPE_I16);
+    /* This is the tensor with hi bits  */
+    meqn_push_arg(my_eqn0, N, 1, ld, 1, 0, LIBXSMM_DATATYPE_I16);
     debug_print_eqn_tree(my_eqn0);
     auto func0 =
         libxsmm_dispatch_matrix_eqn(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
@@ -4459,112 +4273,69 @@ class FusedAdamWTPP {
       if (eqn_no == 0) {
         // Equation for exp_avg
         auto my_eqn0 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
+        meqn_push_arg(my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
+        meqn_push_binary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
+        meqn_push_arg(my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
         debug_print_eqn_tree(my_eqn0);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
         auto my_eqn1 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
+        meqn_push_arg(my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
+        meqn_push_binary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn1,
-            LIBXSMM_MELTW_TYPE_UNARY_X2,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_unary_op(my_eqn1, LIBXSMM_MELTW_TYPE_UNARY_X2);
+        meqn_push_arg(my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
+        meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
         debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for data_i (with decay)
         auto my_eqn2 = libxsmm_matrix_eqn_create();
         if (use_wd == 1) {
-          libxsmm_matrix_eqn_push_back_binary_op(
+          meqn_push_binary_op(
               my_eqn2,
               LIBXSMM_MELTW_TYPE_BINARY_MUL,
-              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-              LIBXSMM_DATATYPE_F32);
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
         }
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_SUB,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 4, 0, in_dt); // data_i
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_SUB);
+        meqn_push_arg(my_eqn2, N, 1, ld, 4, 0, in_dt); // data_i
+        meqn_push_binary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_DIV,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_DIV);
+        meqn_push_arg(my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
+        meqn_push_binary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_UNARY_SQRT,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
-        libxsmm_matrix_eqn_push_back_arg(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_unary_op(my_eqn2, LIBXSMM_MELTW_TYPE_UNARY_SQRT);
+        meqn_push_arg(my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
+        meqn_push_arg(my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
+        meqn_push_arg(
             my_eqn2, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // step_size
         if (use_wd == 1) {
-          libxsmm_matrix_eqn_push_back_arg(
-              my_eqn2,
-              1,
-              1,
-              1,
-              5,
-              0,
-              LIBXSMM_DATATYPE_F32); // this scalar is (1-lr*weight_decay)
+          // this scalar is (1-lr*weight_decay)
+          meqn_push_arg(my_eqn2, 1, 1, 1, 5, 0, LIBXSMM_DATATYPE_F32);
         }
         debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
@@ -4765,125 +4536,75 @@ class FusedSplitAdamWTPP {
       if (eqn_no == 0) {
         // Equation for exp_avg
         auto my_eqn0 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
+        meqn_push_arg(my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
+        meqn_push_binary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
+        meqn_push_arg(my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
         debug_print_eqn_tree(my_eqn0);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
         auto my_eqn1 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
+        meqn_push_arg(my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
+        meqn_push_binary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn1,
-            LIBXSMM_MELTW_TYPE_UNARY_X2,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_unary_op(my_eqn1, LIBXSMM_MELTW_TYPE_UNARY_X2);
+        meqn_push_arg(my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
+        meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
         debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for data_i (with decay)
         auto my_eqn2 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
+        meqn_push_unary_op(my_eqn2, LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS);
         if (use_wd == 1) {
-          libxsmm_matrix_eqn_push_back_binary_op(
+          meqn_push_binary_op(
               my_eqn2,
               LIBXSMM_MELTW_TYPE_BINARY_MUL,
-              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-              LIBXSMM_DATATYPE_F32);
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
         }
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_SUB,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_PACK,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_SUB);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_PACK);
+        meqn_push_arg(
             my_eqn2, N, 1, ld, 4, 0, LIBXSMM_DATATYPE_I16); // data_i lo
-        libxsmm_matrix_eqn_push_back_arg(
+        meqn_push_arg(
             my_eqn2, N, 1, ld, 5, 0, LIBXSMM_DATATYPE_I16); // data_i hi
 
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_binary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_DIV,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_DIV);
+        meqn_push_arg(my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
+        meqn_push_binary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_UNARY_SQRT,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
-        libxsmm_matrix_eqn_push_back_arg(
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_unary_op(my_eqn2, LIBXSMM_MELTW_TYPE_UNARY_SQRT);
+        meqn_push_arg(my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
+        meqn_push_arg(my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
+        meqn_push_arg(
             my_eqn2, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // step_size
         if (use_wd == 1) {
-          libxsmm_matrix_eqn_push_back_arg(
-              my_eqn2,
-              1,
-              1,
-              1,
-              6,
-              0,
-              LIBXSMM_DATATYPE_F32); // this scalar is (1-lr*weight_decay)
+          // this scalar is (1-lr*weight_decay)
+          meqn_push_arg(my_eqn2, 1, 1, 1, 6, 0, LIBXSMM_DATATYPE_F32);
         }
         debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(
@@ -5098,122 +4819,78 @@ class FusedAdamStepTPP {
       if (eqn_no == 0) {
         // Equation for exp_avg
         auto my_eqn0 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn0, N, 1, ld, 2, 0, in_dt); // avg_i
+        meqn_push_arg(my_eqn0, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta1
+        meqn_push_binary_op(
             my_eqn0,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
+        meqn_push_arg(my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
         debug_print_eqn_tree(my_eqn0);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
         auto my_eqn1 = libxsmm_matrix_eqn_create();
-        libxsmm_matrix_eqn_push_back_ternary_op(
+        meqn_push_ternary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-            (libxsmm_meltw_ternary_flags)(
-                LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT),
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
-        libxsmm_matrix_eqn_push_back_binary_op(
+            LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+                LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+        meqn_push_arg(my_eqn1, N, 1, ld, 2, 0, in_dt); // avg_sq_i
+        meqn_push_arg(my_eqn1, 1, 1, 1, 3, 0, LIBXSMM_DATATYPE_F32); // beta2
+        meqn_push_binary_op(
             my_eqn1,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn1,
-            LIBXSMM_MELTW_TYPE_UNARY_X2,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_unary_op(my_eqn1, LIBXSMM_MELTW_TYPE_UNARY_X2);
+        meqn_push_arg(my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
+        meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
         debug_print_eqn_tree(my_eqn1);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for adam_step_i (with decay)
         auto my_eqn2 = libxsmm_matrix_eqn_create();
         if (use_wd == 1) {
-          libxsmm_matrix_eqn_push_back_binary_op(
-              my_eqn2,
-              LIBXSMM_MELTW_TYPE_BINARY_ADD,
-              LIBXSMM_MELTW_FLAG_BINARY_NONE,
-              LIBXSMM_DATATYPE_F32);
-          libxsmm_matrix_eqn_push_back_binary_op(
+          meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_ADD);
+          meqn_push_binary_op(
               my_eqn2,
               LIBXSMM_MELTW_TYPE_BINARY_MUL,
-              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-              LIBXSMM_DATATYPE_F32);
-          libxsmm_matrix_eqn_push_back_arg(
-              my_eqn2, N, 1, ld, 3, 0, in_dt); // data_i
-          libxsmm_matrix_eqn_push_back_arg( // weight_decay
-              my_eqn2,
-              1,
-              1,
-              1,
-              4,
-              0,
-              LIBXSMM_DATATYPE_F32);
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+          meqn_push_arg(my_eqn2, N, 1, ld, 3, 0, in_dt); // data_i
+          // weight_decay
+          meqn_push_arg(my_eqn2, 1, 1, 1, 4, 0, LIBXSMM_DATATYPE_F32);
         }
-        libxsmm_matrix_eqn_push_back_binary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_BINARY_DIV,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_DATATYPE_F32);
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_DIV);
         if (use_bc) {
-          libxsmm_matrix_eqn_push_back_binary_op(
+          meqn_push_binary_op(
               my_eqn2,
               LIBXSMM_MELTW_TYPE_BINARY_MUL,
-              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0,
-              LIBXSMM_DATATYPE_F32);
-          libxsmm_matrix_eqn_push_back_arg(
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0);
+          meqn_push_arg(
               my_eqn2, 1, 1, 1, 5, 0, LIBXSMM_DATATYPE_F32); // avg_i_scale
         }
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
-        libxsmm_matrix_eqn_push_back_binary_op(
+        meqn_push_arg(my_eqn2, N, 1, ld, 2, 0, in_dt); // avg_i
+        meqn_push_binary_op(
             my_eqn2,
             LIBXSMM_MELTW_TYPE_BINARY_ADD,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1,
-            LIBXSMM_DATATYPE_F32);
-        libxsmm_matrix_eqn_push_back_unary_op(
-            my_eqn2,
-            LIBXSMM_MELTW_TYPE_UNARY_SQRT,
-            LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_DATATYPE_F32);
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
+        meqn_push_unary_op(my_eqn2, LIBXSMM_MELTW_TYPE_UNARY_SQRT);
         if (use_bc) {
-          libxsmm_matrix_eqn_push_back_binary_op(
+          meqn_push_binary_op(
               my_eqn2,
               LIBXSMM_MELTW_TYPE_BINARY_MUL,
-              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0,
-              LIBXSMM_DATATYPE_F32);
-          libxsmm_matrix_eqn_push_back_arg(
+              LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0);
+          meqn_push_arg(
               my_eqn2, 1, 1, 1, 6, 0, LIBXSMM_DATATYPE_F32); // avg_sq_i_scale
         }
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
-        libxsmm_matrix_eqn_push_back_arg(
-            my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
+        meqn_push_arg(my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
+        meqn_push_arg(my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
         debug_print_eqn_tree(my_eqn2);
         func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
       } else {
