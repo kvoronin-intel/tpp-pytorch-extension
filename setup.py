@@ -90,7 +90,7 @@ class BuildMakeLib(Command):
 
 
 sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp"]
-sources += ["src/csrc/jit_compile.cpp", "src/csrc/par_loop_generator.cpp"]
+sources += ["src/csrc/jit_compile.cpp", "src/csrc/common_loops.cpp", "src/csrc/par_loop_generator.cpp"]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")

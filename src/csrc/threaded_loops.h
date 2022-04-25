@@ -6,6 +6,7 @@
 #include <cassert>
 #include <fstream>
 #include <initializer_list>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -106,6 +107,8 @@ typedef void (*par_loop_kernel)(
     std::function<void()>,
     std::function<void()>);
 
+extern std::unordered_map<std::string, par_loop_kernel> pre_defined_loops;
+
 #if 0
 void par_nested_loops(LoopSpecs *loopSpecs, std::function<void(int*)> body_func, std::function<void()> init_func, std::function<void()> fini_func)
 {
@@ -185,14 +188,20 @@ class LoopingScheme {
     for (int i = 0; i < nLogicalLoops; i++) {
       assert(nLLBL[i] > 0);
     }
-    std::string gen_code = loop_generator(scheme.c_str());
-    std::ofstream ofs("debug.cpp", std::ofstream::out);
-    ofs << code_str + gen_code;
-    ofs.close();
-    std::cout << gen_code;
+    auto search = pre_defined_loops.find(scheme);
+    if (search != pre_defined_loops.end()) {
+      test_kernel = search->second;
+    } else {
+      std::string gen_code = loop_generator(scheme.c_str());
+      std::ofstream ofs("debug.cpp", std::ofstream::out);
+      ofs << code_str + gen_code;
+      ofs.close();
+      std::cout << "Scheme: " << scheme << std::endl;
+      std::cout << "Generated code:" << std::endl << gen_code;
 
-    test_kernel = (par_loop_kernel)jit_from_str(
-        code_str + gen_code, " -fopenmp ", "par_nested_loops");
+      test_kernel = (par_loop_kernel)jit_from_str(
+          code_str + gen_code, " -fopenmp ", "par_nested_loops");
+    }
   }
 
   void call(
