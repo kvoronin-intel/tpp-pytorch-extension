@@ -178,6 +178,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
   // printf("dAPO = %p, t_dAPO.size = %lu\n", dAPO, t_dAPO.numel());
   //#define PRINT_T(x) std::cout << #x << ": " << x << std::endl
   //#define PRINT_T(x)
+#if 0
   {
     RECORD_SCOPE(dwc_gemm, {t_APD_T, t_dCL_V});
     {
@@ -269,12 +270,75 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
       }
     }
   }
+#else
+  {
+    RECORD_SCOPE(dac_gemm, {t_APD_T, t_dCL_V});
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+      // dVL = APD_T * dCL
+#pragma omp parallel for collapse(2) schedule(static, 1)
+      for (int b = 0; b < B; b++) {
+        for (int n = 0; n < N; n++) {
+          long start = offs[b];
+          // long ss1 = offs2[b];
+          long end = offs[b + 1];
+          long len = end - start;
+          for (int s21 = start, ss1 = offs2[b]; s21 < end; s21++, ss1 += len) {
+            cw_gemm_tpp(APD_T[n][ss1], dCL_V[start][n], dVL[s21][n], len);
+            if (dt_bf16)
+              cw_n2v_tpp(dVL[s21][n], dVL_V[s21][n]);
+          }
+          for (int s11 = start, ss1 = offs2[b]; s11 < end; s11++, ss1 += len) {
+            float dtAPD[len][S2][S2];
+            T dtAPD_bf[len][S2][S2];
+            for (int s21 = start; s21 < end; s21++) {
+              auto ls21 = s21 - start;
+              if (dAPO)
+                a_convert_tpp(dAPO[n][ss1 + ls21], dtAPD[ls21][0]);
+              ci_gemm_tpp(dCL[s11][n], VL_TV[s21][n], dtAPD[ls21][0], 1);
+            }
+            if (t_HM.numel() != 0) {
+              // FIXME: shape of head mask is not correct here yet
+              PCL_ASSERT(0, "t_HM used");
+              // t_dAPD[b][s11][n] = t_dAPD[b][s11][n] * t_HM[b][s11][n];
+            }
+            if (p > 0) {
+              for (int l = 0; l < len; l++) {
+                dropout_bwd_tpp(dtAPD[l][0], dtAPD[l][0], APD_mask[n][ss1 + l]);
+              }
+            }
+            softmax_bwd_tpp(len, dtAPD[0][0], dtAPD[0][0], AP[n][ss1]);
+            for (int s21 = start; s21 < end; s21++) {
+              auto ls21 = s21 - start;
+              long l = s11 - start;
+              long ss = offs2[b];
+              scale_tpp(dtAPD[ls21][0], dtAPD_bf[ls21][0], one_by_sqrt_H);
+              a_n2v_tpp(dtAPD_bf[ls21][0], dAPD_V[n][ss + ls21 * len + l]);
+            }
+            // dQL = dADP * KL_V
+            ai_gemm_tpp(dtAPD_bf[0][0], KL_V[start][n], dQL[s11][n], len);
+            if (dt_bf16)
+              cw_n2v_tpp(dQL[s11][n], dQL_V[s11][n]);
+          }
+          for (int s21 = start, ss1 = offs2[b]; s21 < end; s21++, ss1 += len) {
+            // dKL = (QL_T * dAPD)T
+            aw_gemm_tpp(QL_T[start][n], dAPD_V[n][ss1], dKL[s21][n], len);
+            if (dt_bf16)
+              cw_n2v_tpp(dKL[s21][n], dKL_V[s21][n]);
+          }
+        }
+      }
+    }
+  }
+#endif
   // PRINT_T(t_QL_T.permute({0,1,2,4,3}).contiguous());
   // PRINT_T(t_dAPD_V.permute({0,1,2,3,4,6,5}).contiguous().view({B,S1,N,S1,S2,S2}));
   // PRINT_T(t_dKL);
+  auto qkv_loop = ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
   {
     RECORD_SCOPE(div_gemm, {t_dVL, t_Wv_TV});
     {
+#if 0
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
@@ -282,11 +346,24 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
           vi_gemm_tpp(dVL[s1][0], Wv_TV[0][nc], dEHS[s1][nc], N);
         }
       }
+#else
+      qkv_loop(
+          [&](int* ind) {
+            int s1 = ind[0], nc = ind[1];
+            DECL_VLA_PTR_PT(T, dVL, [N][S2 * H], t_dVL);
+            DECL_VLA_PTR_PT(T, Wv_TV, [N][H * H], t_Wv_TV);
+            DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
+            vi_gemm_tpp(dVL[s1][0], Wv_TV[0][nc], dEHS[s1][nc], N);
+          },
+          [&]() { vi_gemm_tpp.config(); },
+          [&]() { vi_gemm_tpp.release(); });
+#endif
     }
   }
   {
     RECORD_SCOPE(dik_gemm, {t_dKL, t_Wk_TV});
     {
+#if 0
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
@@ -294,6 +371,18 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
           ki_gemm_tpp(dKL[s1][0], Wk_TV[0][nc], dEHS[s1][nc], N);
         }
       }
+#else
+      qkv_loop(
+          [&](int* ind) {
+            int s1 = ind[0], nc = ind[1];
+            DECL_VLA_PTR_PT(T, dKL, [N][S2 * H], t_dKL);
+            DECL_VLA_PTR_PT(T, Wk_TV, [N][H * H], t_Wk_TV);
+            DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
+            ki_gemm_tpp(dKL[s1][0], Wk_TV[0][nc], dEHS[s1][nc], N);
+          },
+          [&]() { ki_gemm_tpp.config(); },
+          [&]() { ki_gemm_tpp.release(); });
+#endif
     }
   }
   {

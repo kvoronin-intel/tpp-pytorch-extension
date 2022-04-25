@@ -37,6 +37,7 @@ REGISTER_LOCAL_SCOPE(dwk_gemm, "dwk_gemm");
 REGISTER_LOCAL_SCOPE(dwv_gemm, "dwv_gemm");
 REGISTER_LOCAL_SCOPE(dwa_gemm, "dwa_gemm");
 REGISTER_LOCAL_SCOPE(dwc_gemm, "dwc_gemm");
+REGISTER_LOCAL_SCOPE(dac_gemm, "dac_gemm");
 REGISTER_LOCAL_SCOPE(dwi_gemm, "dwi_gemm");
 REGISTER_LOCAL_SCOPE(dwo_gemm, "dwo_gemm");
 REGISTER_LOCAL_SCOPE(dqkv_bias, "dqkv_bias");
