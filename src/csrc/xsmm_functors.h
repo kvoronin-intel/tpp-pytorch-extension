@@ -186,6 +186,17 @@ inline int meqn_push_arg(
       arg_metadata, arg_shape, arg_singular_attr);
 }
 
+inline libxsmm_matrix_eqn_function meqn_dispatch(
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint* ldo,
+    const libxsmm_datatype out_type,
+    const unsigned int idx) {
+  libxsmm_meqn_arg_shape arg_shape =
+      libxsmm_create_meqn_arg_shape(m, n, *ldo, out_type);
+  return libxsmm_dispatch_matrix_eqn_v2(idx, arg_shape);
+}
+
 inline int meqn_push_unary_op(
     const libxsmm_blasint idx,
     const libxsmm_meltw_unary_type type,
@@ -1854,7 +1865,7 @@ class GeluBwdTPP : public BaseTPP {
     meqn_push_unary_op(my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_GELU_INV);
     meqn_push_arg(my_eqn0, N, 1, N, 1, 0, dt2);
     debug_print_eqn_tree(my_eqn0);
-    return (void*)libxsmm_dispatch_matrix_eqn(N, 1, &ld, dt3, my_eqn0);
+    return (void*)meqn_dispatch(N, 1, &ld, dt3, my_eqn0);
   }
 
  private:
@@ -2229,8 +2240,7 @@ class SiLUBwdTPP : public BaseTPP {
     meqn_push_arg(my_eqn0, cols, rows, ldo, 3, 0, LIBXSMM_DATATYPE_F32);
     meqn_push_arg(my_eqn0, cols, rows, ldo, 4, 0, LIBXSMM_DATATYPE_F32);
 
-    auto func0 = libxsmm_dispatch_matrix_eqn(
-        cols, rows, &ldo, XsmmDtype<Tout>(), my_eqn0);
+    auto func0 = meqn_dispatch(cols, rows, &ldo, XsmmDtype<Tout>(), my_eqn0);
     return (void*)func0;
   }
 
@@ -2494,7 +2504,7 @@ class SoftMaxFwdTPP {
           LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS);
       meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, dt_in);
       debug_print_eqn_tree(my_eqn0); // printf
-      return (void*)libxsmm_dispatch_matrix_eqn(
+      return (void*)meqn_dispatch(
           S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn0);
     }
 
@@ -2557,7 +2567,7 @@ class SoftMaxFwdTPP {
           LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS);
       meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
       /*debug_print_eqn_tree( my_eqn1 );*/
-      return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_out, my_eqn1);
+      return (void*)meqn_dispatch(S3, S1, &ld, dt_out, my_eqn1);
     }
 
    private:
@@ -2716,8 +2726,7 @@ class SoftMaxBwdTPP {
         meqn_push_arg(my_eqn2, S3, S1, ld, 0, 0, dt_2);
         meqn_push_arg(my_eqn2, S3, S1, ld, 1, 0, dt_3);
         debug_print_eqn_tree(my_eqn2); // printf
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
+        func = meqn_dispatch(S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 1) {
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
 #if 1
@@ -2756,7 +2765,7 @@ class SoftMaxBwdTPP {
         meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 0, 0, LIBXSMM_DATATYPE_F32);
 #endif
         debug_print_eqn_tree(my_eqn3);
-        func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, dt_1, my_eqn3);
+        func = meqn_dispatch(S3, S1, &ld, dt_1, my_eqn3);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
       }
@@ -3127,8 +3136,7 @@ class VarSoftMaxBwdTPP {
         meqn_push_arg(my_eqn2, S3, 1, ld, 0, 0, dt_2);
         meqn_push_arg(my_eqn2, S3, 1, ld, 1, 0, dt_3);
         debug_print_eqn_tree(my_eqn2); // printf
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, 1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
+        func = meqn_dispatch(S3, 1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 1) {
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
         meqn_push_binary_op(my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_MUL);
@@ -3140,7 +3148,7 @@ class VarSoftMaxBwdTPP {
         meqn_push_arg(my_eqn3, S3, 1, ld, 0, 0, dt_2);
         meqn_push_arg(my_eqn3, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
         debug_print_eqn_tree(my_eqn3);
-        func = libxsmm_dispatch_matrix_eqn(S3, 1, &ld, dt_1, my_eqn3);
+        func = meqn_dispatch(S3, 1, &ld, dt_1, my_eqn3);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
       }
@@ -3299,7 +3307,7 @@ class LayerNormFwdTPP {
       meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, in_dt);
       meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, in_dt);
       debug_print_eqn_tree(my_eqn0); // printf
-      return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, out_dt, my_eqn0);
+      return (void*)meqn_dispatch(S3, S1, &ld, out_dt, my_eqn0);
     }
 
    private:
@@ -3478,8 +3486,7 @@ class LayerNormBwdTPP {
         meqn_push_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
         /*debug_print_eqn_tree( my_eqn1 );*/
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
+        func = meqn_dispatch(S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
       } else if (eqn_no == 2) {
         /* dbeta function  */
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
@@ -3487,8 +3494,7 @@ class LayerNormBwdTPP {
         meqn_push_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
         /*debug_print_eqn_tree( my_eqn1 );*/
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
+        func = meqn_dispatch(S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 3) {
         /* db equation */
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
@@ -3496,8 +3502,7 @@ class LayerNormBwdTPP {
             my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
         meqn_push_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, in_dt);
-        func = libxsmm_dispatch_matrix_eqn(
-            1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
+        func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
       } else if (eqn_no == 4) {
         /* ds equation */
         libxsmm_blasint my_eqn4 = libxsmm_matrix_eqn_create();
@@ -3507,8 +3512,7 @@ class LayerNormBwdTPP {
         meqn_push_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, in_dt);
         meqn_push_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
-        func = libxsmm_dispatch_matrix_eqn(
-            1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
+        func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
       } else if (eqn_no == 5) {
         /* din equation */
         libxsmm_blasint my_eqn5 = libxsmm_matrix_eqn_create();
@@ -3532,7 +3536,7 @@ class LayerNormBwdTPP {
         meqn_push_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
         meqn_push_arg(my_eqn5, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
         meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
-        func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, in_dt, my_eqn5);
+        func = meqn_dispatch(S3, S1, &ld, in_dt, my_eqn5);
       } else {
         PCL_ASSERT(false, "LayerNormBwdTPP: invalid eqn. number %d\n", eqn_no);
       }
@@ -3691,7 +3695,7 @@ class GroupNormFwdTPP {
       meqn_push_arg(my_eqn0, 1, S1, 1, 3, 0, in_dt);
       meqn_push_arg(my_eqn0, 1, S1, 1, 4, 0, in_dt);
       debug_print_eqn_tree(my_eqn0); // printf
-      return (void*)libxsmm_dispatch_matrix_eqn(S3, S1, &ld, out_dt, my_eqn0);
+      return (void*)meqn_dispatch(S3, S1, &ld, out_dt, my_eqn0);
     }
 
    private:
@@ -3865,8 +3869,7 @@ class GroupNormBwdTPP {
         meqn_push_arg(my_eqn1, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn1, S3, S1, tmp_ld, 4, 0, LIBXSMM_DATATYPE_F32);
         debug_print_eqn_tree(my_eqn1);
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
+        func = meqn_dispatch(S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn1);
       } else if (eqn_no == 2) {
         /* dbeta function  */
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();
@@ -3878,8 +3881,7 @@ class GroupNormBwdTPP {
         meqn_push_arg(my_eqn2, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn2, S3, S1, tmp_ld, 5, 0, LIBXSMM_DATATYPE_F32);
         debug_print_eqn_tree(my_eqn2);
-        func = libxsmm_dispatch_matrix_eqn(
-            S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
+        func = meqn_dispatch(S3, S1, &tmp_ld, LIBXSMM_DATATYPE_F32, my_eqn2);
       } else if (eqn_no == 3) {
         /* db equation */
         libxsmm_blasint my_eqn3 = libxsmm_matrix_eqn_create();
@@ -3889,8 +3891,7 @@ class GroupNormBwdTPP {
             LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_1);
         meqn_push_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn3, 1, S1, 1, 6, 0, in_dt);
-        func = libxsmm_dispatch_matrix_eqn(
-            1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
+        func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
       } else if (eqn_no == 4) {
         /* ds equation */
         libxsmm_blasint my_eqn4 = libxsmm_matrix_eqn_create();
@@ -3903,8 +3904,7 @@ class GroupNormBwdTPP {
         meqn_push_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
         meqn_push_arg(my_eqn4, 1, S1, 1, 6, 0, in_dt);
         meqn_push_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
-        func = libxsmm_dispatch_matrix_eqn(
-            1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
+        func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
       } else if (eqn_no == 5) {
         /* din equation */
         libxsmm_blasint my_eqn5 = libxsmm_matrix_eqn_create();
@@ -3929,7 +3929,7 @@ class GroupNormBwdTPP {
         meqn_push_arg(my_eqn5, S3, S1, ld, 0, 0, in_dt);
         meqn_push_arg(my_eqn5, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
         meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
-        func = libxsmm_dispatch_matrix_eqn(S3, S1, &ld, in_dt, my_eqn5);
+        func = meqn_dispatch(S3, S1, &ld, in_dt, my_eqn5);
       } else {
         PCL_ASSERT(false, "GroupNormBwdTPP: invalid eqn. number %d\n", eqn_no);
       }
@@ -4031,8 +4031,7 @@ class SplitSGDTPP : public BaseTPP {
     /* This is the tensor with hi bits  */
     meqn_push_arg(my_eqn0, N, 1, ld, 1, 0, LIBXSMM_DATATYPE_I16);
     debug_print_eqn_tree(my_eqn0);
-    auto func0 =
-        libxsmm_dispatch_matrix_eqn(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
+    auto func0 = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
     return (void*)func0;
   }
 
@@ -4287,7 +4286,7 @@ class FusedAdamWTPP {
         meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
         meqn_push_arg(my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
         debug_print_eqn_tree(my_eqn0);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
         auto my_eqn1 = libxsmm_matrix_eqn_create();
@@ -4306,7 +4305,7 @@ class FusedAdamWTPP {
         meqn_push_arg(my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
         meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
         debug_print_eqn_tree(my_eqn1);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for data_i (with decay)
         auto my_eqn2 = libxsmm_matrix_eqn_create();
@@ -4338,7 +4337,7 @@ class FusedAdamWTPP {
           meqn_push_arg(my_eqn2, 1, 1, 1, 5, 0, LIBXSMM_DATATYPE_F32);
         }
         debug_print_eqn_tree(my_eqn2);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn2);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
       }
@@ -4550,7 +4549,7 @@ class FusedSplitAdamWTPP {
         meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
         meqn_push_arg(my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
         debug_print_eqn_tree(my_eqn0);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
         auto my_eqn1 = libxsmm_matrix_eqn_create();
@@ -4569,7 +4568,7 @@ class FusedSplitAdamWTPP {
         meqn_push_arg(my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
         meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
         debug_print_eqn_tree(my_eqn1);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for data_i (with decay)
         auto my_eqn2 = libxsmm_matrix_eqn_create();
@@ -4607,8 +4606,7 @@ class FusedSplitAdamWTPP {
           meqn_push_arg(my_eqn2, 1, 1, 1, 6, 0, LIBXSMM_DATATYPE_F32);
         }
         debug_print_eqn_tree(my_eqn2);
-        func = libxsmm_dispatch_matrix_eqn(
-            N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2);
+        func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
       }
@@ -4833,7 +4831,7 @@ class FusedAdamStepTPP {
         meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, in_dt); // grad_i
         meqn_push_arg(my_eqn0, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta1_1
         debug_print_eqn_tree(my_eqn0);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn0);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn0);
       } else if (eqn_no == 1) {
         // Equation for exp_avg_sq
         auto my_eqn1 = libxsmm_matrix_eqn_create();
@@ -4852,7 +4850,7 @@ class FusedAdamStepTPP {
         meqn_push_arg(my_eqn1, N, 1, ld, 0, 0, in_dt); // grad_i
         meqn_push_arg(my_eqn1, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // beta2_1
         debug_print_eqn_tree(my_eqn1);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn1);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn1);
       } else if (eqn_no == 2) {
         // Equation for adam_step_i (with decay)
         auto my_eqn2 = libxsmm_matrix_eqn_create();
@@ -4892,7 +4890,7 @@ class FusedAdamStepTPP {
         meqn_push_arg(my_eqn2, N, 1, ld, 0, 0, in_dt); // avg_sq_i
         meqn_push_arg(my_eqn2, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32); // eps
         debug_print_eqn_tree(my_eqn2);
-        func = libxsmm_dispatch_matrix_eqn(N, 1, &ld, in_dt, my_eqn2);
+        func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn2);
       } else {
         PCL_ASSERT(false, "Should not come here\n");
       }
