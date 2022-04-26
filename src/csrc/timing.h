@@ -107,11 +107,13 @@ class GlobalScope {
     globalScope = t;
   }
   ~GlobalScope() {
-    if (oldScope == 0) {
-      // Record time only for outermost scope
       auto time = getTime() - start;
       auto& scope = _scope_list[globalScope];
       scope.master_timer += time;
+    if (oldScope != 0) {
+      // Remove time from outer scope
+      auto& outer_scope = _scope_list[oldScope];
+      outer_scope.master_timer -= time;
     }
     globalScope = oldScope;
   }
@@ -125,10 +127,12 @@ class GlobalPass {
     globalPass = p;
   }
   ~GlobalPass() {
-    if (oldPass == 0) {
       auto time = getTime() - start;
       auto& pass = _pass_list[globalPass];
       pass.master_timer += time;
+    if (oldPass != 0) {
+      auto& outer_pass = _pass_list[oldPass];
+      outer_pass.master_timer -= time;
     }
     globalPass = oldPass;
   }
