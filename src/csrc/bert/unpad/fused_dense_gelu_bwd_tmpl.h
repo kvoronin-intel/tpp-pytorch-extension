@@ -40,6 +40,7 @@ DECL_VLA_PTR_PT(T, grad_gelu, [Nk][S2 * Hk], t_grad_gelu);
 DECL_VLA_PTR_PT(T, grad_out, [Nk][S2 * Hk], t_grad_out);
 DECL_VLA_PTR_PT(T, grad_gelu_V, [Nk][S2 * Hk], t_grad_gelu_V);
 
+constexpr long BS = 8;
 auto Nkb = Nk;
 if (Nk > Nc && Nk % Nc == 0) {
   Nkb = Nc;
@@ -70,6 +71,10 @@ auto di_gemm_b1_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     XformTPP::XFORM_NONE_TPP,
     0,
     Nkb)));
+auto dw_set_zero_tpp = SCOPEIT(SetZeroTPP<T>(Hk * Hc), EW_ZERO);
+auto dw_cpy_tpp = SCOPEIT(CpyTPP<T>(Hk * Hc), VNNI);
+auto dw_n2v_tpp =
+    SCOPEIT(XformExtTPP<T>(Hc, Hk, XformTPP::XFORM_N2V_TPP, true), VNNI);
 auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     Hc,
     Hk,
@@ -77,7 +82,7 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     Nc* S2* Hc,
     Nk* S2* Hk,
     1.0,
-    (XformTPP::XFORM_TYPE)grad_wt_flag,
+    XformTPP::XFORM_NONE_TPP, //(XformTPP::XFORM_TYPE)grad_wt_flag,
     input_trans_flag,
     S1)));
 {
@@ -102,45 +107,91 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
           n2v_tpp(grad_gelu[s1][nk], grad_gelu_V[s1][nk]);
         }
       }
-#pragma omp barrier
       omp_reduce_buf(num_threads, Nk * Hk, bias_ptrs, grad_bias[0]);
     }
   }
 }
 {
   RECORD_SCOPE(dii_gemm, {t_grad_gelu, t_wt_TV});
-  // if(Nk != Nkb) t_grad_in.zero_();
-  if (Nk != Nkb)
-    tensor_set_zero(S1 * Nc, S2 * Hc, t_grad_in);
+#if 0
   for (int nk = 0; nk < Nk; nk += Nkb) {
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
     for (int s1 = 0; s1 < S1; s1++) {
       for (int nc = 0; nc < Nc; nc++) {
-        if (Nk != Nkb)
-          di_gemm_b1_tpp(
+        if (nk == 0)
+          di_gemm_b0_tpp(
               grad_gelu[s1][nk], wt_TV[nk][nc], grad_in[s1][nc], Nkb);
         else
-          di_gemm_b0_tpp(
+          di_gemm_b1_tpp(
               grad_gelu[s1][nk], wt_TV[nk][nc], grad_in[s1][nc], Nkb);
       }
     }
   }
+#else
+  auto di_loop = ThreadedLoop<3>(
+      {LoopSpecs{0, Nk, Nkb}, LoopSpecs{S1}, LoopSpecs{Nc}}, "aBC");
+  di_loop(
+      [&](int* ind) {
+        int nk = ind[0], s1 = ind[1], nc = ind[2];
+        DECL_VLA_PTR_PT(T, grad_gelu, [Nk][S2 * Hk], t_grad_gelu);
+        DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
+        DECL_VLA_PTR_PT(T, grad_in, [Nc][S2 * Hc], t_grad_in);
+        if (nk == 0)
+          di_gemm_b0_tpp(
+              grad_gelu[s1][nk], wt_TV[nk][nc], grad_in[s1][nc], Nkb, true);
+        else
+          di_gemm_b1_tpp(
+              grad_gelu[s1][nk], wt_TV[nk][nc], grad_in[s1][nc], Nkb, true);
+      },
+      [&]() { di_gemm_b0_tpp.config(); },
+      [&]() { di_gemm_b0_tpp.release(); });
+#endif
 }
 {
   RECORD_SCOPE(dwi_gemm, {t_in_T, t_grad_gelu_V});
-  // t_grad_wt.zero_();
-  tensor_set_zero(Nk * Nc, Hk * Hc, t_grad_wt);
-  constexpr int BS = 8;
+#if 0
   for (int s1 = 0; s1 < S1; s1 += BS) {
     int count = (s1 + BS <= S1 ? BS : S1 - s1);
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
     for (int nk = 0; nk < Nk; nk++) {
       for (int nc = 0; nc < Nc; nc++) {
+        if (s1 == 0)
+          dw_set_zero_tpp(grad_wt[nk][nc]);
         dw_gemm_tpp(in_T[s1][nc], grad_gelu_V[s1][nk], grad_wt[nk][nc], count);
+        bool is_last_iter = !(s1 + BS < S1);
+        if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
+          T tmp[Hc * Hk];
+          dw_cpy_tpp(grad_wt[nk][nc], tmp);
+          dw_n2v_tpp(tmp, grad_wt[nk][nc]);
+        }
       }
     }
   }
+#else
+  auto dw_loop = ThreadedLoop<3>(
+      {LoopSpecs{0, S1, BS}, LoopSpecs{Nk}, LoopSpecs{Nc}}, "aBC");
+  dw_loop(
+      [&](int* ind) {
+        int s1 = ind[0], nk = ind[1], nc = ind[2];
+        int count = (s1 + BS <= S1 ? BS : S1 - s1);
+        DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc * Hk], t_grad_wt);
+        DECL_VLA_PTR_PT(T, in_T, [Nc][Hc * S2], t_in_T);
+        DECL_VLA_PTR_PT(T, grad_gelu_V, [Nk][S2 * Hk], t_grad_gelu_V);
+        if (s1 == 0)
+          dw_set_zero_tpp(grad_wt[nk][nc]);
+        dw_gemm_tpp(
+            in_T[s1][nc], grad_gelu_V[s1][nk], grad_wt[nk][nc], count, true);
+        bool is_last_iter = !(s1 + BS < S1);
+        if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
+          T tmp[Hc * Hk];
+          dw_cpy_tpp(grad_wt[nk][nc], tmp);
+          dw_n2v_tpp(tmp, grad_wt[nk][nc]);
+        }
+      },
+      [&]() { dw_gemm_tpp.config(); },
+      [&]() { dw_gemm_tpp.release(); });
+#endif
 }
 return std::vector<at::Tensor>({t_grad_in, t_grad_wt, t_grad_bias});
