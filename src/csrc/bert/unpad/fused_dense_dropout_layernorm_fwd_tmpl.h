@@ -68,6 +68,7 @@ auto layer_norm_fwd_tpp =
 
 {
   RECORD_SCOPE(o_gemm, {t_in, t_wt});
+#if 0
   auto nThreads = omp_get_max_threads();
   for (int nc = 0; nc < Nc; nc += Ncb) {
     if (nc == Nc - Ncb) {
@@ -139,5 +140,54 @@ auto layer_norm_fwd_tpp =
       }
     }
   }
+#else
+  auto ogemm_loop = ThreadedLoop<3>(
+      {LoopSpecs{0, Nc, Ncb, false}, LoopSpecs{S1}, LoopSpecs{Nk}}, "acB");
+  bool parallelized_on_nk = false; // ogemm_loop.is_parallel(2);
+  ogemm_loop(
+      [&](int* ind) {
+        int nc = ind[0], s1 = ind[1], nk = ind[2];
+        DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
+        DECL_VLA_PTR_PT(T, dout, [Nk][S2 * Hk], t_dout);
+        DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
+        DECL_VLA_PTR_PT(T, in2, [Nk][S2 * Hk], t_in2);
+        DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
+        DECL_VLA_PTR_PT(short, dp_mask, [Nk][(S2 * Hk + 15) / 16], t_dp_mask);
+        DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
+        DECL_VLA_PTR_PT(T, beta, [Hk], t_beta);
+        DECL_VLA_PTR_PT(float, mean, [S2], t_mean);
+        DECL_VLA_PTR_PT(float, var, [S2], t_var);
+        DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
+        if (nc == 0) {
+          copy_bias_tpp(bias[nk], dout[s1][nk]);
+        }
+        brgemm_tpp(in[s1][nc], wt_V[nk][nc], dout[s1][nk], Ncb, true);
+        if (!(nc + Ncb < Nc)) { // last nc iter
+          // if (nc == Nc - Ncb) { // last nc iter
+          if (p > 0) {
+            dropout_fwd_tpp(
+                dout[s1][nk],
+                (void*)get_rng_state(),
+                dout[s1][nk],
+                dp_mask[s1][nk]);
+          }
+          add_tpp(dout[s1][nk], in2[s1][nk], dout[s1][nk]);
+          if (!parallelized_on_nk && nk == Nk - 1) {
+            layer_norm_fwd_tpp(
+                dout[s1][0], gamma[0], beta[0], mean[s1], var[s1], out[s1][0]);
+          }
+        }
+      },
+      [&]() { brgemm_tpp.config(); },
+      [&]() { brgemm_tpp.release(); });
+
+  if (parallelized_on_nk) {
+#pragma omp parallel for
+    for (int s1 = 0; s1 < S1; s1++) {
+      layer_norm_fwd_tpp(
+          dout[s1][0][0], gamma[0], beta[0], mean[s1], var[s1], out[s1][0][0]);
+    }
+  }
+#endif
 }
 return std::vector<at::Tensor>({t_out, t_dout, t_mean, t_var, t_dp_mask});
