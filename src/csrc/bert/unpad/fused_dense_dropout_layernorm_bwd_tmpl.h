@@ -23,7 +23,7 @@ const auto grad_wt_flag =
 const auto input_trans_flag =
     (t_in.dtype() == at::kFloat ? XformTPP::XFORM_XPOSE_TPP
                                 : XformTPP::XFORM_NONE_TPP);
-auto t_wt_TV = wt_tensor_for_bwd(Nk, Hk, Nc, Hc, t_wt);
+auto t_wt_TV = wt_tensor_for_bwd_compact(Nk, Hk, Nc, Hc, t_wt);
 
 auto t_in_T = t_in;
 if (input_trans_flag == XformTPP::XFORM_NONE_TPP) {
@@ -51,8 +51,7 @@ if (t_grad_dout.dtype() == at::kBFloat16) {
 DECL_VLA_PTR_PT(T, in_T, [Nc][Hc][S2], t_in_T);
 DECL_VLA_PTR_PT(T, grad_in2, [Nk][S2][Hk], t_grad_in2);
 DECL_VLA_PTR_PT(T, grad_in, [Nc][S2][Hc], t_grad_in);
-// DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk / 2][Hc][2], t_wt_TV);
-DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
+DECL_VLA_PTR_PT(T, wt_TV, [Nk][Hk * Hc], t_wt_TV);
 DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc][Hk], t_grad_wt);
 DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
 DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
@@ -84,7 +83,7 @@ auto di_gemm_b0_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     Hc,
     Hk,
     S2* Hk,
-    Nc* Hk* Hc,
+    Hk* Hc,
     0.0,
     XformTPP::XFORM_NONE_TPP,
     0,
@@ -94,7 +93,7 @@ auto di_gemm_b1_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     Hc,
     Hk,
     S2* Hk,
-    Nc* Hk* Hc,
+    Hk* Hc,
     1.0,
     XformTPP::XFORM_NONE_TPP,
     0,
@@ -170,10 +169,10 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       for (int nc = 0; nc < Nc; nc++) {
         if (nk == 0)
           di_gemm_b0_tpp(
-              grad_dout[s1][nk][0], wt_TV[nk][nc], grad_in[s1][nc][0], Nkb);
+              grad_dout[s1][nk][0], wt_TV[nc][nk], grad_in[s1][nc][0], Nkb);
         else
           di_gemm_b1_tpp(
-              grad_dout[s1][nk][0], wt_TV[nk][nc], grad_in[s1][nc][0], Nkb);
+              grad_dout[s1][nk][0], wt_TV[nc][nk], grad_in[s1][nc][0], Nkb);
       }
     }
   }
@@ -184,19 +183,19 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       [&](int* ind) {
         int nk = ind[0], s1 = ind[1], nc = ind[2];
         DECL_VLA_PTR_PT(T, grad_dout, [Nk][S2][Hk], t_grad_dout);
-        DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
+        DECL_VLA_PTR_PT(T, wt_TV, [Nk][Hk * Hc], t_wt_TV);
         DECL_VLA_PTR_PT(T, grad_in, [Nc][S2][Hc], t_grad_in);
         if (nk == 0)
           di_gemm_b0_tpp(
               grad_dout[s1][nk][0],
-              wt_TV[nk][nc],
+              wt_TV[nc][nk],
               grad_in[s1][nc][0],
               Nkb,
               true);
         else
           di_gemm_b1_tpp(
               grad_dout[s1][nk][0],
-              wt_TV[nk][nc],
+              wt_TV[nc][nk],
               grad_in[s1][nc][0],
               Nkb,
               true);

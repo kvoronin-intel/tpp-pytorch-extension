@@ -80,9 +80,9 @@ if (grad_wt_flag == XformTPP::XFORM_N2V_TPP) {
   t_dWv = t_dWv.view({N, N, H / 2, H, 2});
   t_dAPD_V = t_dAPD_V.view({N, SS1, S2 / 2, S2, 2});
 }
-auto t_Wq_TV = wt_tensor_for_bwd(N, H, N, H, t_Wq);
-auto t_Wk_TV = wt_tensor_for_bwd(N, H, N, H, t_Wk);
-auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
+auto t_Wq_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wq);
+auto t_Wk_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wk);
+auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
 
 {
   DECL_VLA_PTR_PT(T, Wq_TV, [N][H * H], t_Wq_TV);
@@ -159,9 +159,9 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
       a_trans_flag,
       1)));
   auto vi_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
-      S2, H, H, S2 * H, N * H * H, 0.0, XformTPP::XFORM_NONE_TPP, 0, N)));
+      S2, H, H, S2 * H, H * H, 0.0, XformTPP::XFORM_NONE_TPP, 0, N)));
   auto ki_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
-      S2, H, H, S2 * H, N * H * H, 1.0, XformTPP::XFORM_NONE_TPP, 0, N)));
+      S2, H, H, S2 * H, H * H, 1.0, XformTPP::XFORM_NONE_TPP, 0, N)));
   auto qi_gemm_tpp = (null_EHS ? ki_gemm_tpp : vi_gemm_tpp);
   auto dw_set_zero_tpp = SCOPEIT(SetZeroTPP<T>(H * H), EW_ZERO);
   auto dw_cpy_tpp = SCOPEIT(CpyTPP<T>(H * H), VNNI);
@@ -366,7 +366,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nc = 0; nc < N; nc++) {
-          vi_gemm_tpp(dVL[s1][0], Wv_TV[0][nc], dEHS[s1][nc], N);
+          vi_gemm_tpp(dVL[s1][0], Wv_TV[nc][0], dEHS[s1][nc], N);
         }
       }
 #else
@@ -376,7 +376,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
             DECL_VLA_PTR_PT(T, dVL, [N][S2 * H], t_dVL);
             DECL_VLA_PTR_PT(T, Wv_TV, [N][H * H], t_Wv_TV);
             DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
-            vi_gemm_tpp(dVL[s1][0], Wv_TV[0][nc], dEHS[s1][nc], N, true);
+            vi_gemm_tpp(dVL[s1][0], Wv_TV[nc][0], dEHS[s1][nc], N, true);
           },
           [&]() { vi_gemm_tpp.config(); },
           [&]() { vi_gemm_tpp.release(); });
@@ -391,7 +391,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nc = 0; nc < N; nc++) {
-          ki_gemm_tpp(dKL[s1][0], Wk_TV[0][nc], dEHS[s1][nc], N);
+          ki_gemm_tpp(dKL[s1][0], Wk_TV[nc][0], dEHS[s1][nc], N);
         }
       }
 #else
@@ -401,7 +401,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
             DECL_VLA_PTR_PT(T, dKL, [N][S2 * H], t_dKL);
             DECL_VLA_PTR_PT(T, Wk_TV, [N][H * H], t_Wk_TV);
             DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
-            ki_gemm_tpp(dKL[s1][0], Wk_TV[0][nc], dEHS[s1][nc], N, true);
+            ki_gemm_tpp(dKL[s1][0], Wk_TV[nc][0], dEHS[s1][nc], N, true);
           },
           [&]() { ki_gemm_tpp.config(); },
           [&]() { ki_gemm_tpp.release(); });
@@ -416,7 +416,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nc = 0; nc < N; nc++) {
-          qi_gemm_tpp(dQL[s1][0], Wq_TV[0][nc], dHS[s1][nc], N);
+          qi_gemm_tpp(dQL[s1][0], Wq_TV[nc][0], dHS[s1][nc], N);
         }
       }
 #else
@@ -426,7 +426,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
             DECL_VLA_PTR_PT(T, dQL, [N][S2 * H], t_dQL);
             DECL_VLA_PTR_PT(T, Wq_TV, [N][H * H], t_Wq_TV);
             DECL_VLA_PTR_PT(T, dHS, [N][S2 * H], t_dHS);
-            qi_gemm_tpp(dQL[s1][0], Wq_TV[0][nc], dHS[s1][nc], N, true);
+            qi_gemm_tpp(dQL[s1][0], Wq_TV[nc][0], dHS[s1][nc], N, true);
           },
           [&]() { qi_gemm_tpp.config(); },
           [&]() { qi_gemm_tpp.release(); });
