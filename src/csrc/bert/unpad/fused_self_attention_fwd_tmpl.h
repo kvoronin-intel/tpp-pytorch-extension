@@ -70,10 +70,10 @@ if (p > 0 || t_HM.numel() != 0) {
 auto t_APD_T = t_APD;
 
 if (bf16_training) {
-  t_HS_T = t_HS.new_empty({S1, N, H, S2}); // For BWD only
-  t_EHS_T = null_EHS ? t_HS_T : t_HS.new_empty({S1, N, H, S2}); // For BWD only
+  t_HS_T = t_HS.new_empty({N, S1, H, S2}); // For BWD only
+  t_EHS_T = null_EHS ? t_HS_T : t_HS.new_empty({N, S1, H, S2}); // For BWD only
 
-  t_QL_T = t_HS.new_empty({S1, N, H, S2}); // For BWD only
+  t_QL_T = t_HS.new_empty({N, S1, H, S2}); // For BWD only
 }
 if (training) {
   if (dt_bf16) {
@@ -96,7 +96,7 @@ if (training) {
   // DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
   DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
   DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
-  // DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
+  // DECL_VLA_PTR_PT(T, QL_T, [S1][H * S2], t_QL_T); // For BWD only
   // DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
   DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
   DECL_VLA_PTR_PT(T, VL_V, [N][S2 * H], t_VL_V);
@@ -150,7 +150,7 @@ if (training) {
         DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
         DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
         DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
-        DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
+        DECL_VLA_PTR_PT(T, QL_T, [S1][H * S2], t_QL_T); // For BWD only
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
@@ -160,7 +160,7 @@ if (training) {
           copy_bias_tpp(Bq[nk], QL[s1][nk]);
           qkv_gemm_tpp(HS[s1][0], Wq_V[nk][0], QL[s1][nk], N);
           if (bf16_training)
-            xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
+            xpose_tpp(QL[s1][nk], QL_T[nk][s1]);
         }
       }
 #else
@@ -179,7 +179,7 @@ if (training) {
             DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
             DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
             DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
-            DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T); // For BWD only
+            DECL_VLA_PTR_PT(T, QL_T, [S1][H * S2], t_QL_T); // For BWD only
             if (bf16_training && nk == 0)
               xpose_tpp(BN, S2 * H, S2 * H, HS[s1][bn], HS_T[s1][bn]);
             if (bn == 0)
@@ -187,7 +187,7 @@ if (training) {
             qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN, true);
             if (bf16_training)
               if (bn == N - BN)
-                xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
+                xpose_tpp(QL[s1][nk], QL_T[nk][s1]);
           },
           [&]() { qkv_gemm_tpp.config(); },
           [&]() { qkv_gemm_tpp.release(); });

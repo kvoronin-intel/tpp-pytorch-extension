@@ -65,11 +65,12 @@ if (t_EHS_T.numel() == 0) {
 
 auto t_dCL_V = t_dCL;
 if (dt_bf16) {
-  t_dQL_V = t_QL_T.new_empty({S1, N, S2 / 2, H, 2});
-  t_dKL_V = t_KL_V.new_empty({S1, N, S2 / 2, H, 2});
-  t_dVL_V = t_VL_TV.new_empty({S1, N, S2 / 2, H, 2});
-  t_dCL_V = act_tensor_n2v(S1, N, S2, H, t_dCL);
+  t_dQL_V = t_QL_T.new_empty({N, S1, S2 / 2, H, 2});
+  t_dKL_V = t_KL_V.new_empty({N, S1, S2 / 2, H, 2});
+  t_dVL_V = t_VL_TV.new_empty({N, S1, S2 / 2, H, 2});
+  t_dCL_V = act_tensor_n2v_compact(S1, N, S2, H, t_dCL);
 }
+auto atrans_blk = LToPBlockAccessMapper<T>(S1, N);
 const auto grad_wt_flag =
     (t_Wq.dim() == 5 ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_NONE_TPP);
 const auto a_trans_flag =
@@ -94,24 +95,24 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   DECL_VLA_PTR_PT(T, dBq, [H], t_dBq);
   DECL_VLA_PTR_PT(T, dBk, [H], t_dBk);
   DECL_VLA_PTR_PT(T, dBv, [H], t_dBv);
-  DECL_VLA_PTR_PT(T, QL_T, [N][H * S2], t_QL_T);
+  DECL_VLA_PTR_PT(T, QL_T, [H * S2], t_QL_T);
   DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
   DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
   DECL_VLA_PTR_PT(T, dQL, [N][S2 * H], t_dQL);
-  DECL_VLA_PTR_PT(T, dQL_V, [N][S2 * H], t_dQL_V);
+  DECL_VLA_PTR_PT(T, dQL_V, [S2 * H], t_dQL_V);
   DECL_VLA_PTR_PT(T, dKL, [N][S2 * H], t_dKL);
-  DECL_VLA_PTR_PT(T, dKL_V, [N][S2 * H], t_dKL_V);
+  DECL_VLA_PTR_PT(T, dKL_V, [S2 * H], t_dKL_V);
   DECL_VLA_PTR_PT(T, dVL, [N][S2 * H], t_dVL);
-  DECL_VLA_PTR_PT(T, dVL_V, [N][S2 * H], t_dVL_V);
+  DECL_VLA_PTR_PT(T, dVL_V, [S2 * H], t_dVL_V);
   DECL_VLA_PTR_PT(T, AP, [SS1][S2 * S2], t_AP);
   DECL_VLA_PTR_PT(short, APD_mask, [SS1][(S2 * S2 + 15) / 16], t_APD_mask);
   DECL_VLA_PTR_PT(T, dCL, [N][S2 * H], t_dCL);
-  DECL_VLA_PTR_PT(T, dCL_V, [N][S2 * H], t_dCL_V);
+  DECL_VLA_PTR_PT(T, dCL_V, [S2 * H], t_dCL_V);
   DECL_VLA_PTR_PT(T, APD_T, [SS1][S2 * S2], t_APD_T);
   DECL_VLA_PTR_PT(T, dAPO, [SS1][S2 * S2], t_dAPO);
   DECL_VLA_PTR_PT(T, dAPD_V, [SS1][S2 * S2], t_dAPD_V);
-  DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T);
-  DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T);
+  DECL_VLA_PTR_PT(T, HS_T, [H * S2], t_HS_T);
+  DECL_VLA_PTR_PT(T, EHS_T, [H * S2], t_EHS_T);
   DECL_VLA_PTR_PT(T, dHS, [N][S2 * H], t_dHS);
   DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
   auto offs = t_offs.data_ptr<long>();
@@ -122,7 +123,7 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       H,
       S2,
       S2 * S2,
-      N * S2 * H,
+      dt_bf16 ? S2 * H : N * S2 * H,
       0.0,
       XformTPP::XFORM_NONE_TPP,
       0 /*a_trans_flag*/, // We transpose in FWD to have fixed stride of blocks
@@ -152,7 +153,7 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       H,
       S2,
       S2,
-      N * S2 * H,
+      a_trans_flag == XformTPP::XFORM_NONE_TPP ? S2 * H : N * S2 * H,
       S2 * S2,
       0.0,
       XformTPP::XFORM_XPOSE_TPP,
@@ -171,8 +172,8 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       H,
       H,
       S2,
-      N * S2 * H,
-      N * S2 * H,
+      a_trans_flag == XformTPP::XFORM_NONE_TPP ? S2 * H : N * S2 * H,
+      a_trans_flag == XformTPP::XFORM_NONE_TPP ? S2 * H : N * S2 * H,
       1.0,
       (XformTPP::XFORM_TYPE)(grad_wt_flag),
       a_trans_flag,
@@ -198,9 +199,9 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
           long end = offs[b + 1];
           long len = end - start;
           for (int s21 = start; s21 < end; s21++, ss1 += len) {
-            cw_gemm_tpp(APD_T[n][ss1], dCL_V[start][n], dVL[s21][n], len);
+            cw_gemm_tpp(APD_T[n][ss1], dCL_V[atrans_blk(start,n)], dVL[s21][n], len);
             if (dt_bf16)
-              cw_n2v_tpp(dVL[s21][n], dVL_V[s21][n]);
+              cw_n2v_tpp(dVL[s21][n], dVL_V[atrans_blk(s21,n)]);
           }
         }
       }
@@ -249,7 +250,7 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
             // dQL = dADP * KL_V
             ai_gemm_tpp(dtAPD_bf[0][0], KL_V[start][n], dQL[s11][n], len);
             if (dt_bf16)
-              cw_n2v_tpp(dQL[s11][n], dQL_V[s11][n]);
+              cw_n2v_tpp(dQL[s11][n], dQL_V[atrans_blk(s11,n)]);
           }
         }
       }
@@ -268,9 +269,9 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
           long len = end - start;
           for (int s21 = start; s21 < end; s21++, ss1 += len) {
             // dKL = (QL_T * dAPD)T
-            aw_gemm_tpp(QL_T[start][n], dAPD_V[n][ss1], dKL[s21][n], len);
+            aw_gemm_tpp(QL_T[atrans_blk(start,n)], dAPD_V[n][ss1], dKL[s21][n], len);
             if (dt_bf16)
-              cw_n2v_tpp(dKL[s21][n], dKL_V[s21][n]);
+              cw_n2v_tpp(dKL[s21][n], dKL_V[atrans_blk(s21,n)]);
           }
         }
       }
@@ -291,9 +292,14 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
           long len = end - start;
           cw_gemm_tpp.config();
           for (int s21 = start, ss1 = offs2[b]; s21 < end; s21++, ss1 += len) {
-            cw_gemm_tpp(APD_T[n][ss1], dCL_V[start][n], dVL[s21][n], len, true);
+            cw_gemm_tpp(
+                APD_T[n][ss1],
+                dCL_V[atrans_blk(start, n)],
+                dVL[s21][n],
+                len,
+                true);
             if (dt_bf16)
-              cw_n2v_tpp(dVL[s21][n], dVL_V[s21][n]);
+              cw_n2v_tpp(dVL[s21][n], dVL_V[atrans_blk(s21, n)]);
           }
           if (!S2_eq_H)
             cw_gemm_tpp.release();
@@ -332,15 +338,20 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
             ai_gemm_tpp(
                 dtAPD_bf[0][0], KL_V[start][n], dQL[s11][n], len, S2_eq_H);
             if (dt_bf16)
-              cw_n2v_tpp(dQL[s11][n], dQL_V[s11][n]);
+              cw_n2v_tpp(dQL[s11][n], dQL_V[atrans_blk(s11, n)]);
           }
           if (!S2_eq_H)
             aw_gemm_tpp.config();
           for (int s21 = start, ss1 = offs2[b]; s21 < end; s21++, ss1 += len) {
             // dKL = (QL_T * dAPD)T
-            aw_gemm_tpp(QL_T[start][n], dAPD_V[n][ss1], dKL[s21][n], len, true);
+            aw_gemm_tpp(
+                QL_T[atrans_blk(start, n)],
+                dAPD_V[n][ss1],
+                dKL[s21][n],
+                len,
+                true);
             if (dt_bf16)
-              cw_n2v_tpp(dKL[s21][n], dKL_V[s21][n]);
+              cw_n2v_tpp(dKL[s21][n], dKL_V[atrans_blk(s21, n)]);
           }
           // The if condition below is just to match config / release on same
           // tpp
@@ -447,9 +458,9 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
             set_zero_dw_tpp(dWk[nk][nc]);
             set_zero_dw_tpp(dWq[nk][nc]);
           }
-          qkvw_gemm_tpp(EHS_T[s1][nc], dVL_V[s1][nk], dWv[nk][nc], count);
-          qkvw_gemm_tpp(EHS_T[s1][nc], dKL_V[s1][nk], dWk[nk][nc], count);
-          qkvw_gemm_tpp(HS_T[s1][nc], dQL_V[s1][nk], dWq[nk][nc], count);
+          qkvw_gemm_tpp(EHS_T[atrans_blk(s1,nc)], dVL_V[atrans_blk(s1,nk)], dWv[nk][nc], count);
+          qkvw_gemm_tpp(EHS_T[atrans_blk(s1,nc)], dKL_V[atrans_blk(s1,nk)], dWk[nk][nc], count);
+          qkvw_gemm_tpp(HS_T[atrans_blk(s1,nc)],  dQL_V[atrans_blk(s1,nk)], dWq[nk][nc], count);
         }
       }
     }
@@ -464,29 +475,44 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
           DECL_VLA_PTR_PT(T, dWv, [N][H * H], t_dWv);
           DECL_VLA_PTR_PT(T, dWk, [N][H * H], t_dWk);
           DECL_VLA_PTR_PT(T, dWq, [N][H * H], t_dWq);
-          DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T);
-          DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T);
-          DECL_VLA_PTR_PT(T, dVL_V, [N][S2 * H], t_dVL_V);
-          DECL_VLA_PTR_PT(T, dKL_V, [N][S2 * H], t_dKL_V);
-          DECL_VLA_PTR_PT(T, dQL_V, [N][S2 * H], t_dQL_V);
+          DECL_VLA_PTR_PT(T, EHS_T, [H * S2], t_EHS_T);
+          DECL_VLA_PTR_PT(T, HS_T, [H * S2], t_HS_T);
+          DECL_VLA_PTR_PT(T, dVL_V, [S2 * H], t_dVL_V);
+          DECL_VLA_PTR_PT(T, dKL_V, [S2 * H], t_dKL_V);
+          DECL_VLA_PTR_PT(T, dQL_V, [S2 * H], t_dQL_V);
           if (s1 == 0) {
             set_zero_dw_tpp(dWv[nk][nc]);
             set_zero_dw_tpp(dWk[nk][nc]);
             set_zero_dw_tpp(dWq[nk][nc]);
           }
-          qkvw_gemm_tpp(EHS_T[s1][nc], dVL_V[s1][nk], dWv[nk][nc], count, true);
+          qkvw_gemm_tpp(
+              EHS_T[atrans_blk(s1, nc)],
+              dVL_V[atrans_blk(s1, nk)],
+              dWv[nk][nc],
+              count,
+              true);
           if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
             T tmp[H * H];
             dw_cpy_tpp(dWv[nk][nc], tmp);
             dw_n2v_tpp(tmp, dWv[nk][nc]);
           }
-          qkvw_gemm_tpp(EHS_T[s1][nc], dKL_V[s1][nk], dWk[nk][nc], count, true);
+          qkvw_gemm_tpp(
+              EHS_T[atrans_blk(s1, nc)],
+              dKL_V[atrans_blk(s1, nk)],
+              dWk[nk][nc],
+              count,
+              true);
           if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
             T tmp[H * H];
             dw_cpy_tpp(dWk[nk][nc], tmp);
             dw_n2v_tpp(tmp, dWk[nk][nc]);
           }
-          qkvw_gemm_tpp(HS_T[s1][nc], dQL_V[s1][nk], dWq[nk][nc], count, true);
+          qkvw_gemm_tpp(
+              HS_T[atrans_blk(s1, nc)],
+              dQL_V[atrans_blk(s1, nk)],
+              dWq[nk][nc],
+              count,
+              true);
           if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
             T tmp[H * H];
             dw_cpy_tpp(dWq[nk][nc], tmp);

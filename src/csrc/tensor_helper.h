@@ -373,6 +373,35 @@ inline at::Tensor act_tensor_n2v(
 #endif
 }
 
+inline at::Tensor act_tensor_n2v_compact(
+    long S1,
+    long N,
+    long S2,
+    long H,
+    at::Tensor& input) {
+  RECORD_SCOPE(a_vnni, {input});
+  PCL_ASSERT(S2 % 2 == 0, "Uneven number for S2\n");
+#if 0
+  return input.view({S1, N, S2/2, 2, H}).permute({0,1,2,4,3}).contiguous();
+#else
+  auto output = input.new_empty({N, S1, S2 / 2, H, 2});
+  DECL_VLA_PTR_PT(bfloat16, out, [S1][H * S2], output);
+  DECL_VLA_PTR_PT(bfloat16, in, [N][H * S2], input);
+  auto n2v_tpp =
+      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+  {
+    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+    for (int s1 = 0; s1 < S1; s1++) {
+      for (int n = 0; n < N; n++) {
+        n2v_tpp(in[s1][n], out[n][s1]);
+      }
+    }
+  }
+  return output;
+#endif
+}
+
 inline at::Tensor get_padded_activation_for_vnni(at::Tensor& input) {
   RECORD_SCOPE(a_vnni, {input});
   if (input.dtype() == at::kFloat)
