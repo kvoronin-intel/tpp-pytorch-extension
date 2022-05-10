@@ -277,25 +277,55 @@ void fused_adamw(
   GlobalPass _gp(UPD);
   RECORD_SCOPE(fused_adamw, {t_data});
   typedef float T;
-  auto data = t_data.data_ptr<T>();
-  auto grad = t_grad.data_ptr<T>();
-  auto exp_avg = t_exp_avg.data_ptr<T>();
-  auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
-  long sz = t_data.numel();
-  constexpr int BS = 64;
+  if (!t_grad.is_sparse()) {
+    t_grad = t_grad.contiguous();
+    auto data = t_data.data_ptr<T>();
+    auto exp_avg = t_exp_avg.data_ptr<T>();
+    auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
+    auto grad = t_grad.data_ptr<T>();
+    long sz = t_data.numel();
+    constexpr int BS = 64;
 
-  auto adamw_tpp =
-      SCOPEIT(FusedAdamWTPP<T>(BS, beta1, beta2, weight_decay, eps), OPTIM);
+    auto adamw_tpp =
+        SCOPEIT(FusedAdamWTPP<T>(BS, beta1, beta2, weight_decay, eps), OPTIM);
 
-  long i;
+    long i;
 #pragma omp parallel for lastprivate(i)
-  for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
-    adamw_tpp(&data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], step_size, lr);
-  }
-  if (i < sz) {
-    auto adamw_tpp = SCOPEIT(
-        FusedAdamWTPP<T>(sz - i, beta1, beta2, weight_decay, eps), OPTIM);
-    adamw_tpp(&data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], step_size, lr);
+    for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
+      adamw_tpp(&data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], step_size, lr);
+    }
+    if (i < sz) {
+      auto adamw_tpp = SCOPEIT(
+          FusedAdamWTPP<T>(sz - i, beta1, beta2, weight_decay, eps), OPTIM);
+      adamw_tpp(&data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], step_size, lr);
+    }
+  } else {
+    PCL_ASSERT(t_data.dim() == 2, "Sparse Adam support only 2D params\n");
+    t_grad = t_grad.coalesce();
+    auto t_values = t_grad._values();
+    auto t_indices = t_grad._indices();
+    auto data = t_data.data_ptr<T>();
+    auto exp_avg = t_exp_avg.data_ptr<T>();
+    auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
+    auto values = t_values.data_ptr<T>();
+    auto indices = t_indices.data_ptr<long>();
+    auto NS = t_grad._nnz();
+    // auto M = t_data.size(0);
+    auto E = t_data.size(1);
+
+    auto adamw_tpp =
+        SCOPEIT(FusedAdamWTPP<T>(E, beta1, beta2, weight_decay, eps), OPTIM);
+#pragma omp parallel for
+    for (int i = 0; i < NS; i++) {
+      auto ind = indices[i];
+      adamw_tpp(
+          &data[ind * E],
+          &values[i * E],
+          &exp_avg[ind * E],
+          &exp_avg_sq[ind * E],
+          step_size,
+          lr);
+    }
   }
 }
 
@@ -314,40 +344,74 @@ void fused_split_adamw(
   GlobalPass _gp(UPD);
   RECORD_SCOPE(splt_adamw, {t_data_hi});
   typedef bfloat16 T;
-  auto data_hi = t_data_hi.data_ptr<T>();
-  auto data_lo = t_data_lo.data_ptr<T>();
-  auto grad = t_grad.data_ptr<T>();
-  auto exp_avg = t_exp_avg.data_ptr<T>();
-  auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
-  long sz = t_data_hi.numel();
-  constexpr int BS = 64;
+  if (!t_grad.is_sparse()) {
+    t_grad = t_grad.contiguous();
+    auto data_hi = t_data_hi.data_ptr<T>();
+    auto data_lo = t_data_lo.data_ptr<T>();
+    auto exp_avg = t_exp_avg.data_ptr<T>();
+    auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
+    auto grad = t_grad.data_ptr<T>();
+    long sz = t_data_hi.numel();
+    constexpr int BS = 64;
 
-  auto split_adamw_tpp =
-      SCOPEIT(FusedSplitAdamWTPP(BS, beta1, beta2, weight_decay, eps), OPTIM);
+    auto split_adamw_tpp =
+        SCOPEIT(FusedSplitAdamWTPP(BS, beta1, beta2, weight_decay, eps), OPTIM);
 
-  long i;
+    long i;
 #pragma omp parallel for lastprivate(i)
-  for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
-    split_adamw_tpp(
-        &data_hi[i],
-        &data_lo[i],
-        &grad[i],
-        &exp_avg[i],
-        &exp_avg_sq[i],
-        step_size,
-        lr);
-  }
-  if (i < sz) {
-    auto split_adamw_tpp = SCOPEIT(
-        FusedSplitAdamWTPP(sz - i, beta1, beta2, weight_decay, eps), OPTIM);
-    split_adamw_tpp(
-        &data_hi[i],
-        &data_lo[i],
-        &grad[i],
-        &exp_avg[i],
-        &exp_avg_sq[i],
-        step_size,
-        lr);
+    for (i = 0; i < ALIGNDOWN(sz, BS); i += BS) {
+      split_adamw_tpp(
+          &data_hi[i],
+          &data_lo[i],
+          &grad[i],
+          &exp_avg[i],
+          &exp_avg_sq[i],
+          step_size,
+          lr);
+    }
+    if (i < sz) {
+      auto split_adamw_tpp = SCOPEIT(
+          FusedSplitAdamWTPP(sz - i, beta1, beta2, weight_decay, eps), OPTIM);
+      split_adamw_tpp(
+          &data_hi[i],
+          &data_lo[i],
+          &grad[i],
+          &exp_avg[i],
+          &exp_avg_sq[i],
+          step_size,
+          lr);
+    }
+  } else {
+    PCL_ASSERT(t_data_hi.dim() == 2, "Sparse Adam support only 2D params\n");
+    // TODO: BFloat16 coalesce() might not be optimal in pytorch, implement our
+    // own
+    t_grad = t_grad.coalesce();
+    auto t_values = t_grad._values();
+    auto t_indices = t_grad._indices();
+    auto data_hi = t_data_hi.data_ptr<T>();
+    auto data_lo = t_data_lo.data_ptr<T>();
+    auto exp_avg = t_exp_avg.data_ptr<T>();
+    auto exp_avg_sq = t_exp_avg_sq.data_ptr<T>();
+    auto values = t_values.data_ptr<T>();
+    auto indices = t_indices.data_ptr<long>();
+    auto NS = t_grad._nnz();
+    // auto M = t_data_hi.size(0);
+    auto E = t_data_hi.size(1);
+
+    auto split_adamw_tpp =
+        SCOPEIT(FusedSplitAdamWTPP(E, beta1, beta2, weight_decay, eps), OPTIM);
+#pragma omp parallel for
+    for (int i = 0; i < NS; i++) {
+      auto ind = indices[i];
+      split_adamw_tpp(
+          &data_hi[ind * E],
+          &data_lo[ind * E],
+          &values[i * E],
+          &exp_avg[ind * E],
+          &exp_avg_sq[ind * E],
+          step_size,
+          lr);
+    }
   }
 }
 

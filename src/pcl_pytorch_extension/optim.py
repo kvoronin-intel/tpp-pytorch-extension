@@ -165,10 +165,10 @@ class AdamW(Optimizer):
                 if p.grad is None:
                     continue
                 grad = p.grad.data
-                if grad.is_sparse:
-                    raise RuntimeError(
-                        "Adam does not support sparse gradients, please consider SparseAdam instead"
-                    )
+                # if grad.is_sparse:
+                #     raise RuntimeError(
+                #         "Adam does not support sparse gradients, please consider SparseAdam instead"
+                #     )
 
                 state = self.state[p]
 
@@ -221,7 +221,7 @@ class AdamW(Optimizer):
                     optim_cpp.fused_split_adamw(
                         p.data,
                         low_bits,
-                        grad.contiguous(),
+                        grad,  # contiguous() is called inside cpp code if not sparse
                         exp_avg,
                         exp_avg_sq,
                         beta1,
@@ -234,7 +234,7 @@ class AdamW(Optimizer):
                 else:
                     optim_cpp.fused_adamw(
                         p.data,
-                        grad.contiguous(),
+                        grad,  # contiguous() is called inside cpp code if not sparse
                         exp_avg,
                         exp_avg_sq,
                         beta1,
