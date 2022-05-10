@@ -1254,7 +1254,7 @@ class XformExtTPP {
       in_rows_p = out_rows;
       in_cols_p = out_cols;
       if (dtype != LIBXSMM_DATATYPE_F32) {
-        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI;
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2;
         PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
       } else {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
@@ -1271,7 +1271,7 @@ class XformExtTPP {
           PCL_ASSERT(
               in_cols_p % BS == 0, "XposeN2VTPP: uneven number of cols\n");
         } else {
-          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI_TO_VNNIT;
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI2_TO_VNNI2T;
           PCL_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
           PCL_ASSERT(
               in_cols_p % BS == 0, "XposeV2VTPP: uneven number of cols\n");
