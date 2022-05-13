@@ -107,6 +107,7 @@ sources += glob.glob("src/csrc/gnn/common/*.cpp")
 sources += glob.glob("src/csrc/gnn/gat/*.cpp")
 # sources += glob.glob("src/csrc/conv1dopti/unpad/*.cpp")
 sources += glob.glob("src/csrc/alphafold/*.cpp")
+sources += glob.glob("src/csrc/resnet/*.cpp")
 
 extra_compile_args = ["-fopenmp", "-g"]
 if platform.processor() != "aarch64":
