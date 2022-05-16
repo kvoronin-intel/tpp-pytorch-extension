@@ -65,12 +65,11 @@ class DummyBatchNormFunction(torch.autograd.Function):
 class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
 
-    def __init__(self, num_channels, padding, eps, momentum=0.1, affine=True, track_running_stats=True, relu=False, eltwise=False, dtype=torch.float32):
+    def __init__(self, num_channels, paddings, eps, momentum=0.1, affine=True, track_running_stats=True, relu=False, eltwise=False, dtype=torch.float32):
         torch.nn.BatchNorm2d.__init__(self, num_channels, eps, momentum, affine, track_running_stats, device=None, dtype=dtype)
 
         self.C = num_channels
-        self.pad_h = padding[0]
-        self.pad_w = padding[1]
+        self.padings = paddings
         self.N = 0
         self.affine = affine
         self.momentum = momentum
@@ -155,16 +154,16 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         else:
             blocked_input_add = input_add
 
-        output_size = [self.N, self.C // self.Cblock, self.H, self.W, self.Cblock]
+        #output_size = [self.N, self.C // self.Cblock, self.H, self.W, self.Cblock]
 
         if not self.training and self.track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
-            inputs = [ input, input_add, self.weight, self.bias, self.mean, self.var, self.invstd ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)
         else:
-            inputs = [ input, input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
-        output = DummyBatchNormFunction.apply(self.training, output_size, *inputs)
+        output = DummyBatchNormFunction.apply(self.training, self.paddings, *inputs) #output_size, *inputs)
 
         if self.training and self.track_running_stats:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.mean
