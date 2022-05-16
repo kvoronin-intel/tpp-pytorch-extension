@@ -5288,6 +5288,145 @@ class FusedAdamStepTPP {
   friend class Eqn;
 };
 
-}; // namespace tpp
+////////////////////////////////////
+//#if 0
+template <typename Tin, typename Tout>
+class ReduceColsTPP {
+ public:
+  ReduceColsTPP() {}
+  ReduceColsTPP(int rows, int cols) : ReduceColsTPP(rows, cols, cols, cols) {}
+  ReduceColsTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        kernel(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD) {}
+  void operator()(Tin* in, Tout* out) {
+    kernel((void*)in, (void*)out);
+  }
+  /* FIXME: To be checked */
+  void ref(Tin* in, Tout* out) {
+    for (int r = 0; r < rows; r++) {
+      out[r] = 0;
+      out[rows + r] = 0;
+      for (int c = 0; c < cols; c++) {
+        out[       r] += (float)in[r * ldi + c];
+        out[rows + r] += (float)in[r * ldi + c] * (float)in[r * ldi + c];
+      }
+    }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  UnaryTPP kernel;
+};
+
+//#endif
+
+#if 0
+#error "not finished"
+template <typename T>
+class BatchNormFwdReduceTPP {
+ public:
+  BatchNormFwdReduceTPP() {}
+  BatchNormFwdReduceTPP(int H, int W, int bc, int num_HW_blocks)
+      : H(H),
+        W(W),
+        bc(bc),
+        num_HW_blocks(num_HW_blocks),
+        helper_zero_kernel(SetZeroTPP<float>(bc)),
+        add_kernel(AddTPP<float>(1, bc, bc, bc)),
+        reduce_cols_kernel(H * W / num_HW_blocks, bc, bc, bc,
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD) {}
+  void operator()(T* inp, T* gamma, T* beta, float* mean, float* var, T* out) {
+    LIBXSMM_ALIGNED(float tmp[2 * S3], 64);
+    const float c = 1.0 / ((float)S1 * S3);
+    float m, v, s, b;
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[5];
+    eqn_param.inputs = arg_array;
+    arg_array[1].primary = &s;
+    arg_array[2].primary = &b;
+    arg_array[3].primary = (void*)gamma;
+    arg_array[4].primary = (void*)beta;
+    for (int s2 = 0; s2 < S2; s2++) {
+      reduce_cols_kernel((void*)&inp[s2 * S3], (void*)tmp);
+      reduce_rows_kernel((void*)tmp, (void*)&m);
+      reduce_rows_kernel((void*)&tmp[S3], (void*)&v);
+      m = m * c;
+      v = v * c;
+      v = LIBXSMM_MAX(v - m * m, 0.0f);
+      v = 1.0f / ((float)sqrt(v + eps));
+      mean[s2] = m;
+      var[s2] = v;
+      s = v;
+      b = -1.0 * v * m;
+      arg_array[0].primary = (void*)&inp[s2 * S3];
+      eqn_param.output.primary = (void*)&out[s2 * S3];
+      eqn(&eqn_param);
+    }
+  }
+  void ref(T* pinp, T* pgamma, T* pbeta, float* mean, float* var, T* pout) {
+    int s1, s2, s3;
+    LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
+    LIBXSMM_VLA_DECL(3, T, out, pout, S2, S3);
+    LIBXSMM_VLA_DECL(2, T, gamma, pgamma, S3);
+    LIBXSMM_VLA_DECL(2, T, beta, pbeta, S3);
+    for (s2 = 0; s2 < S2; s2++) {
+      float m = 0;
+      float v = 0;
+      float c = 1.0 / (S1 * S3);
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          m += LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3);
+          v += LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3) *
+              LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3);
+        }
+      }
+      m = m * c;
+      v = v * c;
+      v = LIBXSMM_MAX(v - m * m, 0.0f);
+      v = 1.0f / ((float)sqrt(v + eps));
+      mean[s2] = m;
+      var[s2] = v;
+      float s = v;
+      float b = -1.0 * v * m;
+      for (s1 = 0; s1 < S1; s1++) {
+        for (s3 = 0; s3 < S3; s3++) {
+          LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3) =
+              (LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3) * s + b) *
+                  LIBXSMM_VLA_ACCESS(2, gamma, s1, s3, S3) +
+              LIBXSMM_VLA_ACCESS(2, beta, s1, s3, S3);
+        }
+      }
+    }
+  }
+
+ private:
+  int H, W, bc, num_HW_blocks;
+  SetZeroTPP<float> helper_zero_kernel;
+  AddTPP<float>     add_kernel
+  UnaryTPP          reduce_kernel;
+};
+////////////////////////////////////
+#endif /* for #if 0 around fwdreduce */
+
+}; // namespace pcl
 
 #endif // _XSMM_FUNCTORS_H_

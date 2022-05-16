@@ -37,7 +37,7 @@ auto t_relu_mask = at::empty(t_O.sizes(), torch::TensorOptions().dtype(at::kShor
 //  dbeta_N_offset = LIBXSMM_UP2(res.CP * res.N * res.bc, 64);
 //  res.scratch_size =  sizeof(float) * ( dbeta_N_offset /* dbeta_N*/ + LIBXSMM_UP2(res.CP * res.N * res.bc, 64) /*dgamma_N */ );
 
-#define LIBXSMM_UP2(N, NPOT) (((N) + ((NPOT) - 1)) & ~((NPOT) - 1))
+//#define LIBXSMM_UP2(N, NPOT) (((N) + ((NPOT) - 1)) & ~((NPOT) - 1))
 
 long sum_N_offset          = LIBXSMM_UP2(CP * 2 * bc, 64);
 long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + CP * N * bc, 64);
@@ -73,12 +73,15 @@ bool use_hw_blocking = true;
 
   auto add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD);
 
+  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(H * W / num_HW_blocks, bc, bc, bc)), EW_RED);
+
+/*
   auto reduce_tpp = SCOPEIT(UnaryTPP(
             H * W / num_HW_blocks, bc, bc, bc,
             XsmmDtype<T>(), LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD), EW_RED);
-
+*/
   {
     RECORD_SCOPE(bn_reduce, {});//{t_HS, t_Wq_V});
     {
@@ -102,8 +105,8 @@ bool use_hw_blocking = true;
               w  = (hwb*(H*W/num_HW_blocks))%W;
               //reduce_param.in.primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp, n, cp, hi, w, 0, CP, H, W, bc);
               reduce_tpp(inp[n][cp][hi][w][0], &lcl_sum_X_X2[0]);
-              add_tpp(sum_N  [cp][n][0], lcl_sum_X_X2[0],  sum_N  [cp][n][0] );
-              add_tpp(sumsq_N[cp][n][0], lcl_sum_X_X2[bc], sumsq_N[cp][n][0] );
+              add_tpp(sum_N  [cp][n][0], &lcl_sum_X_X2[0],  sum_N  [cp][n][0] );
+              add_tpp(sumsq_N[cp][n][0], &lcl_sum_X_X2[bc], sumsq_N[cp][n][0] );
             }
           }
 /*
