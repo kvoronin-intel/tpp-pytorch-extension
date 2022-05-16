@@ -5333,6 +5333,29 @@ class ReduceColsTPP {
   UnaryTPP kernel;
 };
 
+template <typename Tin, typename Tout = Tin>
+class MeanVarTPP {
+ private:
+  int   N;
+  Tout  scale;
+
+ public:
+  MeanVarTPP() {}
+  MeanVarTPP(int N, Tout scale)
+      : N(N),
+        scale(scale) {}
+  void operator()(Tin* in0, Tin* in1, Tout* out1, Tout *out2) {
+    ref(in0, in1, out1, out2);
+  }
+  void ref(Tin* in0, Tin* in1, Tout* out1, Tout* out2) {
+    for(int i = 0; i < N; i++){
+      out1[i] = (float)in0[i] * (float)scale;                          /* mean ~ E[X] */
+      out2[i] = (float)in1[i] * (float)scale - out1[i] * out1[i];      /* var         */
+    }
+  }
+
+};
+
 //#endif
 
 #if 0
@@ -5346,8 +5369,8 @@ class BatchNormFwdReduceTPP {
         W(W),
         bc(bc),
         num_HW_blocks(num_HW_blocks),
-        helper_zero_kernel(SetZeroTPP<float>(bc)),
-        add_kernel(AddTPP<float>(1, bc, bc, bc)),
+        zero_kernel(SetZeroTPP<float>(bc)),
+        helper_add_kernel(AddTPP<float>(1, bc, bc, bc)),
         reduce_cols_kernel(H * W / num_HW_blocks, bc, bc, bc,
             XsmmDtype<T>(),
             LIBXSMM_DATATYPE_F32,
@@ -5355,6 +5378,7 @@ class BatchNormFwdReduceTPP {
             LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD) {}
   void operator()(T* inp, T* gamma, T* beta, float* mean, float* var, T* out) {
+    /*
     LIBXSMM_ALIGNED(float tmp[2 * S3], 64);
     const float c = 1.0 / ((float)S1 * S3);
     float m, v, s, b;
@@ -5381,8 +5405,10 @@ class BatchNormFwdReduceTPP {
       eqn_param.output.primary = (void*)&out[s2 * S3];
       eqn(&eqn_param);
     }
+    */
   }
   void ref(T* pinp, T* pgamma, T* pbeta, float* mean, float* var, T* pout) {
+  /*
     int s1, s2, s3;
     LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
     LIBXSMM_VLA_DECL(3, T, out, pout, S2, S3);
@@ -5416,12 +5442,13 @@ class BatchNormFwdReduceTPP {
         }
       }
     }
+    */
   }
 
  private:
   int H, W, bc, num_HW_blocks;
-  SetZeroTPP<float> helper_zero_kernel;
-  AddTPP<float>     add_kernel
+  SetZeroTPP<float> zero_kernel;
+  AddTPP<float>     helper_add_kernel
   UnaryTPP          reduce_kernel;
 };
 ////////////////////////////////////

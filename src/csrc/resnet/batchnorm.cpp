@@ -16,6 +16,8 @@ using namespace pcl;
 static int my_rank = guess_mpi_rank();
 
 REGISTER_SCOPE(bn_reduce, "bn_reduce");
+REGISTER_SCOPE(bn_stats,  "bn_stats");
+REGISTER_SCOPE(bn_scale,  "bn_scale");
 
 /*
 REGISTER_SCOPE(b_emb, "b_emb");
