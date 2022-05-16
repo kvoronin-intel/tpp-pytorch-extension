@@ -38,6 +38,10 @@ typedef at::BFloat8 bfloat8;
 #define DECL_VLA_PTR_PT(type, name, dims, t) \
   type(*name) dims = (type(*) dims)(pt_get_data_ptr<type>(t))
 
+#define DECL_VLA_PTR_PT_EXT(type, name, dims, t, offset) \
+  type(*name) dims = (type(*) dims)(t.data_ptr<type>() + offset)
+
+
 extern double ifreq; // defined in init.cpp
 
 // Defined in xsmm.cpp
