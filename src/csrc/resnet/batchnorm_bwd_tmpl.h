@@ -92,11 +92,16 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   DECL_VLA_PTR_PT    (float, dgamma_N, [CP][N][bc],       scratch);
   DECL_VLA_PTR_PT_EXT(float, dbeta_N,  [CP][N][bc],       scratch, dbeta_N_offset);
 
+  DECL_VLA_PTR_PT    (float,         dgamma,  [CP][bc], t_grad_weight);
+  DECL_VLA_PTR_PT    (float,         dbeta,   [CP][bc], t_grad_bias);
+
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
 
   auto coeffs_tpp = SCOPEIT(BatchNormStatCoeffsTPP<float>(bc, eps), NORMALIZE);
 
   auto helper_copy_tpp = SCOPEIT((ConvertTPP<float, float>(1, bc, bc, bc)), EW_COPY); /* 1, bc because of row-major for unary */
+
+  auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD); /* 1, bc because of row-major for unary */
 
   auto grad_coeffs_tpp = SCOPEIT((BatchNormBwdWTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 
@@ -114,7 +119,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD), EW_RED);
 */
   {
-    RECORD_SCOPE(bn_bwd_w, {});
+    RECORD_SCOPE(bn_bwd_w_first, {});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -159,12 +164,114 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
         } /* end of cp loop */
       } /* end of n loop */
     } /* end of the scope with recorded parallel for */
-  } /* end of the bn_bwd_w scope */
+  } /* end of the bn_bwd_w_first scope */
+
+  {
+    RECORD_SCOPE(bn_bwd_w_second, {});
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for
+      for (int cp = 0; cp < CP; cp++) {
+
+        int ni = 0;
+
+        zero_tpp(dgamma[cp][0]);
+        zero_tpp(dbeta [cp][0]);
+
+        for(ni = 0; ni < N; ni++){
+
+          helper_add_tpp(dgamma[cp][0], dgamma_N[cp][ni][0], dgamma[cp][0]);
+          helper_add_tpp(dbeta [cp][0], dbeta_N [cp][ni][0], dbeta [cp][0]);
+
+          /* #pragma omp simd */
+          /* for (int cb = 0; cb < bc; cb++) { */
+          /*   pdgamma[cp*bc + cb] += dgamma_N[cp*N*bc + n*bc + cb];  */
+          /*   pdbeta[cp*bc + cb] += dbeta_N[cp*N*bc + n*bc + cb];  */
+          /* } */
+        } /* end of ni loop */
+      } /* end of cp loop */
+    } /* end of the scope with recorded parallel for */
+  } /* end of the bn_bwd_w_second scope */
 
 }
 
 
 return std::vector<at::Tensor>({t_grad_input, t_grad_input_add, t_grad_weight, t_grad_bias});
+
+#if 0
+  for ( cpxnt = thr_begin_dN; cpxnt < thr_end_dN; ++cpxnt ) {
+    int hi = 0, ho = 0, w = 0, wb = 0, hwb = 0, cb = 0;
+    int n  = cpxnt%N;
+    int cp = cpxnt/N;
+
+
+    for(cb = 0; cb < bc; cb++){
+      float lgamma  = LIBXSMM_VLA_ACCESS(2, gamma,  cp, cb, bc);
+      float ldgamma = LIBXSMM_VLA_ACCESS(2, dgamma, cp, cb, bc);
+      float lvar    = LIBXSMM_VLA_ACCESS(2, var,    cp, cb, bc);
+      float lmean   = LIBXSMM_VLA_ACCESS(2, mean,   cp, cb, bc);
+      float ldbeta  = LIBXSMM_VLA_ACCESS(2, dbeta,  cp, cb, bc);
+
+      a[cb]        = lgamma / ((float)sqrt(lvar + eps));                            /* a = gamma_ptr[bc] * brstd_ptr[bc] */
+      b[cb]        = -a[cb] * scale * ldgamma / ((float)sqrt(lvar + eps));          /* b = gamma_ptr[bc] * brstd_ptr[bc] * del_gamma_ptr[v] * brstd_ptr[bc] * recp_nhw */
+      c[cb]        = -b[cb] * lmean - a[cb] * scale * ldbeta ;                      /* c = -gamma_ptr[bc] * brstd_ptr[bc] * recp_nhw * del_beta_ptr[bc] + gamma_ptr[bc] * brstd_ptr[bc] * recp_nhw * bmean_ptr[bc] * del_gamma_ptr[bc] * brstd_ptr[bc]) */
+    }
+
+    arg_array[1].primary = a;
+    arg_array[2].primary = b;
+    arg_array[6].primary = (void*)&LIBXSMM_VLA_ACCESS(2, gamma, cp, 0, bc);
+    arg_array[7].primary = c;
+
+    if (cfg.use_hw_blocking == 0) { /* w-blocking */
+      /* Reminder: dout and relumask are already shifted by the offset (= point to the non-padded part already),
+         while the other arrays are non-shifted (and hence accesses require offsets */
+      /* Notice: Zeroing out the rim for din is not strictly necessary but for safety is done here */
+      /* zeroing out strip [0, hi_start) x ifwp x bc */
+      if (cfg.pad_h_in != 0) {
+        all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
+        cfg.all_zero_hp_kernel(&all_zero_param);
+      }
+      for (ho = 0, hi = hi_start; ho < H; ho++, hi++) {
+        /* zeroing out starting [0, wi_start) x bc block for fixed hi */
+        if (cfg.pad_w_in != 0) {
+          all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
+          cfg.all_zero_wp_kernel(&all_zero_param);
+        }
+        for (wb = 0; wb < num_W_blocks; wb++) {
+          arg_array[0].primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp , n, cp, hi, wi_start + wb*(W/num_W_blocks), 0, CP, ifhp, ifwp, bc);
+          arg_array[3].primary = (void*)&LIBXSMM_VLA_ACCESS(5, dout, n, cp, ho,            wb*(W/num_W_blocks), 0, CP, ofhp, ofwp, bc);
+
+          eqn_param.inputs = arg_array;
+          eqn_param.output.primary =    &LIBXSMM_VLA_ACCESS(5, din , n, cp, hi, wi_start + wb*(W/num_W_blocks), 0, CP, ifhp, ifwp, bc);
+          cfg.din_func(&eqn_param);                                                                     /* din = dout * a + b * inp + c */
+        }
+        /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
+        if (cfg.pad_w_in != 0) {
+          all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
+          cfg.all_zero_wp_kernel(&all_zero_param);
+        }
+      }
+      /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
+      if (cfg.pad_h_in != 0) {
+        all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
+        cfg.all_zero_hp_kernel(&all_zero_param);
+      }
+    } else { /* hw-blocking (implies no padding) */
+      for(hwb=0; hwb < num_HW_blocks; hwb++){
+        ho = (hwb*(HW/num_HW_blocks))/W;
+        hi = ho;
+        w  = (hwb*(HW/num_HW_blocks))%W;
+        arg_array[0].primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp , n, cp, hi, w, 0, CP, H, W, bc);
+        arg_array[3].primary = (void*)&LIBXSMM_VLA_ACCESS(5, dout, n, cp, ho, w, 0, CP, H, W, bc);
+
+        eqn_param.inputs = arg_array;
+        eqn_param.output.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, w, 0, CP, H, W, bc);
+        cfg.din_func(&eqn_param);                                                                     /* din = dout * a + b * inp + c */
+      } /* loop over hw blocks */
+    } /* if-else for the presence of input padding */
+  } /* loop over cpxnt for computing din */
+
+#endif
 
 #if 0
     {

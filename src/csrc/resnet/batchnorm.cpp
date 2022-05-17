@@ -15,11 +15,12 @@ using namespace pcl;
 
 static int my_rank = guess_mpi_rank();
 
-REGISTER_SCOPE(bn_fwd_reduce, "bn_fwd_reduce");
-REGISTER_SCOPE(bn_fwd_stats,  "bn_fwd_stats");
-REGISTER_SCOPE(bn_fwd_scale,  "bn_fwd_scale");
+REGISTER_SCOPE(bn_fwd_reduce,   "bn_fwd_reduce");
+REGISTER_SCOPE(bn_fwd_stats,    "bn_fwd_stats");
+REGISTER_SCOPE(bn_fwd_scale,    "bn_fwd_scale");
 
-REGISTER_SCOPE(bn_bwd_w,      "bn_bwd_w");
+REGISTER_SCOPE(bn_bwd_w_first,  "bn_bwd_w_first");
+REGISTER_SCOPE(bn_bwd_w_second, "bn_bwd_w_second");
 
 /*
 REGISTER_SCOPE(b_emb, "b_emb");
