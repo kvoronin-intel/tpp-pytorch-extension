@@ -75,6 +75,9 @@ inline void omp_reduce_buf(
 
 std::vector<at::Tensor> batchnorm_fwd(
     bool training,
+    bool relu,
+    bool eltwise,
+    float eps,
     std::vector<long> padding,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);

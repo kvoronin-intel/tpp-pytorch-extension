@@ -1,6 +1,6 @@
 RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 
-//        ( input, input_add, weight, bias, mean, var, invstd ) = inputs
+/*        ( input, input_add, weight, bias, mean, var, invstd ) = inputs */
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_IA = inputs[1];
@@ -21,13 +21,16 @@ long CP = sizes[1];
 long H  = sizes[2] - 2 * pad_h_in;
 long W  = sizes[3] - 2 * pad_w_in;
 long bc = sizes[4];
-long C  = CP * bc;
+//long C  = CP * bc;
 
-long num_HW_blocks = (H > W ? H : W);
+long ifhp = H + 2 * pad_h_in;
+long ifwp = W + 2 * pad_w_in;
+long ofhp = H + 2 * pad_h_out;
+long ofwp = W + 2 * pad_w_out;
 
 const float scale = 1.0f /((float)N * H * W);
 
-std::vector<long> output_size{N, CP, H + 2 * pad_h_out, W + 2 * pad_w_out, bc};
+std::vector<long> output_size{N, CP, ofhp, ofwp, bc};
 
 std::cout << "output_size = " << output_size << std::endl;
 
@@ -59,10 +62,29 @@ auto scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat))
 
 bool use_hw_blocking = true;
 
+long num_HW_blocks = (H > W ? H : W);
+long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
+
+long spatial_block_size = 0;
+
+if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
+  use_hw_blocking    = false; /* alternative is w blocking ([w, bc] blocks) */
+  spatial_block_size = W / num_W_blocks;
+} else {
+  use_hw_blocking    = true; /* using [hw, bc] blocks */
+  spatial_block_size = H * W / num_HW_blocks;
+}
+
 {
-  DECL_VLA_PTR_PT    (T,     inp,      [N][CP][H][W][bc], t_I);
-  DECL_VLA_PTR_PT    (float, mean,     [C],               t_M);
-  DECL_VLA_PTR_PT    (float, var,      [C],               t_V);
+  DECL_VLA_PTR_PT    (T,             inp,      [N][CP][ifhp][ifwp][bc], t_I);
+  DECL_VLA_PTR_PT    (float,         gamma,    [CP][bc],                t_W);
+  DECL_VLA_PTR_PT    (float,         beta,     [CP][bc],                t_B);
+  DECL_VLA_PTR_PT    (float,         mean,     [CP][bc],                t_M);
+  DECL_VLA_PTR_PT    (float,         var,      [CP][bc],                t_V);
+  DECL_VLA_PTR_PT    (T,             inp_add,  [N][CP][ifhp][ifwp][bc], t_IA);
+
+  DECL_VLA_PTR_PT    (T,             out,      [N][CP][ofhp][ofwp][bc], t_O);
+  DECL_VLA_PTR_PT    (unsigned char, relumask, [N][CP][ofhp][ofwp][bc], t_relu_mask);
 
   DECL_VLA_PTR_PT    (float, sum_X_X2, [2][CP][bc],       scratch);
   DECL_VLA_PTR_PT_EXT(float, sum_N,    [CP][N][bc],       scratch, sum_N_offset);
@@ -72,10 +94,13 @@ bool use_hw_blocking = true;
 
   auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD);
 
-  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(H * W / num_HW_blocks, bc, bc, bc)), EW_RED);
+  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bc, bc, bc)), EW_RED);
 
   auto mean_var_tpp = SCOPEIT(MeanVarTPP<float>(bc, scale), EW_MEAN_VAR);
 
+  auto coeffs_tpp = SCOPEIT(BatchNormCoeffsTPP<float>(bc, eps), NORMALIZE);
+
+  auto normalize_tpp = SCOPEIT((BatchNormFwdScale<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 /*
   auto reduce_tpp = SCOPEIT(UnaryTPP(
             H * W / num_HW_blocks, bc, bc, bc,
@@ -128,7 +153,7 @@ bool use_hw_blocking = true;
             helper_add_tpp(sum_X_X2[1][cp][0], sumsq_N[cp][ni][0],  sum_X_X2[1][cp][0]);
         }
 
-        mean_var_tpp( sum_X_X2[0][cp][0], sum_X_X2[1][cp][0], mean[0], var[0]);
+        mean_var_tpp( sum_X_X2[0][cp][0], sum_X_X2[1][cp][0], mean[cp][0], var[cp][0]);
 #if 0
         for(int cb = 0; cb < bc; cb++){
           //mean[cp*bc + cb] = (LIBXSMM_VLA_ACCESS(3, sum_X_X2, 0, cp, cb, CP, bc)) * scale;                 /* E[X] */
@@ -142,7 +167,6 @@ bool use_hw_blocking = true;
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_stats scope */
 
-#if 0
   {
     RECORD_SCOPE(bn_scale, {});
     {
@@ -150,114 +174,38 @@ bool use_hw_blocking = true;
 #pragma omp parallel for collapse(2)
       for (int n = 0; n < N; n++) {
         for (int cp = 0; cp < CP; cp++) {
-          zero_tpp(sum_N  [cp][n][0]);
-          zero_tpp(sumsq_N[cp][n][0]);
+
+          int hi = 0, ho = 0, w = 0, wb = 0, hwb = 0;
+
+          LIBXSMM_ALIGNED(float s[bc], 64);
+          LIBXSMM_ALIGNED(float b[bc], 64);
+
+          coeffs_tpp(mean[cp][0], var[cp][0], &s[0], &b[0]);
 
           if (!use_hw_blocking) {
-            printf("First part of parallel for is not implemented for w blocking\n");
+            printf("Third part of parallel for is not implemented for w blocking\n");
             exit(-1);
           } else {
             int hwb = 0, hi = 0, w = 0;
             for(hwb=0; hwb < num_HW_blocks; hwb++){
               hi = (hwb*(H*W/num_HW_blocks))/W;
               w  = (hwb*(H*W/num_HW_blocks))%W;
-              reduce_tpp(inp[n][cp][hi][w][0], &lcl_sum_X_X2[0]);
-              helper_add_tpp(sum_N  [cp][n][0], &lcl_sum_X_X2[0],  sum_N  [cp][n][0] );
-              helper_add_tpp(sumsq_N[cp][n][0], &lcl_sum_X_X2[bc], sumsq_N[cp][n][0] );
             }
-          }
+            /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
+            //bn_normalize_tpp(Tin* inp, float* s, float* b, float *gamma, float *beta, float *inp_add, Tout* out, unsigned char* relumask);
+            normalize_tpp(inp[n][cp][hi][w][0], &s[0], &b[0], gamma[cp][0], beta[cp][0],
+                            eltwise ? inp_add[n][cp][hi][w][0] : NULL,
+                            out[n][cp][ho][w][0],
+                            relu ? relumask[n][cp][ho][w][0] : NULL);
+          } /* if-else for the presence of padding */
         } /* end of cp loop */
       } /* end of n loop */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_scale scope */
-#endif
 
 } /* end of the dummy scope */
 
-#if 0
-  for ( cpxnt = thr_begin_dN; cpxnt < thr_end_dN; ++cpxnt ) {
-    n  = cpxnt%N;
-    cp = cpxnt/N;
-
-    int hi, ho, w, wb, hwb, cb;
-
-    for(cb = 0; cb < bc; cb++){
-      float lvar   = LIBXSMM_VLA_ACCESS(2, var,   cp, cb, bc);
-      float lmean  = LIBXSMM_VLA_ACCESS(2, mean,  cp, cb, bc);
-
-      s[cb] = 1.0f / ((float)sqrt(lvar + eps));                                 /* s = 1/sqrt(var(X) + eps)     [bc] */
-      b[cb] = -1 * lmean * s[cb];                                               /* b = -E[X]/sqrt(var(X) + eps) [bc] */
-
-      /* s[cb] = 1.0f / ((float)sqrt(var[cp*bc + cb] + eps)); */                /* s = 1/sqrt(var(X) + eps)     [bc] */
-      /* b[cb] = -1 * mean[cp*bc + cb] * s[cb];               */                /* b = -E[X]/sqrt(var(X) + eps) [bc] */
-    }
-    arg_array[1].primary = s;                                                   /* [bc] */
-    arg_array[2].primary = b;                                                   /* [bc] */
-    arg_array[3].primary = (void*)&LIBXSMM_VLA_ACCESS(2, gamma, cp, 0, bc);     /* [bc] */
-    arg_array[4].primary = (void*)&LIBXSMM_VLA_ACCESS(2, beta,  cp, 0, bc);     /* [bc] */
-
-    if (cfg.use_hw_blocking == 0) { /* w-blocking */
-      /* zeroing out strip [0, ho_start) x ofwp x bc */
-      if (cfg.pad_h_out != 0) {
-        all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, 0, 0, 0, CP, ofhp, ofwp, bc);
-        cfg.all_zero_hp_kernel(&all_zero_param);
-      }
-      for (hi = 0, ho = ho_start; hi < H; hi++, ho++) {
-        /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
-        if (cfg.pad_w_out != 0) {
-          all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, 0, 0, CP, ofhp, ofwp, bc);
-          cfg.all_zero_wp_kernel(&all_zero_param);
-        }
-        for (wb = 0; wb < num_W_blocks; wb++) {
-          arg_array[0].primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp, n, cp, hi, wb*(W/num_W_blocks), 0, CP, ifhp, ifwp, bc);             /* [bw, bc] */
-          eqn_param.inputs = arg_array;
-          eqn_param.output.primary   = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_start + wb*(W/num_W_blocks), 0, CP, ofhp, ofwp, bc);   /* [bw, bc] */
-
-          if (cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU ||  cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
-            arg_array[5].primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp_add, n, cp, hi, wb*(W/num_W_blocks), 0, CP, ifhp, ifwp, bc);       /* [bw, bc] */
-          }
-
-          if (cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
-            eqn_param.output.secondary = ((cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ?
-                                            (void*)&LIBXSMM_VLA_ACCESS(5, relumask, n, cp, ho, wo_start + wb*(W/num_W_blocks), 0, CP, ofhp, ofwp, (bc/BITS_PER_CHAR)) : NULL );
-          }
-          cfg.func10(&eqn_param);                                                   /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
-        }
-        /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
-        if (cfg.pad_w_out != 0) {
-          all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_end, 0, CP, ofhp, ofwp, bc);
-          cfg.all_zero_wp_kernel(&all_zero_param);
-        }
-      }
-      /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
-      if (cfg.pad_h_out != 0) {
-        all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
-        cfg.all_zero_hp_kernel(&all_zero_param);
-      }
-
-    } else { /* hw-blocking (implies no padding) */
-      for(hwb=0; hwb < num_HW_blocks; hwb++){
-        hi = (hwb*(HW/num_HW_blocks))/W;
-        ho = hi;
-        w  = (hwb*(HW/num_HW_blocks))%W;
-        arg_array[0].primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp, n, cp, hi, w, 0, CP, H, W, bc);          /* [HW, bc] */
-        eqn_param.inputs = arg_array;
-        eqn_param.output.primary   = &LIBXSMM_VLA_ACCESS(5, out, n, cp, hi, w, 0, CP, H, W, bc);           /* [HW,bc] */
-
-        if (cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU ||  cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
-          arg_array[5].primary = (void*)&LIBXSMM_VLA_ACCESS(5, inp_add, n, cp, ho, w, 0, CP, H, W, bc);    /* [HW, bc] */
-        }
-
-        if (cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
-          eqn_param.output.secondary = ((cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || cfg.fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ?
-                                          (void*)&LIBXSMM_VLA_ACCESS(5, relumask, n, cp, ho, w, 0, CP, H, W, (bc/BITS_PER_CHAR)) : NULL );
-        }
-        cfg.func10(&eqn_param);                                                   /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
-      }
-    } /* if-else for the presence of padding */
-  } /* loop over cpxnt for computing din */
-
-#endif
+return std::vector<at::Tensor>({t_O, t_relu_mask});
 
 #if 0
 // B - Batch size
@@ -526,9 +474,10 @@ if (training) {
   }
 }
 
+return std::vector<at::Tensor>({t_O, t_relu_mask});
+
 #endif
 
-return std::vector<at::Tensor>({t_O, t_relu_mask});
 
 #if 0
 

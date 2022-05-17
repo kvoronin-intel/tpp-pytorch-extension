@@ -5289,7 +5289,6 @@ class FusedAdamStepTPP {
 };
 
 ////////////////////////////////////
-//#if 0
 template <typename Tin, typename Tout>
 class ReduceColsTPP {
  public:
@@ -5340,7 +5339,6 @@ class MeanVarTPP {
   Tout  scale;
 
  public:
-  MeanVarTPP() {}
   MeanVarTPP(int N, Tout scale)
       : N(N),
         scale(scale) {}
@@ -5353,10 +5351,283 @@ class MeanVarTPP {
       out2[i] = (float)in1[i] * (float)scale - out1[i] * out1[i];      /* var         */
     }
   }
-
 };
 
-//#endif
+template <typename Tin, typename Tout = Tin>
+class BatchNormCoeffsTPP {
+ private:
+  int   N;
+  Tout  eps;
+
+ public:
+  BatchNormCoeffsTPP(int N, Tout eps)
+      : N(N),
+        eps(eps) {}
+  void operator()(Tin* in0 /*mean*/, Tin* in1 /*var*/, Tout* out1 /*s*/, Tout* out2 /*b*/) {
+    ref(in0, in1, out1, out2);
+  }
+  void ref(Tin* in0 /*mean*/, Tin* in1 /*var*/, Tout* out1 /*s*/, Tout* out2 /*b*/) {
+    for(int i = 0; i < N; i++){
+      out1[i] = 1.0f / ((float)sqrt((float)in1[i] + (float)eps));                            /* s = 1/sqrt(var(X) + eps)     [bc] */
+      out2[i] = - 1.0f * (float)in0[i] * out1[i];                                            /* b = -E[X]/sqrt(var(X) + eps) [bc] */
+    }
+  }
+};
+
+template <typename Tin, typename Tout>
+class BatchNormFwdScale : public BaseTPP {
+ private:
+  int m = 0;
+  int n = 0;
+  typedef enum libxsmm_dnn_bn_fuse {
+    LIBXSMM_DNN_BN_FUSE_NONE = 0,
+    LIBXSMM_DNN_BN_FUSE_RELU = 1,
+    LIBXSMM_DNN_BN_FUSE_ELTWISE = 2,
+    LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU = 3,
+    LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK = 4,
+    LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK = 5
+    } libxsmm_dnn_bn_fuse;
+  /* fuse_type_int: 0: nothing fused, 1: relu fused, 2: ewise fused, 3: relu and ewise fused, 4: relu with mask, 5: relu and ewise with mask  */
+  libxsmm_dnn_bn_fuse set_fuse_type(bool relu, bool eltwise) {
+    libxsmm_dnn_bn_fuse res = LIBXSMM_DNN_BN_FUSE_NONE;
+      if (relu == true) {
+        if (eltwise == true)
+          res = LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK; /* 5 # elwise+relu+mask */
+        else
+          res = LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK;         /* 4 # relu+mask */
+      } else {
+        if (eltwise == true)
+          res = LIBXSMM_DNN_BN_FUSE_ELTWISE;                /* 2 # eltwise+no mask */
+        else
+          res = LIBXSMM_DNN_BN_FUSE_NONE;                   /* 0 no fusion */
+      }
+      return res;
+  }
+  libxsmm_dnn_bn_fuse fuse_type      = LIBXSMM_DNN_BN_FUSE_NONE;
+  libxsmm_matrix_eqn_function kernel = NULL;
+
+ public:
+  BatchNormFwdScale(int M, int N, bool relu, bool eltwise) : m(M), n(N) {
+    kernel = (libxsmm_matrix_eqn_function)get_kernel();
+    initialized = true;
+    fuse_type = set_fuse_type(relu, eltwise);
+  }
+  void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
+    if (!initialized)
+      return;
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[6];
+
+    arg_array[0].primary = (void*)inp;
+    arg_array[1].primary = (void*)s;
+    arg_array[2].primary = (void*)b;
+    arg_array[3].primary = (void*)gamma;
+    arg_array[4].primary = (void*)beta;
+    if (fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU ||  fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
+      arg_array[5].primary = (void*)inp_add;
+    }
+
+    eqn_param.inputs         = arg_array;
+    eqn_param.output.primary = out;
+    if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
+      eqn_param.output.secondary = ((fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ?
+                                      (void*)relumask : NULL );
+    }
+
+    kernel(&eqn_param);
+  }
+  void ref(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
+    printf("ref() not implemented\n");
+    exit(-1);
+    /*
+    auto dwt = (libxsmm_bfloat16*)grad;
+    auto out_hi = (libxsmm_bfloat16*)hi;
+    auto out_lo = (libxsmm_bfloat16*)lo;
+    for (int i = 0; i < N; i++) {
+      union libxsmm_bfloat16_hp bf16_hp;
+      union libxsmm_bfloat16_hp bf16_wt;
+      bf16_wt.i[0] = 0;
+      bf16_wt.i[1] = dwt[i];
+      bf16_hp.i[0] = out_lo[i];
+      bf16_hp.i[1] = out_hi[i];
+      bf16_hp.f = bf16_wt.f * lr + bf16_hp.f;
+      out_lo[i] = bf16_hp.i[0];
+      out_hi[i] = bf16_hp.i[1];
+    }
+    */
+  }
+
+ protected:
+  std::string hash_str() override {
+    char hash[200];
+    snprintf(hash, 200, "batchnorm_fwd_scale_eqn_m%d_n%d", m, n);
+    return std::string(hash);
+  }
+  void* build_kernel() override {
+
+    libxsmm_datatype datatype_in   = XsmmDtype<Tin>();
+    libxsmm_datatype datatype_out  = XsmmDtype<Tout>();
+    libxsmm_datatype datatype_comp = LIBXSMM_DATATYPE_F32;
+
+    libxsmm_meltw_unary_shape  unary_shape;
+    libxsmm_meltw_binary_shape binary_shape;
+
+    libxsmm_bitfield unary_flags;
+    libxsmm_bitfield binary_flags;
+    libxsmm_bitfield ternary_flags;
+
+    memset( &unary_shape,  0, sizeof(libxsmm_meltw_unary_shape));
+    memset( &binary_shape, 0, sizeof(libxsmm_meltw_binary_shape));
+
+    libxsmm_meqn_arg_shape        eqn_out_arg_shape;
+    libxsmm_meqn_arg_shape        arg_shape;//[128];
+    libxsmm_matrix_arg_attributes arg_singular_attr;
+
+    libxsmm_matrix_eqn_arg_metadata arg_metadata;//[128];
+    libxsmm_matrix_eqn_op_metadata  op_metadata;//[128] ;
+
+    arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
+
+    libxsmm_blasint ld      = m;
+    libxsmm_blasint tmp_ld  = 1;
+    libxsmm_blasint tmp_ld2 = 1;
+    libxsmm_blasint my_eqn10 = libxsmm_matrix_eqn_create();                          /* y = relu ( ( (s*x + b)*gamma + beta ) + inp_add) */
+
+    if (fuse_type == 1 || fuse_type == 3 || fuse_type == 4 || fuse_type == 5) {
+      unary_flags              = ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE);
+      op_metadata.eqn_idx      = my_eqn10;
+      op_metadata.op_arg_pos   = -1;
+
+      libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_RELU, datatype_out, unary_flags);
+
+      if (datatype_out == LIBXSMM_DATATYPE_BF16)
+        libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_out, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+    }
+
+    if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
+      binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
+      op_metadata.eqn_idx      = my_eqn10;
+      op_metadata.op_arg_pos   = -1;
+      libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_ADD, datatype_comp, binary_flags);
+    }
+
+    ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+    op_metadata.eqn_idx      = my_eqn10;
+    op_metadata.op_arg_pos   = -1;
+    libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+    arg_metadata.eqn_idx     = my_eqn10;
+    arg_metadata.in_arg_pos  = 3;
+    arg_shape.m    = m;                                      /* gamma = [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld2;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+    op_metadata.eqn_idx      = my_eqn10;
+    op_metadata.op_arg_pos   = -1;
+    libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+    arg_metadata.eqn_idx     = my_eqn10;
+    arg_metadata.in_arg_pos  = 1;
+    arg_shape.m    = m;                                      /* s = [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    arg_metadata.eqn_idx     = my_eqn10;
+    arg_metadata.in_arg_pos  = 0;
+    arg_shape.m    = m;                                      /* x = [HW, bc] */
+    arg_shape.n    = n;
+    /*
+    if (res.use_hw_blocking == 0)
+      arg_shape.n  = res.W /res.num_W_blocks;
+    else
+      arg_shape.n  = res.H*res.W /res.num_HW_blocks;
+    */
+    arg_shape.ld   = ld;
+    arg_shape.type = datatype_in;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    arg_metadata.eqn_idx     = my_eqn10;
+    arg_metadata.in_arg_pos  = 2;
+    arg_shape.m    = m;                                      /* b = [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    arg_metadata.eqn_idx     = my_eqn10;
+    arg_metadata.in_arg_pos  = 4;
+    arg_shape.m    = m;                                      /* beta = [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld2;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
+      arg_metadata.eqn_idx     = my_eqn10;
+      arg_metadata.in_arg_pos  = 5;
+      arg_shape.m    = m;                                      /* inp_add = [HW, bc] */
+      arg_shape.n    = n;
+      /*
+      if (res.use_hw_blocking == 0)
+        arg_shape.n  = res.W /res.num_W_blocks;
+      else
+        arg_shape.n  = res.H*res.W / res.num_HW_blocks;
+      */
+      arg_shape.ld   = ld;
+      arg_shape.type = datatype_in;
+      libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+    }
+
+    eqn_out_arg_shape.m    = m;                                 /* y = [HW, bc] */
+    eqn_out_arg_shape.n    = n;
+    /*
+    if (res.use_hw_blocking == 0)
+      eqn_out_arg_shape.n  = res.W /res.num_W_blocks;
+    else
+      eqn_out_arg_shape.n  = res.H*res.W / res.num_HW_blocks;
+    */
+    eqn_out_arg_shape.ld   = ld;
+    eqn_out_arg_shape.type = datatype_out;
+
+    /* libxsmm_matrix_eqn_tree_print( my_eqn10 ); */
+    /* libxsmm_matrix_eqn_rpn_print ( my_eqn10 ); */
+    debug_print_eqn_tree(my_eqn10);
+    auto func10 = libxsmm_dispatch_matrix_eqn_v2( my_eqn10, eqn_out_arg_shape );
+    if ( func10 == NULL) {
+      fprintf( stderr, "JIT for TPP fwd func10 (eqn10) failed. Bailing...!\n");
+      exit(-1);
+    }
+    return (void*)func10;
+#if 0
+    libxsmm_blasint ld = N;
+    libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
+    meqn_push_unary_op(my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS);
+    meqn_push_ternary_op(
+        my_eqn0,
+        LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+        LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
+            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
+    /* This is the "gradient" weights   */
+    meqn_push_arg(my_eqn0, N, 1, ld, 3, 0, LIBXSMM_DATATYPE_BF16);
+    /* This is the scalar learning rate */
+    meqn_push_arg(my_eqn0, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_PACK);
+    /* This is the tensor with lo bits  */
+    meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, LIBXSMM_DATATYPE_I16);
+    /* This is the tensor with hi bits  */
+    meqn_push_arg(my_eqn0, N, 1, ld, 1, 0, LIBXSMM_DATATYPE_I16);
+    debug_print_eqn_tree(my_eqn0);
+    auto func0 = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
+    return (void*)func0;
+#endif
+  }
+
+};
 
 #if 0
 #error "not finished"

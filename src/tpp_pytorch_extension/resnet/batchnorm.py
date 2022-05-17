@@ -40,9 +40,9 @@ class DummyLinear(BlockedModule):
 class DummyBatchNormFunction(torch.autograd.Function):
     @staticmethod
     #def forward(ctx, p, training, need_attention_output, *inputs):
-    def forward(ctx, training, output_size, *inputs):
+    def forward(ctx, training, relu, eltwise, eps, paddings, *inputs):
         # print("DummyBatchNormFunction FWD Called")
-        ( output, relu_mask ) = batchnorm_cpp.batchnorm_fwd(training, output_size, inputs)
+        ( output, relu_mask ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, paddings, inputs)
         ( input, input_add, weight, bias, mean, var, invstd ) = inputs
         if training:
             ctx.save_for_backward(input, input_add, weight, mean, var, invstd, relu_mask, output)
@@ -60,7 +60,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
         (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( inputs )
 
         # print("Returning from DummyBatchNormFunction BWD")
-        return (None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None)
+        return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None)
 
 class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
@@ -84,6 +84,24 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         self.invstd = torch.empty(num_channels)
         self.eps = eps
         self.dtype = dtype
+
+        """
+        self.fuse_type = -1
+        if relu == True:
+            if eltwise == True:
+                self.fuse_type = 5 # elwise+relu+mask
+            else:
+                self.fuse_type = 4 # relu+mask
+        else: # relu = False
+            if eltwise == True:
+                self.fuse_type = 2 # eltwise+no mask
+            else:
+                self.fuse_type = 0 # no fusion
+
+        if self.fuse_type == -1:
+            print("unsupported fuse_type is requested")
+            exit()
+        """
 
         self.blocked_input_signature = get_blocking_signature(
             "NCHW", "NCHWC"
@@ -163,7 +181,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
             inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
-        output = DummyBatchNormFunction.apply(self.training, self.paddings, *inputs) #output_size, *inputs)
+        output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.paddings, *inputs) #output_size, *inputs)
 
         if self.training and self.track_running_stats:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.mean
