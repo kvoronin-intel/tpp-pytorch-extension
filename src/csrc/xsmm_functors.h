@@ -5374,8 +5374,32 @@ class BatchNormStatCoeffsTPP {
   }
 };
 
+template <typename Tin, typename Tout = Tin>
+class BatchNormABCCoeffsTPP {
+ private:
+  int   N;
+  Tout  scale;
+  Tout  eps;
+
+ public:
+  BatchNormABCCoeffsTPP(int N, Tout scale, Tout eps)
+      : N(N),
+        scale(scale),
+        eps(eps) {}
+  void operator()(Tin* gamma, Tin* dgamma, Tin* var, Tin* mean, Tin* dbeta, Tout* a, Tout* b, Tout* c) {
+    ref(gamma, dgamma, var, mean, dbeta, a, b, c);
+  }
+  void ref(Tin* gamma, Tin* dgamma, Tin* var, Tin* mean, Tin* dbeta, Tout* a, Tout* b, Tout* c) {
+    for(int i = 0; i < N; i++){
+      a[i] = gamma[i] / ((float)sqrt(var[i] + (float)eps));
+      b[i] = - a[i] * (float)scale * dgamma[i] / ((float)sqrt(var[i] + (float)eps));
+      c[i] = - b[i] * mean[i] - a[i] * scale * dbeta[i];
+    }
+  }
+};
+
 template <typename Tin, typename Tout>
-class BatchNormFwdScale : public BaseTPP {
+class BatchNormFwdScaleTPP : public BaseTPP {
  private:
   int m = 0;
   int n = 0;
@@ -5407,7 +5431,7 @@ class BatchNormFwdScale : public BaseTPP {
   libxsmm_matrix_eqn_function kernel = NULL;
 
  public:
-  BatchNormFwdScale(int M, int N, bool relu, bool eltwise) : m(M), n(N) {
+  BatchNormFwdScaleTPP(int M, int N, bool relu, bool eltwise) : m(M), n(N) {
     kernel = (libxsmm_matrix_eqn_function)get_kernel();
     initialized = true;
     fuse_type = set_fuse_type(relu, eltwise);
@@ -5953,101 +5977,146 @@ class BatchNormBwdWTPP {
 };
 
 
-#if 0
-#error "not finished"
-template <typename T>
-class BatchNormFwdReduceTPP {
+template <typename Tin, typename Tout>
+class BatchNormBwdDTPP : public BaseTPP {
+ private:
+  int m = 0;
+  int n = 0;
+  libxsmm_matrix_eqn_function kernel = NULL;
+
  public:
-  BatchNormFwdReduceTPP() {}
-  BatchNormFwdReduceTPP(int H, int W, int bc, int num_HW_blocks)
-      : H(H),
-        W(W),
-        bc(bc),
-        num_HW_blocks(num_HW_blocks),
-        zero_kernel(SetZeroTPP<float>(bc)),
-        helper_add_kernel(AddTPP<float>(1, bc, bc, bc)),
-        reduce_cols_kernel(H * W / num_HW_blocks, bc, bc, bc,
-            XsmmDtype<T>(),
-            LIBXSMM_DATATYPE_F32,
-            LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD) {}
-  void operator()(T* inp, T* gamma, T* beta, float* mean, float* var, T* out) {
-    /*
-    LIBXSMM_ALIGNED(float tmp[2 * S3], 64);
-    const float c = 1.0 / ((float)S1 * S3);
-    float m, v, s, b;
-    libxsmm_matrix_eqn_param eqn_param;
-    libxsmm_matrix_arg arg_array[5];
-    eqn_param.inputs = arg_array;
-    arg_array[1].primary = &s;
-    arg_array[2].primary = &b;
-    arg_array[3].primary = (void*)gamma;
-    arg_array[4].primary = (void*)beta;
-    for (int s2 = 0; s2 < S2; s2++) {
-      reduce_cols_kernel((void*)&inp[s2 * S3], (void*)tmp);
-      reduce_rows_kernel((void*)tmp, (void*)&m);
-      reduce_rows_kernel((void*)&tmp[S3], (void*)&v);
-      m = m * c;
-      v = v * c;
-      v = LIBXSMM_MAX(v - m * m, 0.0f);
-      v = 1.0f / ((float)sqrt(v + eps));
-      mean[s2] = m;
-      var[s2] = v;
-      s = v;
-      b = -1.0 * v * m;
-      arg_array[0].primary = (void*)&inp[s2 * S3];
-      eqn_param.output.primary = (void*)&out[s2 * S3];
-      eqn(&eqn_param);
-    }
-    */
+  BatchNormBwdDTPP(int M, int N) : m(M), n(N) {
+    kernel = (libxsmm_matrix_eqn_function)get_kernel();
+    initialized = true;
   }
-  void ref(T* pinp, T* pgamma, T* pbeta, float* mean, float* var, T* pout) {
-  /*
-    int s1, s2, s3;
-    LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
-    LIBXSMM_VLA_DECL(3, T, out, pout, S2, S3);
-    LIBXSMM_VLA_DECL(2, T, gamma, pgamma, S3);
-    LIBXSMM_VLA_DECL(2, T, beta, pbeta, S3);
-    for (s2 = 0; s2 < S2; s2++) {
-      float m = 0;
-      float v = 0;
-      float c = 1.0 / (S1 * S3);
-      for (s1 = 0; s1 < S1; s1++) {
-        for (s3 = 0; s3 < S3; s3++) {
-          m += LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3);
-          v += LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3) *
-              LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3);
-        }
-      }
-      m = m * c;
-      v = v * c;
-      v = LIBXSMM_MAX(v - m * m, 0.0f);
-      v = 1.0f / ((float)sqrt(v + eps));
-      mean[s2] = m;
-      var[s2] = v;
-      float s = v;
-      float b = -1.0 * v * m;
-      for (s1 = 0; s1 < S1; s1++) {
-        for (s3 = 0; s3 < S3; s3++) {
-          LIBXSMM_VLA_ACCESS(3, out, s1, s2, s3, S2, S3) =
-              (LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3) * s + b) *
-                  LIBXSMM_VLA_ACCESS(2, gamma, s1, s3, S3) +
-              LIBXSMM_VLA_ACCESS(2, beta, s1, s3, S3);
-        }
-      }
-    }
-    */
+  void operator()(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din) {
+    if (!initialized)
+      return;
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[8];
+
+    arg_array[1].primary = (void*)a;
+    arg_array[2].primary = (void*)b;
+    arg_array[6].primary = (void*)gamma;
+    arg_array[7].primary = (void*)c;
+
+    arg_array[0].primary = (void*)inp;
+    arg_array[3].primary = (void*)dout;
+
+    eqn_param.inputs = arg_array;
+    eqn_param.output.primary = (void*)din;
+    kernel(&eqn_param);                                                                     /* din = dout * a + b * inp + c */
+
+    kernel(&eqn_param);
+  }
+  void ref(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din) {
+    printf("ref() not implemented\n");
+    exit(-1);
   }
 
- private:
-  int H, W, bc, num_HW_blocks;
-  SetZeroTPP<float> zero_kernel;
-  AddTPP<float>     helper_add_kernel
-  UnaryTPP          reduce_kernel;
+ protected:
+  std::string hash_str() override {
+    char hash[200];
+    snprintf(hash, 200, "batchnorm_bwd_d_eqn_m%d_n%d", m, n);
+    return std::string(hash);
+  }
+  void* build_kernel() override {
+
+    libxsmm_datatype datatype_in   = XsmmDtype<Tin>();
+    libxsmm_datatype datatype_out  = XsmmDtype<Tout>();
+    libxsmm_datatype datatype_comp = LIBXSMM_DATATYPE_F32;
+
+    libxsmm_meltw_unary_shape  unary_shape;
+    libxsmm_meltw_binary_shape binary_shape;
+
+    libxsmm_bitfield unary_flags;
+    libxsmm_bitfield binary_flags;
+    libxsmm_bitfield ternary_flags;
+
+    memset( &unary_shape,  0, sizeof(libxsmm_meltw_unary_shape));
+    memset( &binary_shape, 0, sizeof(libxsmm_meltw_binary_shape));
+
+    libxsmm_meqn_arg_shape        eqn_out_arg_shape;
+    libxsmm_meqn_arg_shape        arg_shape;//[128];
+    libxsmm_matrix_arg_attributes arg_singular_attr;
+
+    libxsmm_matrix_eqn_arg_metadata arg_metadata;//[128];
+    libxsmm_matrix_eqn_op_metadata  op_metadata;//[128] ;
+
+    arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
+
+    libxsmm_blasint ld      = m;
+    libxsmm_blasint tmp_ld2 = 1;
+    /* din long equation */
+    libxsmm_blasint my_eqn16 = libxsmm_matrix_eqn_create();                          /* din = a * dout + (b * inp + c) */
+
+    ternary_flags               = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+    op_metadata.eqn_idx      = my_eqn16;
+    op_metadata.op_arg_pos   = -1;
+    libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+    arg_metadata.eqn_idx     = my_eqn16;
+    arg_metadata.in_arg_pos  = 1;
+    arg_shape.m    = m;                                      /* a [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld2;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    arg_metadata.eqn_idx     = my_eqn16;
+    arg_metadata.in_arg_pos  = 3;
+    arg_shape.m    = m;                                      /* dout [HW, bc] */
+    arg_shape.n    = n;
+    arg_shape.ld   = ld;
+    arg_shape.type = datatype_out;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    ternary_flags               = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+    op_metadata.eqn_idx      = my_eqn16;
+    op_metadata.op_arg_pos   = -1;
+    libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+    arg_metadata.eqn_idx     = my_eqn16;
+    arg_metadata.in_arg_pos  = 0;
+    arg_shape.m    = m;                                      /* inp [HW, bc] */
+    arg_shape.n    = n;
+    arg_shape.ld   = ld;
+    arg_shape.type = datatype_in;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    arg_metadata.eqn_idx     = my_eqn16;
+    arg_metadata.in_arg_pos  = 2;
+    arg_shape.m    = m;                                      /* b [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld2;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    arg_metadata.eqn_idx     = my_eqn16;
+    arg_metadata.in_arg_pos  = 7;
+    arg_shape.m    = m;                                      /* c [bc] */
+    arg_shape.n    = 1;
+    arg_shape.ld   = tmp_ld2;
+    arg_shape.type = datatype_comp;
+    libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    eqn_out_arg_shape.m    = m;                                 /* din [HW, bc] */
+    eqn_out_arg_shape.n    = n;
+    eqn_out_arg_shape.ld   = ld;
+    eqn_out_arg_shape.type = datatype_out;
+
+    /* libxsmm_matrix_eqn_tree_print( my_eqn16 ); */
+    /* libxsmm_matrix_eqn_rpn_print ( my_eqn16 ); */
+
+    debug_print_eqn_tree(my_eqn16);
+    auto func = libxsmm_dispatch_matrix_eqn_v2( my_eqn16, eqn_out_arg_shape );
+    if ( func == NULL) {
+      fprintf( stderr, "JIT for TPP bwd din_func (eqn16) failed. Bailing...!\n");
+      exit(-1);
+    }
+    return (void*)func;
+  }
 };
-////////////////////////////////////
-#endif /* for #if 0 around fwdreduce */
 
 }; // namespace pcl
 

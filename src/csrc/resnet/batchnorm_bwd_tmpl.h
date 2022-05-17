@@ -92,8 +92,10 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   DECL_VLA_PTR_PT    (float, dgamma_N, [CP][N][bc],       scratch);
   DECL_VLA_PTR_PT_EXT(float, dbeta_N,  [CP][N][bc],       scratch, dbeta_N_offset);
 
-  DECL_VLA_PTR_PT    (float,         dgamma,  [CP][bc], t_grad_weight);
-  DECL_VLA_PTR_PT    (float,         dbeta,   [CP][bc], t_grad_bias);
+  DECL_VLA_PTR_PT    (T,             din,      [N][CP][ifhp][ifwp][bc], t_grad_input);
+  DECL_VLA_PTR_PT    (T,             din_add,  [N][CP][ifhp][ifwp][bc], t_grad_input_add);
+  DECL_VLA_PTR_PT    (float,         dgamma,   [CP][bc],                t_grad_weight);
+  DECL_VLA_PTR_PT    (float,         dbeta,    [CP][bc],                t_grad_bias);
 
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
 
@@ -103,23 +105,14 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
   auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD); /* 1, bc because of row-major for unary */
 
-  auto grad_coeffs_tpp = SCOPEIT((BatchNormBwdWTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
+  auto grad_w_inpadd_tpp = SCOPEIT((BatchNormBwdWTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 
-/*
-  auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD);
+  auto abc_coeffs_tpp = SCOPEIT(BatchNormABCCoeffsTPP<float>(bc, scale, eps), NORMALIZE);
 
-  auto normalize_tpp = SCOPEIT((BatchNormFwdScale<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
-*/
+  auto grad_d_tpp = SCOPEIT((BatchNormBwdDTPP<T,T>(bc, spatial_block_size)), NORMALIZE);
 
-/*
-  auto reduce_tpp = SCOPEIT(UnaryTPP(
-            H * W / num_HW_blocks, bc, bc, bc,
-            XsmmDtype<T>(), LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD), EW_RED);
-*/
   {
-    RECORD_SCOPE(bn_bwd_w_first, {});
+    RECORD_SCOPE(bn_bwd_w_inpadd, {});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -141,7 +134,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           coeffs_tpp(mean[cp][0], var[cp][0], &a[0], &b[0]);
 
           if (!use_hw_blocking) {
-            printf("First part of parallel for is not implemented for w blocking in bwd\n");
+            printf("First parallel for is not implemented for w blocking in bwd\n");
             exit(-1);
           } else {
             int hwb = 0, ho = 0, hi = 0, w = 0;
@@ -152,11 +145,11 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
               //void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask) {
 
-              grad_coeffs_tpp(inp[n][cp][hi][w][0], &a[0], &b[0], dout[n][cp][ho][w][0], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp][0],
-                                eltwise ? inp_add[n][cp][hi][w][0] : NULL,
+              grad_w_inpadd_tpp(inp[n][cp][hi][w][0], &a[0], &b[0], dout[n][cp][ho][w][0], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp][0],
+                                eltwise ? din_add[n][cp][hi][w][0] : NULL,
                                 relu ? relumask[n][cp][ho][w][0] : NULL);
             }
-          }
+          } /* if-else for the presence of input padding */
 
           helper_copy_tpp(&lcl_dgamma_ptr[0], dgamma_N[cp][n][0]);
           helper_copy_tpp(&lcl_dbeta_ptr[0],  dbeta_N [cp][n][0]);
@@ -164,10 +157,10 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
         } /* end of cp loop */
       } /* end of n loop */
     } /* end of the scope with recorded parallel for */
-  } /* end of the bn_bwd_w_first scope */
+  } /* end of the bn_bwd_w_inpadd scope */
 
   {
-    RECORD_SCOPE(bn_bwd_w_second, {});
+    RECORD_SCOPE(bn_bwd_w_add, {});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -191,7 +184,41 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
         } /* end of ni loop */
       } /* end of cp loop */
     } /* end of the scope with recorded parallel for */
-  } /* end of the bn_bwd_w_second scope */
+  } /* end of the bn_bwd_w_add scope */
+
+  {
+    RECORD_SCOPE(bn_bwd_d, {});
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+      for (int n = 0; n < N; n++) {
+        for (int cp = 0; cp < CP; cp++) {
+
+          LIBXSMM_ALIGNED(float a[bc], 64); /* could also get moved into the scratch but left on the private stack as these are small, same below */
+          LIBXSMM_ALIGNED(float b[bc], 64);
+          LIBXSMM_ALIGNED(float c[bc], 64);
+
+          //void operator()(Tin* gamma, Tin* dgamma, Tin* var, Tin* mean, Tin* dbeta, Tout* a, Tout* b, Tout* c)
+          abc_coeffs_tpp(gamma[cp][0], dgamma[cp][0], var[cp][0], mean[cp][0], dbeta[cp][0], &a[0], &b[0], &c[0]);
+
+          if (!use_hw_blocking) {
+            printf("Third parallel for is not implemented for w blocking in bwd\n");
+            exit(-1);
+          } else {
+            int hwb = 0, ho = 0, hi = 0, w = 0;
+            for(hwb=0; hwb < num_HW_blocks; hwb++){
+              ho = (hwb*(H*W/num_HW_blocks))/W;
+              hi = ho;
+              w  = (hwb*(H*W/num_HW_blocks))%W;
+
+              //void operator()(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din)
+              grad_d_tpp(inp[n][cp][hi][w][0], &a[0], &b[0], &c[0], gamma[cp][0], dout[n][cp][ho][w][0], din[n][cp][hi][w][0]);
+            }
+          } /* if-else for the presence of input padding */
+        } /* end of cp loop */
+      } /* end of n loop */
+    } /* end of the scope with recorded parallel for */
+  } /* end of the bn_bwd_d scope */
 
 }
 

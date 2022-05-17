@@ -100,7 +100,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
   auto coeffs_tpp = SCOPEIT(BatchNormStatCoeffsTPP<float>(bc, eps), NORMALIZE);
 
-  auto normalize_tpp = SCOPEIT((BatchNormFwdScale<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
+  auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 /*
   auto reduce_tpp = SCOPEIT(UnaryTPP(
             H * W / num_HW_blocks, bc, bc, bc,

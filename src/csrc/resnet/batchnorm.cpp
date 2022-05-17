@@ -19,8 +19,9 @@ REGISTER_SCOPE(bn_fwd_reduce,   "bn_fwd_reduce");
 REGISTER_SCOPE(bn_fwd_stats,    "bn_fwd_stats");
 REGISTER_SCOPE(bn_fwd_scale,    "bn_fwd_scale");
 
-REGISTER_SCOPE(bn_bwd_w_first,  "bn_bwd_w_first");
-REGISTER_SCOPE(bn_bwd_w_second, "bn_bwd_w_second");
+REGISTER_SCOPE(bn_bwd_w_inpadd, "bn_bwd_w_inpadd");
+REGISTER_SCOPE(bn_bwd_w_add,    "bn_bwd_w_add");
+REGISTER_SCOPE(bn_bwd_d,        "bn_bwd_d");
 
 /*
 REGISTER_SCOPE(b_emb, "b_emb");
