@@ -46,6 +46,10 @@ class DummyBatchNormFunction(torch.autograd.Function):
         ( input, input_add, weight, bias, mean, var, invstd ) = inputs
         if training:
             ctx.save_for_backward(input, input_add, weight, mean, var, invstd, relu_mask, output)
+        ctx.relu     = relu
+        ctx.eltwise  = eltwise
+        ctx.eps      = eps
+        ctx.paddings = paddings
 
         # print("Returning from DummyBatchNormFunction FWD")
         return output
@@ -57,7 +61,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
         inputs += [g.contiguous() for g in grad_outs]
 
         inputs += ctx.saved_tensors
-        (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( inputs )
+        (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.paddings, inputs )
 
         # print("Returning from DummyBatchNormFunction BWD")
         return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None)

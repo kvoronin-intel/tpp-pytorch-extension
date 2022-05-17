@@ -92,13 +92,13 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
 
-  auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD);
+  auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD); /* 1, bc because of row-major for unary */
 
-  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bc, bc, bc)), EW_RED);
+  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bc, bc, bc)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
 
   auto mean_var_tpp = SCOPEIT(MeanVarTPP<float>(bc, scale), EW_MEAN_VAR);
 
-  auto coeffs_tpp = SCOPEIT(BatchNormCoeffsTPP<float>(bc, eps), NORMALIZE);
+  auto coeffs_tpp = SCOPEIT(BatchNormStatCoeffsTPP<float>(bc, eps), NORMALIZE);
 
   auto normalize_tpp = SCOPEIT((BatchNormFwdScale<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 /*
@@ -109,7 +109,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD), EW_RED);
 */
   {
-    RECORD_SCOPE(bn_reduce, {});//{t_HS, t_Wq_V});
+    RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -136,10 +136,10 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
         } /* end of cp loop */
       } /* end of n loop */
     } /* end of the scope with recorded parallel for */
-  } /* end of the bn_reduce scope */
+  } /* end of the bn_fwd_reduce scope */
 
   {
-    RECORD_SCOPE(bn_stats, {});
+    RECORD_SCOPE(bn_fwd_stats, {});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -165,10 +165,10 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
       } /* end of cp loop */
     } /* end of the scope with recorded parallel for */
-  } /* end of the bn_stats scope */
+  } /* end of the bn_fwd_stats scope */
 
   {
-    RECORD_SCOPE(bn_scale, {});
+    RECORD_SCOPE(bn_fwd_scale, {});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -201,7 +201,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
         } /* end of cp loop */
       } /* end of n loop */
     } /* end of the scope with recorded parallel for */
-  } /* end of the bn_scale scope */
+  } /* end of the bn_fwd_scale scope */
 
 } /* end of the dummy scope */
 

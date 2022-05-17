@@ -5354,22 +5354,22 @@ class MeanVarTPP {
 };
 
 template <typename Tin, typename Tout = Tin>
-class BatchNormCoeffsTPP {
+class BatchNormStatCoeffsTPP {
  private:
   int   N;
   Tout  eps;
 
  public:
-  BatchNormCoeffsTPP(int N, Tout eps)
+  BatchNormStatCoeffsTPP(int N, Tout eps)
       : N(N),
         eps(eps) {}
-  void operator()(Tin* in0 /*mean*/, Tin* in1 /*var*/, Tout* out1 /*s*/, Tout* out2 /*b*/) {
-    ref(in0, in1, out1, out2);
+  void operator()(Tin* mean, Tin* var, Tout* s, Tout* b) {
+    ref(mean, var, s, b);
   }
-  void ref(Tin* in0 /*mean*/, Tin* in1 /*var*/, Tout* out1 /*s*/, Tout* out2 /*b*/) {
+  void ref(Tin* mean, Tin* var, Tout* s, Tout* b) {
     for(int i = 0; i < N; i++){
-      out1[i] = 1.0f / ((float)sqrt((float)in1[i] + (float)eps));                            /* s = 1/sqrt(var(X) + eps)     [bc] */
-      out2[i] = - 1.0f * (float)in0[i] * out1[i];                                            /* b = -E[X]/sqrt(var(X) + eps) [bc] */
+      s[i] = 1.0f / ((float)sqrt((float)var[i] + (float)eps));                          /* s = 1/sqrt(var(X) + eps)     [bc] */
+      b[i] = - 1.0f * (float)mean[i] * s[i];                                            /* b = -E[X]/sqrt(var(X) + eps) [bc] */
     }
   }
 };
@@ -5603,31 +5603,355 @@ class BatchNormFwdScale : public BaseTPP {
       exit(-1);
     }
     return (void*)func10;
+  }
+};
+
+
+template <typename Tin, typename Tout>
+class BatchNormBwdWTPP {
+  class Eqn : BaseTPP {
+   public:
+    Eqn() {}
+    Eqn(BatchNormBwdWTPP* p, int eqn_no) : p(p), eqn_no(eqn_no) {
+      kernel = (libxsmm_matrix_eqn_function)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_matrix_eqn_param* eqn_param) {
+      if (!initialized)
+        return;
+      kernel(eqn_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "batchnorm_bwd_w_eqn%d_ti%d_to%d_m%d_n%d",
+          eqn_no,
+          XsmmDtype<Tin>(),
+          XsmmDtype<Tout>(),
+          p->m,
+          p->n);
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      libxsmm_datatype datatype_in   = XsmmDtype<Tin>();
+      libxsmm_datatype datatype_out  = XsmmDtype<Tout>();
+      libxsmm_datatype datatype_comp = LIBXSMM_DATATYPE_F32;
+
+      libxsmm_bitfield unary_flags;
+      libxsmm_bitfield binary_flags;
+      libxsmm_bitfield ternary_flags;
+
+      libxsmm_meqn_arg_shape        eqn_out_arg_shape;
+      libxsmm_meqn_arg_shape        arg_shape;//[128];
+      libxsmm_matrix_arg_attributes arg_singular_attr;
+
+      libxsmm_matrix_eqn_arg_metadata arg_metadata;//[128];
+      libxsmm_matrix_eqn_op_metadata  op_metadata;//[128] ;
+
+      arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
+
+      libxsmm_blasint m       = p->m;
+      libxsmm_blasint n       = p->n;
+      libxsmm_blasint ld      = p->m;
+      libxsmm_blasint tmp_ld2 = 1;
+      libxsmm_matrix_eqn_function func;
+
+      if (eqn_no == 0) {
+
+        /* dgamma function  */
+        auto my_eqn11 = libxsmm_matrix_eqn_create();                          /* dgamma = ((inp *a + b) * dout) + dgamma */
+
+        binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
+        op_metadata.eqn_idx      = my_eqn11;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_ADD, datatype_comp, binary_flags);
+
+        unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS;
+        op_metadata.eqn_idx      = my_eqn11;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, datatype_comp, unary_flags);
+
+        binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
+        op_metadata.eqn_idx      = my_eqn11;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, datatype_comp, binary_flags);
+
+        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+        op_metadata.eqn_idx      = my_eqn11;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+        arg_metadata.eqn_idx     = my_eqn11;
+        arg_metadata.in_arg_pos  = 0;
+        arg_shape.m    = m;                                      /* inp [HW, bc] */
+        arg_shape.n    = n;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_in;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn11;
+        arg_metadata.in_arg_pos  = 1;
+        arg_shape.m    = m;                                      /* a [bc] */
+        arg_shape.n    = 1;
+        arg_shape.ld   = tmp_ld2;
+        arg_shape.type = datatype_comp;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn11;
+        arg_metadata.in_arg_pos  = 2;
+        arg_shape.m    = m;                                      /* b [bc] */
+        arg_shape.n    = 1;
+        arg_shape.ld   = tmp_ld2;
+        arg_shape.type = datatype_comp;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn11;
+        arg_metadata.in_arg_pos  = 3;
+        arg_shape.m    = m;                                      /* dout [HW, bc] */
+        arg_shape.n    = n;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_out;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn11;
+        arg_metadata.in_arg_pos  = 4;
+        arg_shape.m    = m;                                      /* dgamma [bc] */
+        arg_shape.n    = 1;
+        arg_shape.ld   = tmp_ld2;
+        arg_shape.type = datatype_comp;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        eqn_out_arg_shape.m    = m;                                 /* dgamma [bc] */
+        eqn_out_arg_shape.n    = 1;
+        eqn_out_arg_shape.ld   = tmp_ld2;
+        eqn_out_arg_shape.type = datatype_comp;
+
+        /* libxsmm_matrix_eqn_tree_print( my_eqn11 ); */
+        /* libxsmm_matrix_eqn_rpn_print ( my_eqn11 ); */
+        debug_print_eqn_tree(my_eqn11);
+        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn11, eqn_out_arg_shape );
+        if ( func == NULL) {
+          fprintf( stderr, "JIT for TPP bwd dgamma_func (eqn11) failed. Bailing...!\n");
+          exit(-1);
+        }
+      } else if (eqn_no == 1) {
+        /* dbeta function  */
+        auto my_eqn12 = libxsmm_matrix_eqn_create();                         /* dbeta [bc] = dout [HW, bc] + dbeta [bc] */
+
+        binary_flags                = LIBXSMM_MELTW_FLAG_BINARY_NONE;
+        op_metadata.eqn_idx      = my_eqn12;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_ADD, datatype_comp, binary_flags); /* dbeta_tmp [HW, bc] */
+
+        unary_flags                 = LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS;
+        op_metadata.eqn_idx      = my_eqn12;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, datatype_comp, unary_flags); /* [HW, bc] -> [bc] */
+
+        arg_metadata.eqn_idx     = my_eqn12;
+        arg_metadata.in_arg_pos  = 3;
+        arg_shape.m    = m;                                      /* dout [HW, bc] */
+        arg_shape.m    = n;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_out;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn12;
+        arg_metadata.in_arg_pos  = 5;
+        arg_shape.m    = m;                                      /* dbeta [bc] */
+        arg_shape.n    = 1;
+        arg_shape.ld   = tmp_ld2;
+        arg_shape.type = datatype_comp;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        eqn_out_arg_shape.m    = m;                              /* dbeta [bc] */
+        eqn_out_arg_shape.n    = 1;
+        eqn_out_arg_shape.ld   = tmp_ld2;
+        eqn_out_arg_shape.type = datatype_comp;
+
+        /* libxsmm_matrix_eqn_tree_print( my_eqn12 ); */
+        /* libxsmm_matrix_eqn_rpn_print ( my_eqn12 ); */
+
+        debug_print_eqn_tree(my_eqn12);
+        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn12, eqn_out_arg_shape );
+        if ( func == NULL) {
+          fprintf( stderr, "JIT for TPP bwd dbeta_func (eqn12) failed. Bailing...!\n");
+          exit(-1);
+        }
+
+      } else {
+        PCL_ASSERT(false, "Should not come here\n");
+      }
+      return (void*)func;
+    }
+
+   private:
+    BatchNormBwdWTPP* p;
+    int eqn_no;
+    libxsmm_matrix_eqn_function kernel = NULL;
+  }; /* end of Eqn class */
+
+ private:
+  typedef enum libxsmm_dnn_bn_fuse {
+    LIBXSMM_DNN_BN_FUSE_NONE = 0,
+    LIBXSMM_DNN_BN_FUSE_RELU = 1,
+    LIBXSMM_DNN_BN_FUSE_ELTWISE = 2,
+    LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU = 3,
+    LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK = 4,
+    LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK = 5
+    } libxsmm_dnn_bn_fuse;
+  /* fuse_type_int: 0: nothing fused, 1: relu fused, 2: ewise fused, 3: relu and ewise fused, 4: relu with mask, 5: relu and ewise with mask  */
+  libxsmm_dnn_bn_fuse set_fuse_type(bool relu, bool eltwise) {
+    libxsmm_dnn_bn_fuse res = LIBXSMM_DNN_BN_FUSE_NONE;
+      if (relu == true) {
+        if (eltwise == true)
+          res = LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK; /* 5 # elwise+relu+mask */
+        else
+          res = LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK;         /* 4 # relu+mask */
+      } else {
+        if (eltwise == true)
+          res = LIBXSMM_DNN_BN_FUSE_ELTWISE;                /* 2 # eltwise+no mask */
+        else
+          res = LIBXSMM_DNN_BN_FUSE_NONE;                   /* 0 no fusion */
+      }
+      return res;
+  }
+
+  libxsmm_dnn_bn_fuse fuse_type      = LIBXSMM_DNN_BN_FUSE_NONE;
+ private:
+  int m = 0;
+  int n = 0;
+  Eqn eqn_dgamma, eqn_dbeta;
+  UnaryTPP ewise_copy_kernel;
+  UnaryTPP inv_relu_kernel;
+  friend class Eqn;
+
+ public:
+  BatchNormBwdWTPP() {}
+  BatchNormBwdWTPP(int M, int N, bool relu, bool eltwise)
+      : m(M),
+        n(N),
+        fuse_type(LIBXSMM_DNN_BN_FUSE_NONE),
+        eqn_dgamma(this, 0),
+        eqn_dbeta (this, 1),
+        ewise_copy_kernel(
+            m, n, m, m, //ldo, ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_IDENTITY),
+        inv_relu_kernel(
+            m, n, m, m, //ldo, ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            (relu ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE),
+            LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {
+    fuse_type = set_fuse_type(relu, eltwise);
 #if 0
-    libxsmm_blasint ld = N;
-    libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-    meqn_push_unary_op(my_eqn0, LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS);
-    meqn_push_ternary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
-        LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 |
-            LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
-    /* This is the "gradient" weights   */
-    meqn_push_arg(my_eqn0, N, 1, ld, 3, 0, LIBXSMM_DATATYPE_BF16);
-    /* This is the scalar learning rate */
-    meqn_push_arg(my_eqn0, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
-    meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_PACK);
-    /* This is the tensor with lo bits  */
-    meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, LIBXSMM_DATATYPE_I16);
-    /* This is the tensor with hi bits  */
-    meqn_push_arg(my_eqn0, N, 1, ld, 1, 0, LIBXSMM_DATATYPE_I16);
-    debug_print_eqn_tree(my_eqn0);
-    auto func0 = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
-    return (void*)func0;
+    libxsmm_datatype datatype_in   = XsmmDtype<Tin>();
+    libxsmm_datatype datatype_out  = XsmmDtype<Tout>();
+    libxsmm_datatype datatype_comp = LIBXSMM_DATATYPE_F32;
+
+    libxsmm_meltw_unary_shape  unary_shape;
+    libxsmm_meltw_binary_shape binary_shape;
+
+    libxsmm_bitfield unary_flags;
+    libxsmm_bitfield binary_flags;
+    libxsmm_bitfield ternary_flags;
+
+    memset( &unary_shape,  0, sizeof(libxsmm_meltw_unary_shape));
+    memset( &binary_shape, 0, sizeof(libxsmm_meltw_binary_shape));
+
+    libxsmm_meqn_arg_shape        eqn_out_arg_shape;
+    libxsmm_meqn_arg_shape        arg_shape;//[128];
+    libxsmm_matrix_arg_attributes arg_singular_attr;
+
+    libxsmm_matrix_eqn_arg_metadata arg_metadata;//[128];
+    libxsmm_matrix_eqn_op_metadata  op_metadata;//[128] ;
+
+    arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
+
+    libxsmm_blasint ldo = m;
+
+    if (fuse_type == 1 || fuse_type == 3 || fuse_type == 4 || fuse_type == 5) {
+      unary_shape     = libxsmm_create_meltw_unary_shape(m, n, ldo, ldo, datatype_in, datatype_out, datatype_comp);
+      unary_flags     = ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE);
+      inv_relu_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_RELU_INV, unary_shape, unary_flags);
+      if ( inv_relu_kernel == NULL ) {
+        fprintf( stderr, "JIT for TPP bwd inv_relu_kernel failed. Bailing...!\n");
+        exit(-1);
+      }
+    }
+
+    if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
+      unary_shape       = libxsmm_create_meltw_unary_shape(m, n, ldo, ldo, datatype_in, datatype_out, datatype_comp);
+      unary_flags       = LIBXSMM_MELTW_FLAG_UNARY_NONE;
+      ewise_copy_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, unary_shape, unary_flags);
+      if ( res.ewise_copy_kernel == NULL) {
+        fprintf( stderr, "JIT for TPP bwd ewise_copy_kernel failed. Bailing...!\n");
+        exit(-1);
+      }
+    }
 #endif
   }
 
+  void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask) {
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[8];
+
+    arg_array[1].primary = (void*)a;
+    arg_array[2].primary = (void*)b;
+    arg_array[4].primary = (void*)dgamma_local;
+    arg_array[5].primary = (void*)dbeta_local;
+    arg_array[6].primary = (void*)gamma;
+
+    if (fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE ||
+      fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
+      if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
+        const float alpha = 0.0f;
+#if 0
+        all_relu_param.op.primary   = (void*)(&alpha);
+        all_relu_param.in.primary   = (void*)dout;
+        all_relu_param.in.secondary = ((fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ?
+                                         (void*)relumask : NULL );
+        all_relu_param.out.primary  = (void*)dout;      /* [HW,bc] */
+        inv_relu_kernel(&all_relu_param);
+#endif
+
+        inv_relu_kernel((void*)dout, (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ? (void*)relumask : NULL, NULL /*in.tertiary*/,
+                        (void*)&alpha, NULL, NULL, /* op primary, secondary, tertiary */
+                        (void*)dout, NULL);
+      } /* ReLU/mask */
+      if (fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
+        ewise_copy_kernel(dout, din_add);
+      } /* Eltwise */
+    }
+
+    arg_array[0].primary = (void*)inp;
+    arg_array[3].primary = (void*)dout;
+
+    eqn_param.inputs         = arg_array;
+
+    eqn_param.output.primary = dgamma_local;
+    eqn_dgamma(&eqn_param);
+
+    eqn_param.output.primary = dbeta_local;
+    eqn_dbeta(&eqn_param);
+
+  }
+  void ref(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask) {
+    printf("ref() not implemented\n");
+    exit(-1);
+  }
+
 };
+
 
 #if 0
 #error "not finished"

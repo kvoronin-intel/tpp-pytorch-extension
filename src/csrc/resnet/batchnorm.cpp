@@ -15,9 +15,11 @@ using namespace pcl;
 
 static int my_rank = guess_mpi_rank();
 
-REGISTER_SCOPE(bn_reduce, "bn_reduce");
-REGISTER_SCOPE(bn_stats,  "bn_stats");
-REGISTER_SCOPE(bn_scale,  "bn_scale");
+REGISTER_SCOPE(bn_fwd_reduce, "bn_fwd_reduce");
+REGISTER_SCOPE(bn_fwd_stats,  "bn_fwd_stats");
+REGISTER_SCOPE(bn_fwd_scale,  "bn_fwd_scale");
+
+REGISTER_SCOPE(bn_bwd_w,      "bn_bwd_w");
 
 /*
 REGISTER_SCOPE(b_emb, "b_emb");
@@ -74,9 +76,9 @@ inline void omp_reduce_buf(
 */
 
 std::vector<at::Tensor> batchnorm_fwd(
-    bool training,
-    bool relu,
-    bool eltwise,
+    bool  training,
+    bool  relu,
+    bool  eltwise,
     float eps,
     std::vector<long> padding,
     std::vector<at::Tensor> inputs) {
@@ -91,6 +93,10 @@ std::vector<at::Tensor> batchnorm_fwd(
 }
 
 std::vector<at::Tensor> batchnorm_bwd(
+    bool  relu,
+    bool  eltwise,
+    float eps,
+    std::vector<long> padding,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
   if (inputs[1].dtype() == at::kFloat) {
