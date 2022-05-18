@@ -5432,9 +5432,9 @@ class BatchNormFwdScaleTPP : public BaseTPP {
 
  public:
   BatchNormFwdScaleTPP(int M, int N, bool relu, bool eltwise) : m(M), n(N) {
+    fuse_type = set_fuse_type(relu, eltwise);
     kernel = (libxsmm_matrix_eqn_function)get_kernel();
     initialized = true;
-    fuse_type = set_fuse_type(relu, eltwise);
   }
   void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
     if (!initialized)
@@ -5779,7 +5779,7 @@ class BatchNormBwdWTPP {
         arg_metadata.eqn_idx     = my_eqn12;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = m;                                      /* dout [HW, bc] */
-        arg_shape.m    = n;
+        arg_shape.n    = n;
         arg_shape.ld   = ld;
         arg_shape.type = datatype_out;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
@@ -5863,14 +5863,14 @@ class BatchNormBwdWTPP {
         eqn_dgamma(this, 0),
         eqn_dbeta (this, 1),
         ewise_copy_kernel(
-            m, n, m, m, //ldo, ldo,
+            n, m, m, m, // rows, cols, ldo, ldo due to UnaryTPP row-major-ness
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_IDENTITY),
         inv_relu_kernel(
-            m, n, m, m, //ldo, ldo,
+            n, m, m, m, // rows, cols, ldo, ldo due to UnaryTPP row-major-ness
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
