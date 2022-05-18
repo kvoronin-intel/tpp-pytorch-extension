@@ -9,6 +9,9 @@ from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
 
 import batchnorm as batchnorm_py
 
+import pcl_cgbp
+import pcl_cgbp_cpp
+
 """
 import sys, inspect
 
@@ -27,7 +30,7 @@ exit()
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
-parser.add_argument('--test-module', default='tpp', type=str,
+parser.add_argument('--test-module', default='cnn_tpp', type=str,
                     help='module to test against the reference', dest='test_module')
 
 parser.add_argument("--with-perf", action="store_true", default=False, help='if true, measures performance additionally for the opt module', dest='with_perf')
@@ -44,9 +47,14 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
     eps=1.e-7
 
     torch.manual_seed(0)
-    if test_module == 'tpp':
-        print("info: testing TPP module")
-        opt_bn = batchnorm_py.DummyBatchNormTPP(C, [0, 0], eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
+    if test_module == 'cnn_tpp':
+        print("info: testing TPP module from CNN (pcl_cgbp)")
+        print("info: testing TPP module from extensions (pcl_pytorch_extension)")
+        opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
+        hardcoded_bc=64
+    elif test_module == 'ext_tpp':
+        print("info: testing TPP module from extensions (pcl_pytorch_extension)")
+        opt_bn = batchnorm_py.DummyBatchNormTPP(C, [0, 0, 0, 0], eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
         hardcoded_bc=64
     else:
         print("test_module not supported, test_module = ", test_module)
@@ -141,10 +149,12 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
     torch_bn.bias.data = ref_bias_init.clone()
 
      # should be available if setup script has been called (once implemented)
-    if hasattr(batchnorm_cpp,'batchnorm_get_c_block'):
+    if test_module == 'ext_tpp' and hasattr(batchnorm_cpp,'batchnorm_get_c_block'):
         bc = batchnorm_cpp.batchnorm_get_c_block(C)
+    if test_module == 'cnn_tpp' and hasattr(pcl_cgbp_cpp,'bnorm_get_c_block'):
+        bc = pcl_cgbp_cpp.bnorm_get_c_block(C)
     else:
-        print("Warning: could not use batchnorm_cpp.batchnorm_get_c_block, hence used hardcoded block sizes in the test")
+        print("Warning: could not use batchnorm_cpp.batchnorm_get_c_block/pcl_cgbp_cpp.bnorm_get_c_block, hence used hardcoded block sizes in the test")
         if C % hardcoded_bc == 0:
           bc = hardcoded_bc
         else:
@@ -319,6 +329,9 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
     print("y2.norm(inf)                           = ", y2.norm(p=float('inf')))
     print("(y1 - y2).abs().norm(inf)              = ", (opt_y_fp32 - ref_y_fp32).abs().norm(p=float('inf')))
     print("(y1 - y2).abs().norm(2)   / y2.norm(2) = ", (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2))
+
+    for i in range(10):
+        print("i opt_y_fp32 ref_y_fp32 = ", i, opt_y_fp32.view(-1)[i].item(), ref_y_fp32.view(-1)[i].item())
 
     if track_running_stats == True:
         print("(opt_bn.running_mean - torch_bn.running_mean).abs().norm(inf)                    = ", (opt_bn.running_mean - torch_bn.running_mean).norm(p=float('inf')))
