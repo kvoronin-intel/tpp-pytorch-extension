@@ -40,21 +40,36 @@ parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='
 
 torch.autograd.set_detect_anomaly(True)
 
-def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module):
-    print("debug: run_test_bn called with N H W C has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module ", N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module)
-    #pcl_pytorch_extension.init_libxsmm() # not needed?
+def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module):
+    print("debug: run_test_bn called with N H W C opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module ",
+            N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module)
 
     eps=1.e-7
+
+    #opt_padding = [0, 0, 0, 0]
+
+    if opt_padding != None and len(opt_padding) != 4:
+        print("Error: padding should have four elements [pad_h_in, pad_w_in, pad_h_out, pad_w_out]")
+        exit()
+
+    if opt_padding != None:
+        input_hw_padding  = [opt_padding[0], opt_padding[0], opt_padding[1], opt_padding[1]]
+        output_hw_padding = [opt_padding[2], opt_padding[2], opt_padding[3], opt_padding[3]]
+        print("input_hw_padding = ",  input_hw_padding)
+        print("output_hw_padding = ", output_hw_padding)
 
     torch.manual_seed(0)
     if test_module == 'cnn_tpp':
         print("info: testing TPP module from CNN (pcl_cgbp)")
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
+        if opt_padding != None:
+            print("Error: Python side of batchnorm in cnn_tpp does not support padding")
+            exit()
         opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
         hardcoded_bc=64
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
-        opt_bn = batchnorm_py.DummyBatchNormTPP(C, [0, 0, 0, 0], eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
+        opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
         hardcoded_bc=64
     else:
         print("test_module not supported, test_module = ", test_module)
@@ -116,6 +131,12 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
         opt_x_init = x
         if has_eltwise == True:
             opt_x_add_init = x_add
+
+    if opt_padding != None:
+        opt_x_init = torch.nn.functional.pad(opt_x_init,             input_hw_padding, mode='constant', value=0.0)
+        if has_eltwise == True:
+            opt_x_add_init = torch.nn.functional.pad(opt_x_add_init, input_hw_padding, mode='constant', value=0.0)
+
     opt_weight_init = weight
     opt_bias_init = bias
 
@@ -177,6 +198,9 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
     print("x2 (torch) size, xp size = ", x2.size(), xp.size())
     """
 
+    print("x1.shape = ", x1.shape)
+    print("x2.shape = ", x2.shape)
+
     #y1 = opt_conv(x1, x1_add)
     #y2 = relu(torch_conv(x2) + x2_add)
     if has_eltwise == True:
@@ -196,13 +220,22 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
         print("Not implemented, has_relu has_eltwise = ", has_relu, has_eltwise)
         exit()
 
+    print("y1.shape = ", y1.shape)
+    print("y2.shape = ", y2.shape)
+
     z1 = y1.mean()
     z2 = y2.mean()
     #z1 = y1.sum()
     #z2 = y2.sum()
-    print("z1", z1)
+    if opt_padding != None:
+        y1_numel = y1.unblocked_tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
+        print("z1 with account for padding", z1 * y1_numel / y2.numel())
+    else:
+        y1_numel = y1.unblocked_tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
+        print("z1", z1)
     print("z2", z2)
-    z1.backward(retain_graph=True)
+    #z1.backward(retain_graph=True)
+    z1.backward(retain_graph=True,gradient=torch.tensor(1.*y1_numel / y2.numel(), dtype=torch.float))
     z2.backward(retain_graph=True)
     """
     grad_scale=1000.0
@@ -242,6 +275,18 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
         ref_x_add_grad = x2_add.grad.to(torch.float)
     ref_y_fp32 = y2.to(torch.float)
 
+    print("opt_x_grad shape = ", opt_x_grad.shape)
+    print("ref_x_grad shape = ", ref_x_grad.shape)
+
+    if opt_padding != None:
+        ref_y_fp32 = torch.nn.functional.pad(ref_y_fp32,         output_hw_padding, mode='constant', value=0.0)
+        ref_x_grad = torch.nn.functional.pad(ref_x_grad,         input_hw_padding,  mode='constant', value=0.0)
+        if has_eltwise:
+            ref_x_grad_add = torch.nn.functional.pad(ref_x_grad_add, input_hw_padding,  mode='constant', value=0.0)
+
+    print("opt_x_grad shape = ", opt_x_grad.shape)
+    print("ref_x_grad shape = ", ref_x_grad.shape)
+
     """
     if ref_dtype == torch.bfloat16:
         ref_x_grad = x2.grad.to(torch.float)
@@ -271,8 +316,10 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
     print("opt_x_grad norm2 = ", opt_x_grad.norm(2))
     """
 
+    print("shift = ", input_hw_padding[0] * (W + input_hw_padding[2] + input_hw_padding[3]) + input_hw_padding[2])
     for i in range(10):
-        print("i opt_x_grad ref_x_grad = ", i, opt_x_grad.view(-1)[i].item(), ref_x_grad.view(-1)[i].item())
+        ind = i + (input_hw_padding[0] * (W + input_hw_padding[2] + input_hw_padding[3]) + input_hw_padding[2]) - 5 if opt_padding != None else i
+        print("ind opt_x_grad ref_x_grad = ", ind, opt_x_grad.view(-1)[ind].item(), ref_x_grad.view(-1)[ind].item())
 
     # X gradient
     print("X Allclose: ", opt_x_grad.allclose(ref_x_grad, rtol=1e-5, atol=1e-5))
@@ -330,8 +377,11 @@ def run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtyp
     print("(y1 - y2).abs().norm(inf)              = ", (opt_y_fp32 - ref_y_fp32).abs().norm(p=float('inf')))
     print("(y1 - y2).abs().norm(2)   / y2.norm(2) = ", (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2))
 
+    print("shift = ", output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2])
+    print("H W opt_padding opt_y_fp32_shape = ", H, W, opt_padding, opt_y_fp32.shape)
     for i in range(10):
-        print("i opt_y_fp32 ref_y_fp32 = ", i, opt_y_fp32.view(-1)[i].item(), ref_y_fp32.view(-1)[i].item())
+        ind = i + (output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2]) - 5 if opt_padding != None else i
+        print("ind opt_y_fp32 ref_y_fp32 = ", ind, opt_y_fp32.view(-1)[ind].item(), ref_y_fp32.view(-1)[ind].item())
 
     if track_running_stats == True:
         print("(opt_bn.running_mean - torch_bn.running_mean).abs().norm(inf)                    = ", (opt_bn.running_mean - torch_bn.running_mean).norm(p=float('inf')))
@@ -384,7 +434,8 @@ def main():
             integer_map = map(int, string_list[:4])
             #print(integer_map)
             [N, C, H, W] = list(integer_map)
-            run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+            opt_padding = [4, 4, 6, 6]
+            run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
     
 
@@ -393,11 +444,12 @@ def main():
     H=2 #28
     W=2 #28
     C=64
+    opt_padding = [4, 4, 6, 6]
     has_relu=False
     has_eltwise=False
     track_running_stats=False
 
-    run_test_bn(N, H, W, C, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+    run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
 
 if __name__ == "__main__":
     args = parser.parse_args()
