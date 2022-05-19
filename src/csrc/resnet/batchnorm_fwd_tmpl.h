@@ -78,23 +78,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 }
 
 {
-/*
-  DECL_VLA_PTR_PT    (T,             inp,      [N][CP][ifhp][ifwp][bc], t_I);
-  DECL_VLA_PTR_PT    (float,         gamma,    [CP][bc],                t_W);
-  DECL_VLA_PTR_PT    (float,         beta,     [CP][bc],                t_B);
-  DECL_VLA_PTR_PT    (float,         mean,     [CP][bc],                t_M);
-  DECL_VLA_PTR_PT    (float,         var,      [CP][bc],                t_V);
-  DECL_VLA_PTR_PT    (T,             inp_add,  [N][CP][ifhp][ifwp][bc], t_IA);
-
-  DECL_VLA_PTR_PT    (T,             out,      [N][CP][ofhp][ofwp][bc], t_O);
-  DECL_VLA_PTR_PT    (unsigned char, relumask, [N][CP][ofhp][ofwp][bc], t_relu_mask);
-
-  DECL_VLA_PTR_PT    (float, sum_X_X2, [2][CP][bc],       scratch);
-  DECL_VLA_PTR_PT_EXT(float, sum_N,    [CP][N][bc],       scratch, sum_N_offset);
-  DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [CP][N][bc],       scratch, sumsq_N_offset);
-*/
-
-  //DECL_VLA_PTR_PT    (T,             inp,      [CP][ifhp][ifwp][bc], t_I);
+#ifndef THREADED_LOOPS
   DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
   DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_W);
   DECL_VLA_PTR_PT    (float,         beta,     [bc],                 t_B);
@@ -108,6 +92,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],      scratch);
   DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],       scratch, sum_N_offset);
   DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],       scratch, sumsq_N_offset);
+#endif
 
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
 
@@ -125,9 +110,61 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
   auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 
+#ifdef THREADED_LOOPS
+  char ncp_loop_specs_str[256] = "AB";
+  const long n_step = 1, cp_step = 1;
+  auto ncp_loop = ThreadedLoop<2>({
+      LoopSpecs{0, N,  n_step,  {/*l1_k_step, l0_k_step*/}},   // Logical N  loop specs
+      LoopSpecs{0, CP, cp_step, {/*l1_n_step, l0_n_step*/}}},  // Logical CP loop specs
+      ncp_loop_specs_str);
+
+  char cp_loop_specs_str[256] = "A";
+  auto cp_loop = ThreadedLoop<1>({
+      LoopSpecs{0, CP, cp_step, {/*l1_k_step, l0_k_step*/}}},  // Logical CP loop specs
+      cp_loop_specs_str);
+#endif
+
   {
     RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
     {
+#ifdef THREADED_LOOPS
+      ncp_loop(
+          [&](int *ind) {
+            const int n = ind[0], cp = ind[1];
+
+            DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+            DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],             scratch);
+            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              scratch, sum_N_offset);
+            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              scratch, sumsq_N_offset);
+
+            zero_tpp(sum_N  [cp][n]);
+            zero_tpp(sumsq_N[cp][n]);
+
+            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
+
+            if (!use_hw_blocking) {
+              for (int hi = 0; hi < H; hi++) {
+                for (int w = 0; w < W; w += spatial_block_size) {
+                  reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
+                  helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
+                  helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                }
+              }
+              //printf("First part of parallel for is not implemented for w blocking\n");
+              //exit(-1);
+            } else {
+              for(int hwb=0; hwb < num_HW_blocks; hwb++){
+                int hi = (hwb*(H*W/num_HW_blocks))/W;
+                int w  = (hwb*(H*W/num_HW_blocks))%W;
+                reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
+                helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
+                helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+              }
+            }
+          },
+          [&]() {},
+          [&]() {});
+#else /* THREADED_LOOPS */
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int n = 0; n < N; n++) {
@@ -159,12 +196,37 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           }
         } /* end of cp loop */
       } /* end of n loop */
+#endif /* THREADED_LOOPS */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_fwd_reduce scope */
 
   {
     RECORD_SCOPE(bn_fwd_stats, {});
     {
+#ifdef THREADED_LOOPS
+      cp_loop(
+        [&](int *ind) {
+          const int cp = ind[0];
+
+          DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc], scratch);
+          DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],  scratch, sum_N_offset);
+          DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],  scratch, sumsq_N_offset);
+          DECL_VLA_PTR_PT    (float, mean,     [bc],     t_M);
+          DECL_VLA_PTR_PT    (float, var,      [bc],     t_V);
+
+          zero_tpp(sum_X_X2[0][cp]);
+          zero_tpp(sum_X_X2[1][cp]);
+
+          for(int ni = 0; ni < N; ni++){
+            helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
+            helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
+          }
+
+          mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);
+        },
+        [&]() {},
+        [&]() {});
+#else /* THREADED_LOOPS */
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
       for (int cp = 0; cp < CP; cp++) {
@@ -179,12 +241,97 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
         mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);
 
       } /* end of cp loop */
+#endif /* THREADED_LOOPS */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_fwd_stats scope */
 
   {
     RECORD_SCOPE(bn_fwd_scale, {});
     {
+#ifdef THREADED_LOOPS
+      ncp_loop(
+          [&](int *ind) {
+            const int n = ind[0], cp = ind[1];
+
+            DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+            DECL_VLA_PTR_PT_EXT(T,             inp_add,  [CP][ifhp][ifwp][bc], t_IA, (hi_start * ifwp + wi_start) * bc);
+            DECL_VLA_PTR_PT    (T,             out,      [CP][ofhp][ofwp][bc], t_O);
+            DECL_VLA_PTR_PT    (unsigned char, relumask, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_relu_mask);
+
+            DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_W);
+            DECL_VLA_PTR_PT    (float,         beta,     [bc],                 t_B);
+
+            DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_M);
+            DECL_VLA_PTR_PT    (float,         var,      [bc],     t_V);
+
+            LIBXSMM_ALIGNED(float s[bc], 64);
+            LIBXSMM_ALIGNED(float b[bc], 64);
+
+            coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
+
+            /*
+            if (n == 1 && cp == 0) {
+              for (int j = 0; j < 10; j++)
+                printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
+            }
+            */
+
+          if (!use_hw_blocking) {
+            if (pad_h_out != 0) {
+              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, 0, 0, 0, CP, ofhp, ofwp, bc);
+              //cfg.all_zero_hp_kernel(&all_zero_param);
+              zero_hp_tpp(out[n][cp][0][0]);
+            }
+            for (int hi = 0, ho = ho_start; hi < H; hi++, ho++) {
+              /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
+              if (pad_w_out != 0) {
+                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, 0, 0, CP, ofhp, ofwp, bc);
+                //cfg.all_zero_wp_kernel(&all_zero_param);
+                zero_wp_tpp(out[n][cp][ho][0]);
+              }
+              for (int wb = 0; wb < num_W_blocks; wb++) {
+                //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
+                normalize_tpp(inp[n][cp][hi][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[cp], beta[cp],
+                                eltwise ? inp_add[n][cp][hi][wb*(W/num_W_blocks)] : NULL,
+                                out[n][cp][ho][wo_start + wb*(W/num_W_blocks)],
+                                relu ? relumask[n][cp][ho][wo_start + wb*(W/num_W_blocks)] : NULL);
+              }
+              /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
+              if (pad_w_out != 0) {
+                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_end, 0, CP, ofhp, ofwp, bc);
+                //cfg.all_zero_wp_kernel(&all_zero_param);
+                zero_wp_tpp(out[n][cp][ho][wo_end]);
+              }
+            }
+            //printf("Third part of parallel for is not implemented for w blocking\n");
+            //exit(-1);
+            /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
+            if (pad_h_out != 0) {
+              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
+              //cfg.all_zero_hp_kernel(&all_zero_param);
+              zero_hp_tpp(out[n][cp][ho_end][0]);
+            }
+
+          } else {
+            for(int hwb = 0; hwb < num_HW_blocks; hwb++){
+              int hi = (hwb*(H*W/num_HW_blocks))/W;
+              int ho = hi;
+              int w  = (hwb*(H*W/num_HW_blocks))%W;
+
+              /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
+              //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
+              normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
+                              eltwise ? inp_add[n][cp][hi][w] : NULL,
+                              out[n][cp][ho][w],
+                              relu ? relumask[n][cp][ho][w] : NULL);
+            }
+          } /* if-else for the presence of padding */
+
+          },
+          [&]() {},
+          [&]() {});
+
+#else /* THREADED_LOOPS */
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int n = 0; n < N; n++) {
@@ -252,6 +399,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           } /* if-else for the presence of padding */
         } /* end of cp loop */
       } /* end of n loop */
+#endif /* THREADED_LOOPS */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_fwd_scale scope */
 
