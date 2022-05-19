@@ -77,6 +77,10 @@ inline void omp_reduce_buf(
 }
 */
 
+#ifndef BITS_PER_CHAR
+#   define BITS_PER_CHAR (8)
+#endif
+
 std::vector<at::Tensor> batchnorm_fwd(
     bool  training,
     bool  relu,

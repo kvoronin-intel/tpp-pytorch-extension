@@ -51,15 +51,31 @@ class DummyBatchNormFunction(torch.autograd.Function):
         ctx.eps     = eps
         ctx.padding = padding
 
+        padding = ctx.padding
+        print("debug: input shape, output shape = ", input.shape, output.shape)
+        if ctx.padding[0] != 0:
+            [N, CP, ifhp, ifwp, bc] = input.shape
+            shift_input  = (padding[0] * ifwp + padding[1])*bc - 5
+            [N, CP, ofhp, ofwp, bc] = output.shape
+            shift_output = (padding[2] * ofwp + padding[3])*bc - 5
+            print("shift_input shift_output = ", shift_input, shift_output)
+        else:
+            shift_input  = 0
+            shift_output = 0
+
         print("debug: fwd relu eltwise eps = ", relu, eltwise, eps)
         for i in range(10):
-            print("debug: i fwd input      = ", i, input.view(-1)[i].item())
+            ind = i + shift_input
+            print("debug: i fwd input      = ", ind, input.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i fwd mean       = ", i, mean.view(-1)[i].item())
+            ind = i + 0
+            print("debug: i fwd mean       = ", ind, mean.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i fwd var        = ", i, var.view(-1)[i].item())
+            ind = i + 0
+            print("debug: i fwd var        = ", ind, var.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i fwd output     = ", i, output.view(-1)[i].item())
+            ind = i + shift_output
+            print("debug: i fwd output     = ", ind, output.view(-1)[ind].item())
 
         # print("Returning from DummyBatchNormFunction FWD")
         return output
@@ -74,18 +90,37 @@ class DummyBatchNormFunction(torch.autograd.Function):
         (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
 
         (input, input_add, weight, mean, var, invstd, relu_mask, output) = ctx.saved_tensors
+
+        padding = ctx.padding
+        print("debug: input shape, grad_input shape = ", input.shape, grad_input.shape)
+        if ctx.padding[0] != 0:
+            [N, CP, ifhp, ifwp, bc] = input.shape
+            shift_input  = (padding[0] * ifwp + padding[1])*bc - 5
+            [N, CP, ofhp, ofwp, bc] = output.shape
+            shift_output = (padding[2] * ofwp + padding[3])*bc - 5
+            print("shift_input shift_output = ", shift_input, shift_output)
+        else:
+            shift_input  = 0
+            shift_output = 0
+
         for i in range(10):
-            print("debug: i bwd grad_output      = ", i, grad_outs[0].view(-1)[i].item())
+            ind = i + shift_output
+            print("debug: ind bwd grad_output      = ", ind, grad_outs[0].view(-1)[ind].item())
         for i in range(10):
-            print("debug: i bwd input            = ", i, input.view(-1)[i].item())
+            ind = i + shift_input
+            print("debug: ind bwd input            = ", ind, input.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i bwd weight           = ", i, weight.view(-1)[i].item())
+            ind = i + 0
+            print("debug: ind bwd weight           = ", ind, weight.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i bwd grad_input       = ", i, grad_input.view(-1)[i].item())
+            ind = i + shift_input
+            print("debug: ind bwd grad_input       = ", ind, grad_input.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i bwd grad_weight      = ", i, grad_weight.view(-1)[i].item())
+            ind = i + 0
+            print("debug: ind bwd grad_weight      = ", ind, grad_weight.view(-1)[ind].item())
         for i in range(10):
-            print("debug: i bwd grad_bias        = ", i, grad_bias.view(-1)[i].item())
+            ind = i + 0
+            print("debug: ind bwd grad_bias        = ", ind, grad_bias.view(-1)[ind].item())
 
         # print("Returning from DummyBatchNormFunction BWD")
         return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None)
@@ -172,6 +207,8 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
           self.N = N
           self.Cblock = batchnorm_cpp.batchnorm_get_c_block(self.C)
 
+        print("input shape = ", input.shape)
+
         blocked_input = self.get_blocked_tensor(
             input,
             self.blocked_input_signature,
@@ -195,6 +232,8 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         else:
             inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
+
+        print("blocked_input shape = ", blocked_input.shape)
 
         output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, *inputs) #output_size, *inputs)
 
