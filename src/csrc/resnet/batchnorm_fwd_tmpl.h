@@ -129,41 +129,41 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
     {
 #ifdef THREADED_LOOPS
       ncp_loop(
-          [&](int *ind) {
-            const int n = ind[0], cp = ind[1];
+        [&](int *ind) {
+          const int n = ind[0], cp = ind[1];
 
-            DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
-            DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],             scratch);
-            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              scratch, sum_N_offset);
-            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              scratch, sumsq_N_offset);
+          DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+          DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],             scratch);
+          DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              scratch, sum_N_offset);
+          DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              scratch, sumsq_N_offset);
 
-            zero_tpp(sum_N  [cp][n]);
-            zero_tpp(sumsq_N[cp][n]);
+          zero_tpp(sum_N  [cp][n]);
+          zero_tpp(sumsq_N[cp][n]);
 
-            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
+          LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
 
-            if (!use_hw_blocking) {
-              for (int hi = 0; hi < H; hi++) {
-                for (int w = 0; w < W; w += spatial_block_size) {
-                  reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-                  helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-                  helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
-                }
-              }
-              //printf("First part of parallel for is not implemented for w blocking\n");
-              //exit(-1);
-            } else {
-              for(int hwb=0; hwb < num_HW_blocks; hwb++){
-                int hi = (hwb*(H*W/num_HW_blocks))/W;
-                int w  = (hwb*(H*W/num_HW_blocks))%W;
+          if (!use_hw_blocking) {
+            for (int hi = 0; hi < H; hi++) {
+              for (int w = 0; w < W; w += spatial_block_size) {
                 reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
                 helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
                 helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
               }
             }
-          },
-          [&]() {},
-          [&]() {});
+            //printf("First part of parallel for is not implemented for w blocking\n");
+            //exit(-1);
+          } else {
+            for(int hwb=0; hwb < num_HW_blocks; hwb++){
+              int hi = (hwb*(H*W/num_HW_blocks))/W;
+              int w  = (hwb*(H*W/num_HW_blocks))%W;
+              reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
+              helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
+              helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+            }
+          }
+        },
+        [&]() {},
+        [&]() {});
 #else /* THREADED_LOOPS */
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -250,31 +250,29 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
     {
 #ifdef THREADED_LOOPS
       ncp_loop(
-          [&](int *ind) {
-            const int n = ind[0], cp = ind[1];
+        [&](int *ind) {
+          const int n = ind[0], cp = ind[1];
 
-            DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
-            DECL_VLA_PTR_PT_EXT(T,             inp_add,  [CP][ifhp][ifwp][bc], t_IA, (hi_start * ifwp + wi_start) * bc);
-            DECL_VLA_PTR_PT    (T,             out,      [CP][ofhp][ofwp][bc], t_O);
-            DECL_VLA_PTR_PT    (unsigned char, relumask, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_relu_mask);
+          DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+          DECL_VLA_PTR_PT_EXT(T,             inp_add,  [CP][ifhp][ifwp][bc], t_IA, (hi_start * ifwp + wi_start) * bc);
+          DECL_VLA_PTR_PT    (T,             out,      [CP][ofhp][ofwp][bc], t_O);
+          DECL_VLA_PTR_PT    (unsigned char, relumask, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_relu_mask);
+          DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_W);
+          DECL_VLA_PTR_PT    (float,         beta,     [bc],                 t_B);
+          DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_M);
+          DECL_VLA_PTR_PT    (float,         var,      [bc],     t_V);
 
-            DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_W);
-            DECL_VLA_PTR_PT    (float,         beta,     [bc],                 t_B);
+          LIBXSMM_ALIGNED(float s[bc], 64);
+          LIBXSMM_ALIGNED(float b[bc], 64);
 
-            DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_M);
-            DECL_VLA_PTR_PT    (float,         var,      [bc],     t_V);
+          coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
 
-            LIBXSMM_ALIGNED(float s[bc], 64);
-            LIBXSMM_ALIGNED(float b[bc], 64);
-
-            coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
-
-            /*
-            if (n == 1 && cp == 0) {
-              for (int j = 0; j < 10; j++)
-                printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
-            }
-            */
+          /*
+          if (n == 1 && cp == 0) {
+            for (int j = 0; j < 10; j++)
+              printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
+          }
+          */
 
           if (!use_hw_blocking) {
             if (pad_h_out != 0) {
@@ -326,11 +324,9 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                               relu ? relumask[n][cp][ho][w] : NULL);
             }
           } /* if-else for the presence of padding */
-
-          },
-          [&]() {},
-          [&]() {});
-
+        },
+        [&]() {},
+        [&]() {});
 #else /* THREADED_LOOPS */
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
