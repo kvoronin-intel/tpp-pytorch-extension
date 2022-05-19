@@ -5288,7 +5288,6 @@ class FusedAdamStepTPP {
   friend class Eqn;
 };
 
-////////////////////////////////////
 template <typename Tin, typename Tout>
 class ReduceColsTPP {
  public:
@@ -5332,6 +5331,7 @@ class ReduceColsTPP {
   UnaryTPP kernel;
 };
 
+/* Computes mean and var (per channel) from the arrays with sum and sum of squares (per channel) */
 template <typename Tin, typename Tout = Tin>
 class MeanVarTPP {
  private:
@@ -5342,13 +5342,13 @@ class MeanVarTPP {
   MeanVarTPP(int N, Tout scale)
       : N(N),
         scale(scale) {}
-  void operator()(Tin* in0, Tin* in1, Tout* out1, Tout *out2) {
-    ref(in0, in1, out1, out2);
+  void operator()(Tin* sum_x, Tin* sumsq_x, Tout* mean, Tout *var) {
+    ref(sum_x, sumsq_x, mean, var);
   }
-  void ref(Tin* in0, Tin* in1, Tout* out1, Tout* out2) {
+  void ref(Tin* sum_x, Tin* sumsq_x, Tout* mean, Tout *var) {
     for(int i = 0; i < N; i++){
-      out1[i] = (float)in0[i] * (float)scale;                          /* mean ~ E[X] */
-      out2[i] = (float)in1[i] * (float)scale - out1[i] * out1[i];      /* var         */
+      mean[i] = (float)sum_x  [i] * (float)scale;                          /* mean ~ E[X] */
+      var[i]  = (float)sumsq_x[i] * (float)scale - mean[i] * mean[i];      /* var         */
     }
   }
 };
@@ -5461,24 +5461,8 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     kernel(&eqn_param);
   }
   void ref(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
-    printf("ref() not implemented\n");
+    printf("ref() not implemented for BatchNormFwdScaleTPP\n");
     exit(-1);
-    /*
-    auto dwt = (libxsmm_bfloat16*)grad;
-    auto out_hi = (libxsmm_bfloat16*)hi;
-    auto out_lo = (libxsmm_bfloat16*)lo;
-    for (int i = 0; i < N; i++) {
-      union libxsmm_bfloat16_hp bf16_hp;
-      union libxsmm_bfloat16_hp bf16_wt;
-      bf16_wt.i[0] = 0;
-      bf16_wt.i[1] = dwt[i];
-      bf16_hp.i[0] = out_lo[i];
-      bf16_hp.i[1] = out_hi[i];
-      bf16_hp.f = bf16_wt.f * lr + bf16_hp.f;
-      out_lo[i] = bf16_hp.i[0];
-      out_hi[i] = bf16_hp.i[1];
-    }
-    */
   }
 
  protected:
@@ -5504,11 +5488,11 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     memset( &binary_shape, 0, sizeof(libxsmm_meltw_binary_shape));
 
     libxsmm_meqn_arg_shape        eqn_out_arg_shape;
-    libxsmm_meqn_arg_shape        arg_shape;//[128];
+    libxsmm_meqn_arg_shape        arg_shape;
     libxsmm_matrix_arg_attributes arg_singular_attr;
 
-    libxsmm_matrix_eqn_arg_metadata arg_metadata;//[128];
-    libxsmm_matrix_eqn_op_metadata  op_metadata;//[128] ;
+    libxsmm_matrix_eqn_arg_metadata arg_metadata;
+    libxsmm_matrix_eqn_op_metadata  op_metadata;
 
     arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
 
@@ -5565,12 +5549,6 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     arg_metadata.in_arg_pos  = 0;
     arg_shape.m    = m;                                      /* x = [HW, bc] */
     arg_shape.n    = n;
-    /*
-    if (res.use_hw_blocking == 0)
-      arg_shape.n  = res.W /res.num_W_blocks;
-    else
-      arg_shape.n  = res.H*res.W /res.num_HW_blocks;
-    */
     arg_shape.ld   = ld;
     arg_shape.type = datatype_in;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
@@ -5596,12 +5574,6 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       arg_metadata.in_arg_pos  = 5;
       arg_shape.m    = m;                                      /* inp_add = [HW, bc] */
       arg_shape.n    = n;
-      /*
-      if (res.use_hw_blocking == 0)
-        arg_shape.n  = res.W /res.num_W_blocks;
-      else
-        arg_shape.n  = res.H*res.W / res.num_HW_blocks;
-      */
       arg_shape.ld   = ld;
       arg_shape.type = datatype_in;
       libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
@@ -5609,12 +5581,6 @@ class BatchNormFwdScaleTPP : public BaseTPP {
 
     eqn_out_arg_shape.m    = m;                                 /* y = [HW, bc] */
     eqn_out_arg_shape.n    = n;
-    /*
-    if (res.use_hw_blocking == 0)
-      eqn_out_arg_shape.n  = res.W /res.num_W_blocks;
-    else
-      eqn_out_arg_shape.n  = res.H*res.W / res.num_HW_blocks;
-    */
     eqn_out_arg_shape.ld   = ld;
     eqn_out_arg_shape.type = datatype_out;
 
@@ -5845,17 +5811,16 @@ class BatchNormBwdWTPP {
       return res;
   }
 
-  libxsmm_dnn_bn_fuse fuse_type      = LIBXSMM_DNN_BN_FUSE_NONE;
  private:
   int m = 0;
   int n = 0;
+  libxsmm_dnn_bn_fuse fuse_type      = LIBXSMM_DNN_BN_FUSE_NONE;
   Eqn eqn_dgamma, eqn_dbeta;
   UnaryTPP ewise_copy_kernel;
   UnaryTPP inv_relu_kernel;
   friend class Eqn;
 
  public:
-  BatchNormBwdWTPP() {}
   BatchNormBwdWTPP(int M, int N, bool relu, bool eltwise)
       : m(M),
         n(N),
@@ -5877,52 +5842,6 @@ class BatchNormBwdWTPP {
             (relu ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE),
             LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {
     fuse_type = set_fuse_type(relu, eltwise);
-#if 0
-    libxsmm_datatype datatype_in   = XsmmDtype<Tin>();
-    libxsmm_datatype datatype_out  = XsmmDtype<Tout>();
-    libxsmm_datatype datatype_comp = LIBXSMM_DATATYPE_F32;
-
-    libxsmm_meltw_unary_shape  unary_shape;
-    libxsmm_meltw_binary_shape binary_shape;
-
-    libxsmm_bitfield unary_flags;
-    libxsmm_bitfield binary_flags;
-    libxsmm_bitfield ternary_flags;
-
-    memset( &unary_shape,  0, sizeof(libxsmm_meltw_unary_shape));
-    memset( &binary_shape, 0, sizeof(libxsmm_meltw_binary_shape));
-
-    libxsmm_meqn_arg_shape        eqn_out_arg_shape;
-    libxsmm_meqn_arg_shape        arg_shape;//[128];
-    libxsmm_matrix_arg_attributes arg_singular_attr;
-
-    libxsmm_matrix_eqn_arg_metadata arg_metadata;//[128];
-    libxsmm_matrix_eqn_op_metadata  op_metadata;//[128] ;
-
-    arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
-
-    libxsmm_blasint ldo = m;
-
-    if (fuse_type == 1 || fuse_type == 3 || fuse_type == 4 || fuse_type == 5) {
-      unary_shape     = libxsmm_create_meltw_unary_shape(m, n, ldo, ldo, datatype_in, datatype_out, datatype_comp);
-      unary_flags     = ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE);
-      inv_relu_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_RELU_INV, unary_shape, unary_flags);
-      if ( inv_relu_kernel == NULL ) {
-        fprintf( stderr, "JIT for TPP bwd inv_relu_kernel failed. Bailing...!\n");
-        exit(-1);
-      }
-    }
-
-    if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
-      unary_shape       = libxsmm_create_meltw_unary_shape(m, n, ldo, ldo, datatype_in, datatype_out, datatype_comp);
-      unary_flags       = LIBXSMM_MELTW_FLAG_UNARY_NONE;
-      ewise_copy_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, unary_shape, unary_flags);
-      if ( res.ewise_copy_kernel == NULL) {
-        fprintf( stderr, "JIT for TPP bwd ewise_copy_kernel failed. Bailing...!\n");
-        exit(-1);
-      }
-    }
-#endif
   }
 
   void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask) {
@@ -5939,14 +5858,6 @@ class BatchNormBwdWTPP {
       fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
       if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
         const float alpha = 0.0f;
-#if 0
-        all_relu_param.op.primary   = (void*)(&alpha);
-        all_relu_param.in.primary   = (void*)dout;
-        all_relu_param.in.secondary = ((fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ?
-                                         (void*)relumask : NULL );
-        all_relu_param.out.primary  = (void*)dout;      /* [HW,bc] */
-        inv_relu_kernel(&all_relu_param);
-#endif
 
         inv_relu_kernel((void*)dout, (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) ? (void*)relumask : NULL, NULL /*in.tertiary*/,
                         (void*)&alpha, NULL, NULL, /* op primary, secondary, tertiary */
@@ -5970,7 +5881,7 @@ class BatchNormBwdWTPP {
 
   }
   void ref(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask) {
-    printf("ref() not implemented\n");
+    printf("ref() not implemented for BatchNormBwdWTPP\n");
     exit(-1);
   }
 
@@ -6010,7 +5921,7 @@ class BatchNormBwdDTPP : public BaseTPP {
     kernel(&eqn_param);
   }
   void ref(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din) {
-    printf("ref() not implemented\n");
+    printf("ref() not implemented BatchNormBwdDTPP\n");
     exit(-1);
   }
 
@@ -6026,15 +5937,7 @@ class BatchNormBwdDTPP : public BaseTPP {
     libxsmm_datatype datatype_out  = XsmmDtype<Tout>();
     libxsmm_datatype datatype_comp = LIBXSMM_DATATYPE_F32;
 
-    libxsmm_meltw_unary_shape  unary_shape;
-    libxsmm_meltw_binary_shape binary_shape;
-
-    libxsmm_bitfield unary_flags;
-    libxsmm_bitfield binary_flags;
     libxsmm_bitfield ternary_flags;
-
-    memset( &unary_shape,  0, sizeof(libxsmm_meltw_unary_shape));
-    memset( &binary_shape, 0, sizeof(libxsmm_meltw_binary_shape));
 
     libxsmm_meqn_arg_shape        eqn_out_arg_shape;
     libxsmm_meqn_arg_shape        arg_shape;//[128];

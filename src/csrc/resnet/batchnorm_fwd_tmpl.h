@@ -133,7 +133,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           const int n = ind[0], cp = ind[1];
 
           DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
-          DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],             scratch);
           DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              scratch, sum_N_offset);
           DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              scratch, sumsq_N_offset);
 
