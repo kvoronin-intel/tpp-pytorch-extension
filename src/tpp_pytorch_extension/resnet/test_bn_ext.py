@@ -61,7 +61,6 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
     torch.manual_seed(0)
     if test_module == 'cnn_tpp':
         print("info: testing TPP module from CNN (pcl_cgbp)")
-        print("info: testing TPP module from extensions (pcl_pytorch_extension)")
         if opt_padding != None:
             print("Error: Python side of batchnorm in cnn_tpp does not support padding")
             exit()
