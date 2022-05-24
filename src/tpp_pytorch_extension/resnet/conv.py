@@ -56,7 +56,11 @@ class DummyConvTPP(Function):
           grad_input    = None
           [grad_weight] = conv_cpp.conv_bwd(param_struct, inputs) #handle.handle, grad_output, input, weight)
 
-        return (grad_input, grad_weight)
+        for i in range(10):
+            ind = i + 0
+            print("debug: ind bwd grad_weight      = ", ind, grad_weight.view(-1)[ind].item())
+
+        return (None, grad_input, grad_weight)
 
 class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
     r"""PCL Conv2d module for using libxsmm Conv TPP"""

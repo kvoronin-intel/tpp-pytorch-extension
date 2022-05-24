@@ -23,7 +23,9 @@ static int my_rank = guess_mpi_rank();
 #   include "threaded_loops.h"
 #endif
 
-REGISTER_SCOPE(conv_fwd, "conv_fwd");
+REGISTER_SCOPE(conv_fwd,     "conv_fwd");
+
+REGISTER_SCOPE(conv_bwd_upd, "conv_bwd_upd");
 
 /* Has the conv_config and all setters */
 #include "conv_setup.h"

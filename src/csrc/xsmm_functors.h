@@ -6021,6 +6021,55 @@ class BatchNormBwdDTPP : public BaseTPP {
   }
 };
 
+/* Unlike ReduceAddColTPP, accumulates to the prescribed datatype and not always to float */
+template <typename Tin, typename Tout>
+class ReduceAddColExtTPP {
+ public:
+  ReduceAddColExtTPP() {}
+  ReduceAddColExtTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        reduce(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD) {}
+  void operator()(Tin* in, Tout* out) {
+    reduce(in, out);
+  }
+  void ref(Tin* in, Tout* out) {
+    for (int c = 0; c < cols; c++) {
+      float acc = 0.0;
+      for (int r = 0; r < rows; r++) {
+        if (sizeof(Tin) == 4)
+          acc += (float)in[r * ldi + c];
+        else if (sizeof(Tin) == 2) {
+          float tmp = 0.0;
+          libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&in[r * ldi + c]), &tmp, 1);
+          acc += tmp;
+        } else {
+          printf("Other datatypes are not supported in ref() of ReduceAddColExtTPP\n");
+        }
+      }
+      out[c] = acc;
+    }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi, ldo;
+
+  UnaryTPP reduce;
+};
+
 }; // namespace pcl
 
 #endif // _XSMM_FUNCTORS_H_
