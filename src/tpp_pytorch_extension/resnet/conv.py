@@ -31,8 +31,11 @@ class DummyConvTPP(Function):
         print("debug: conv output shape = ", output.shape)
 
         for i in range(10):
-            ind = i + 0 #shift_output
+            ind = i + 0 #shift_input
             print("debug: i fwd input      = ", ind, input.view(-1)[ind].item())
+        for i in range(10):
+            ind = i + 0 #shift_weight
+            print("debug: i fwd weight     = ", ind, weight.view(-1)[ind].item())
         for i in range(10):
             ind = i + 0 #shift_output
             print("debug: i fwd output     = ", ind, output.view(-1)[ind].item())
@@ -48,7 +51,12 @@ class DummyConvTPP(Function):
         inputs += ctx.saved_tensors
 
         input, weight = ctx.saved_tensors
+        grad_output, = grad_outs
         param_struct = ctx.param_struct
+
+        for i in range(10):
+            ind = i + 0 #shift_weight
+            print("debug: i bwd weight before = ", ind, weight.view(-1)[ind].item())
 
         if input.requires_grad:
           grad_input, grad_weight = conv_cpp.conv_bwd(param_struct, inputs) #grad_output, input, weight)
@@ -57,8 +65,22 @@ class DummyConvTPP(Function):
           [grad_weight] = conv_cpp.conv_bwd(param_struct, inputs) #handle.handle, grad_output, input, weight)
 
         for i in range(10):
-            ind = i + 0
-            print("debug: ind bwd grad_weight      = ", ind, grad_weight.view(-1)[ind].item())
+            ind = i + 0 #shift_output
+            print("debug: i bwd input        = ", ind, input.view(-1)[ind].item())
+        for i in range(10):
+            ind = i + 0 #shift_weight
+            print("debug: i bwd weight       = ", ind, weight.view(-1)[ind].item())
+        for i in range(10):
+            ind = i + 0 #shift_grad_output
+            print("debug: i bwd gradout      = ", ind, grad_output.view(-1)[ind].item())
+
+        if input.requires_grad:
+            for i in range(10):
+                ind = i + 0 #shift_grad_weight
+                print("debug: ind bwd grad_input = ", ind, grad_input.view(-1)[ind].item())
+        for i in range(10):
+            ind = i + 0 #shift_weight
+            print("debug: i bwd weight       = ", ind, weight.view(-1)[ind].item())
 
         return (None, grad_input, grad_weight)
 
