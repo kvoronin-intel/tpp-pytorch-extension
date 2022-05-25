@@ -203,6 +203,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         ind = i # + (output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2]) - 5 if opt_padding != None else i
         print("ind opt_y_fp32 ref_y_fp32 = ", ind, opt_y_fp32.view(-1)[ind].item(), ref_y_fp32.view(-1)[ind].item())
 
+    for i in range(10):
+        ind = i # + (output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2]) - 5 if opt_padding != None else i
+        print("ind opt_x_grad ref_x_grad = ", ind, opt_x_grad.view(-1)[ind].item(), ref_x_grad.view(-1)[ind].item())
+
     """
     if ref_dtype == torch.bfloat16:
         ref_x_grad = x2.grad.to(torch.float)
@@ -226,7 +230,7 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
     xgrad_rel_norm_diff = (opt_x_grad - ref_x_grad).norm(2) / (opt_x_grad.norm(2))
     if xgrad_rel_norm_diff > 3.0e-6:
         print("warning, xgrad_rel_norm diff is too large, ", xgrad_rel_norm_diff)
-    print("(opt_x_grad - ref_x_grad).norm(2) / opt_x_grad.norm                                         = ", (opt_x_grad - ref_x_grad).norm(2) / (opt_x_grad.norm(2)))
+    print("(opt_x_grad - ref_x_grad).norm(2) / ref_x_grad.norm                                         = ", (opt_x_grad - ref_x_grad).norm(2) / (ref_x_grad.norm(2)))
     print("(opt_x_grad - ref_x_grad).abs().norm(inf)                                                   = ", (opt_x_grad - ref_x_grad).norm(p=float('inf')))
 
     # X add gradient
@@ -260,6 +264,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
     else:
         opt_weight_grad_unblocked = opt_weight_grad
     #print("opt_weight_grad_unblocked shape = ", opt_weight_grad_unblocked.shape)
+
+    for i in range(10):
+        ind = i
+        print("ind opt_weight_grad ref_weight_grad = ", ind, opt_weight_grad_unblocked.view(-1)[ind].item(), ref_weight_grad.view(-1)[ind].item())
 
     print("X Wt Allclose: ", ref_weight_grad.allclose(opt_weight_grad_unblocked, rtol=1e-5, atol=1e-6))
 
