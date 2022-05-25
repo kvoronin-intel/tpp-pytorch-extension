@@ -27,6 +27,8 @@ REGISTER_SCOPE(conv_fwd,     "conv_fwd");
 
 REGISTER_SCOPE(conv_bwd_upd, "conv_bwd_upd");
 
+REGISTER_SCOPE(conv_bwd_d,   "conv_bwd_d");
+
 /* Has the conv_config and all setters */
 #include "conv_setup.h"
 
@@ -78,9 +80,9 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
   //libxsmm_blasint bk      = K_BLOCK_SIZE;       /* hardcoded for now */
   libxsmm_blasint threads = (libxsmm_blasint)omp_get_max_threads();
 
-  /*printf("debug: calling conv_setup_new with tensor N H W C K R S padding stride bc bk: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+  printf("debug: calling conv_setup_new with tensor N H W C K R S padding stride bc bk: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
                                                                                           N, H, W, C, K, R, S,
-                                                                                          pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, bc, bk);*/
+                                                                                          pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, bc, bk);
 
   libxsmm_dnn_conv_eltwise_fuse fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_NONE; /* FIXME: to be changed later? */
 
@@ -152,15 +154,5 @@ REGISTER_SUBMODULE(_conv, m) {
   .def(py::init<>());
   //.def_readwrite("initialized", &conv_config::initialized);
   m.def("conv_setup", &conv_setup, "Pcl CONV setup (params)");
-
-/*
-  .def_readwrite("pad_h",       &conv_params::pad_h)
-  .def_readwrite("pad_w",       &conv_params::pad_w)
-  .def_readwrite("pad_h_in",    &conv_params::pad_h_in)
-  .def_readwrite("pad_w_in",    &conv_params::pad_w_in)
-  .def_readwrite("pad_h_out",   &conv_params::pad_h_out)
-  .def_readwrite("pad_w_out",   &conv_params::pad_w_out)
-*/
-
 }
 

@@ -42,6 +42,8 @@ std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb <<
 
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
+//return std::vector<at::Tensor>({t_O});
+
 /*
 class BrgemmTPP {
  public:
@@ -80,28 +82,37 @@ class BrgemmTPP {
 
 {
 
+  auto gemm_n = ofw;
+  auto gemm_m = bk;
+  auto gemm_k = bc;
+
+  std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+
+  //void *brgemm_tpp, *zero_tpp;
+
+  //ScopedTPP<BrgemmTPP<T, T>, 0> brgemm_tpp, brgemm2_tpp;
+  //ScopedTPP<SetZeroTPP<T>, 0> zero_tpp;
+  SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
+
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
   if ((R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1)) {
+    //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
+    //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
+    //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ifhp*ifwp*sizeof(DType), Cb_step );
+    //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+    //l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n-1, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
+    //brgemm_kernel2.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+
+    //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
+    //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+    zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   } else {
     std::cout << "This case has not been implemented as it requires support for brgemm with LIBXSMM_GEMM_BATCH_REDUCE_OFFSET which is absent in the functors" << std::endl;
     exit(-1);
   }
-
-  /* This is in fact what should be moved into the if condition (R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1) above but stays here for simplicity */
-    auto gemm_n = ofw;
-    auto gemm_m = bk;
-    auto gemm_k = bc;
-    std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
-    auto brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
-    auto brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
-
-    //auto brgemm_tpp  = SCOPEIT((ReduceColsTPP<T, T>(bk, bc, bc, bc)), BRGEMM); /* spatial_block_size, bc because of row-major for unary */
-    //auto brgemm2_tpp = SCOPEIT((ReduceColsTPP<T, T>(bk*2, bc, bc, bc)), BRGEMM); /* spatial_block_size, bc because of row-major for unary */
-
-
-  //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
-  //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-  auto zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
 
   long Cb_step = Cb;
   long n_step = 1;
@@ -139,6 +150,7 @@ class BrgemmTPP {
   {
     RECORD_SCOPE(conv_fwd, {});
     {
+//#if 0
       conv_loop(
         [&](int* ind) {
           int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
@@ -227,6 +239,7 @@ class BrgemmTPP {
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
         [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
+//#endif
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_fwd_scale scope */
 
