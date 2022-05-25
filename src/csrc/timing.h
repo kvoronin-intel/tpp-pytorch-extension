@@ -149,6 +149,7 @@ static thread_local std::string prev_class_name = "";
 template <typename T, int impl = 0>
 class ScopedTPP {
  public:
+  ScopedTPP() : func(), t(LAST_TIMER) {}
   ScopedTPP(T func, DebugTimer t) : func(std::move(func)), t(t) {}
   template <typename... Types>
   void operator()(Types... vars) {
@@ -180,13 +181,25 @@ class ScopedTPP {
 
 #if 1
 // Keeping below two definitions for backward compatibility for now
-#define SCOPEITGEMM SCOPEIT
-#define SCOPEITGEMM2 SCOPEIT
+#   define SCOPEITGEMM SCOPEIT
+#   define SCOPEITGEMM2 SCOPEIT
 
-#define SCOPEIT(f, ...) ScopedTPP<decltype(f), 0>(f, ##__VA_ARGS__)
-#define SCOPEIT_REF(f, ...) ScopedTPP<decltype(f), 1>(f, ##__VA_ARGS__)
+#   define SCOPEIT(f, ...) ScopedTPP<decltype(f), 0>(f, ##__VA_ARGS__)
+#   define SCOPEIT_REF(f, ...) ScopedTPP<decltype(f), 1>(f, ##__VA_ARGS__)
+
+#   define SINGLE_ARG(...) __VA_ARGS__
+#   define UNPACK( ... ) __VA_ARGS__
+
+#   define SCOPEITGEMM_DECL(ftpptype, ...) SCOPEIT_DECL(ftpptype, ##__VA_ARGS__)
+#   define SCOPEIT_DECL(ftpptype, ...)    ScopedTPP<ftpptype, ##__VA_ARGS__ , 0>
+#   define SCOPEIT_DECL_REF(ftpptype,...) ScopedTPP<ftpptype, ##__VA_ARGS__ , 1>
+//#   define SCOPEIT_DECL(ftpptype) ScopedTPP<ftpptype, 0>
+//#   define SCOPEIT_DECL_REF(ftpptype) ScopedTPP<ftpptype, 1>
+//#   define SCOPEIT_DECL(ftpptype, ...) ScopedTPP<ftpptype, 0>( ##__VA_ARGS__ )
+//#   define SCOPEIT_DECL_REF(ftpptype, ...) ScopedTPP<ftpptype, 1>( ##__VA_ARGS__ )
+
 #else
-#define SCOPEIT(f, t) f
+#   define SCOPEIT(f, t) f
 #endif
 
 #define RECORD_SCOPE(scope, ...) \

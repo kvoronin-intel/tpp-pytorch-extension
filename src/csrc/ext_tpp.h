@@ -131,6 +131,7 @@ class BrgemmExtTPP {
 template <typename Tin, typename Tout, int impl>
 class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
  public:
+  ScopedTPP() : func() {}
   ScopedTPP(tpp::BrgemmTPP<Tin, Tout> func) : func(std::move(func)) {}
   void operator()(
       Tin* A,
@@ -164,6 +165,7 @@ class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
 template <typename Tin, typename Tout, int impl>
 class ScopedTPP<tpp::BrgemmExtTPP<Tin, Tout>, impl> {
  public:
+  ScopedTPP() : func() {}
   ScopedTPP(tpp::BrgemmExtTPP<Tin, Tout> func) : func(std::move(func)) {}
   void operator()(
       Tin* A,
