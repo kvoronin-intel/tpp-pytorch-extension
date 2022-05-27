@@ -1896,8 +1896,35 @@ class BrgemmTPP {
       : M(M),
         N(N),
         K(K),
+        reduce_offset(false),
         str_a(str_a),
         str_b(str_b),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        unroll_hint(unroll_hint),
+        k_gemm_with_tc(this, 0),
+        k_cfg(this, 1),
+        k_rls(this, 2),
+        k_gemm_no_tc(this, 3) {}
+  BrgemmTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int unroll_hint)
+      : M(M),
+        N(N),
+        K(K),
+        reduce_offset(true),
+        str_a(0),
+        str_b(0),
         lda(lda),
         ldb(ldb),
         ldc(ldc),
@@ -1926,6 +1953,29 @@ class BrgemmTPP {
     gemm_param.c.primary = (void*)C;
     gemm_param.a.primary = (void*)B;
     gemm_param.b.primary = (void*)A;
+    if (!no_tile_cfg) {
+      k_gemm_with_tc(&gemm_param);
+    } else {
+      k_gemm_no_tc(&gemm_param);
+    }
+  }
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    //printf("Calling brgemm, btw reduce_offset = %d M = %d N = %d K = %d lda = %d ldb = %d ldc = %d a_trans = %d \n", reduce_offset, M, N, K, lda, ldb, ldc, a_trans);
+    libxsmm_gemm_param gemm_param;
+    memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
+    gemm_param.op.tertiary = &count;
+    gemm_param.c.primary = (void*)C;
+    gemm_param.a.primary = (void*)B;
+    gemm_param.a.secondary = (void*)B_offsets;
+    gemm_param.b.primary = (void*)A;
+    gemm_param.b.secondary = (void*)A_offsets;
     if (!no_tile_cfg) {
       k_gemm_with_tc(&gemm_param);
     } else {
@@ -1974,6 +2024,18 @@ class BrgemmTPP {
         }
       }
     }
+  }
+
+  void ref(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    printf("ref() not implemented for BrgemmTPP with offsets\n");
+    exit(-1);
   }
 
   long flops() {
@@ -2071,9 +2133,15 @@ class BrgemmTPP {
       l_shape.out_type = XsmmDtype<Tout>();
       l_shape.comp_type = LIBXSMM_DATATYPE_F32;
 
-      l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_STRIDE;
-      l_brconfig.br_stride_a_hint = p->str_b * sizeof(Tin);
-      l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
+      if (p->reduce_offset) {
+        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_OFFSET;
+        l_brconfig.br_stride_a_hint = 0;
+        l_brconfig.br_stride_b_hint = 0;
+      } else {
+        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_STRIDE;
+        l_brconfig.br_stride_a_hint = p->str_b * sizeof(Tin);
+        l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
+      }
       l_brconfig.br_unroll_hint = p->unroll_hint;
 
       l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
@@ -2090,7 +2158,9 @@ class BrgemmTPP {
   };
 
  private:
-  long M, N, K, str_a, str_b;
+  long M, N, K;
+  bool reduce_offset;
+  long str_a, str_b;
   libxsmm_blasint lda;
   libxsmm_blasint ldb;
   libxsmm_blasint ldc;

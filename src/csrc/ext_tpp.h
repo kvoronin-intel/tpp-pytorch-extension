@@ -150,6 +150,25 @@ class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
     }
   }
 
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      long count,
+      bool no_tile_cfg = false) {
+    ScopedTimer _t(BRGEMM, func.flops() * count);
+    if (impl == 0) {
+      func(A, B, C, A_offsets, B_offsets, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, A_offsets, B_offsets, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
+
   void config() {
     func.config();
   }
