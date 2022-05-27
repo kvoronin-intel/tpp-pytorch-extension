@@ -1268,6 +1268,11 @@ LIBXSMM_API conv_config setup_conv_config( libxsmm_datatype cnn_dtype_in, libxsm
     libxsmm_blasint bc, libxsmm_blasint bk, libxsmm_blasint threads, libxsmm_dnn_conv_eltwise_fuse fuse_type, libxsmm_blasint overwrite_output, libxsmm_blasint avoid_bwd_wt_trans, libxsmm_blasint zero_fwd_output_rim) {
   conv_config res;
 
+  /* printf("debug: calling setup_conv_config with N H W C K R S padding stride_h stride_w bc bk: %d %d %d %d %d %d %d | %d %d %d %d %d %d | %d %d | %d %d\n",
+                                                                                    N, H, W, C, K, R, S,
+                                                                                    pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out,
+                                                                                    stride_h, stride_w, bc, bk); */
+
   memset(&res, 0, sizeof(conv_config));
 
   /* init libxsmm */

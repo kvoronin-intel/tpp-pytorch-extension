@@ -38,8 +38,8 @@ int K = Kb * bk;
 
 const long N  = sizes[0];
 const long CP = sizes[1];
-const long H  = sizes[2] - 2 * pad_h_in;
-const long W  = sizes[3] - 2 * pad_w_in;
+//const long H  = sizes[2] - 2 * pad_h_in;
+//const long W  = sizes[3] - 2 * pad_w_in;
 //const long bc = sizes[4];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
@@ -143,7 +143,7 @@ else /* bfloat16 */
   memset((T*)(tmp_scratch[0][0][0][0][0][0]), 0, nThreads*C*K*R*S*sizeof(T));
 
   auto zero_wt_loop = ThreadedLoop<5>({
-      LoopSpecs{0, nThreads, 1, true},
+      LoopSpecs{0, nThreads, 1, false},// true}, 
       LoopSpecs{0, Kb, k_step},
       LoopSpecs{0, Cb, c_step},
       LoopSpecs{0, R, r_step},
@@ -154,17 +154,17 @@ else /* bfloat16 */
   char loop_specs_str[256] = "Abcdefg";
 
   auto conv_bwd_upd_loop = ThreadedLoop<7>({
-      LoopSpecs{0, N, n_step, true},
-      LoopSpecs{0, Cb, c_step, true},
-      LoopSpecs{0, Kb, k_step, true},
+      LoopSpecs{0, N, n_step},//, true},
+      LoopSpecs{0, Cb, c_step},//, true},
+      LoopSpecs{0, Kb, k_step},//, true},
       LoopSpecs{0, ofh, h_step},
       LoopSpecs{0, ofw, w_step},
-      LoopSpecs{0, R, r_step, true},
-      LoopSpecs{0, S, s_step, true}},
+      LoopSpecs{0, R, r_step},//, true},
+      LoopSpecs{0, S, s_step}},//, true}},
       loop_specs_str);
 
   auto reduce_wt_loop = ThreadedLoop<1>({
-      LoopSpecs{0, reduce_work_tripcount, 1, true}},
+      LoopSpecs{0, reduce_work_tripcount, 1, false}},// true}},
       "A");
 
   {
@@ -322,10 +322,20 @@ else /* bfloat16 */
   gemm_k = bk;
 
   std::cout << "gemm_n gemm_m gemm_k for bwd_d = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+  std::cout << "avoid_rim_fmas, non_1x1_with_strides = " << avoid_rim_fmas << " " << non_1x1_with_strides << std::endl;
+
+  std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   //void *zero_tpp, *brgemm_tpp
   decltype(zero_tpp) zero_rim_tpp, zero_all_pixels_tpp, zero_bc_tpp;
   decltype(gemm_as_brgemm_tpp) brgemm_tpp, brgemm2_tpp;
+
+  //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
+  //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+  zero_rim_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp), EW_ZERO);
+  //l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp*ifhp, 1, bc*ifwp*ifhp, bc*ifwp*ifhp, dtype, dtype, dtype);
+  //zero_kernel_all_pixels = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);  
+  zero_all_pixels_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp*ifhp), EW_ZERO);
 
   if ((R == 1 && S == 1) ||
       (avoid_rim_fmas == 1) ||
@@ -333,14 +343,6 @@ else /* bfloat16 */
     //auto gemm_n = ofw;
     //auto gemm_m = bc;
     //auto gemm_k = bk;
-
-    //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
-    //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-    zero_rim_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp), EW_ZERO);
-
-    //l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp*ifhp, 1, bc*ifwp*ifhp, bc*ifwp*ifhp, dtype, dtype, dtype);
-    //zero_kernel_all_pixels = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);  
-    zero_all_pixels_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp*ifhp), EW_ZERO);
 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(bc, 1, bc, bc, dtype, dtype, dtype);
     //zero_kernel_bc = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);  
@@ -356,51 +358,47 @@ else /* bfloat16 */
     brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bk*ofhp*ofwp, R*S*bc*bk, bk, bc, bc*stride_w, 1.0, 0, 0)));//, BRGEMM);
 
   } else {
-    printf("Not implemented (missing support for LIBXSMM_GEMM_BATCH_REDUCE_OFFSET for now \n");
-    exit(-1);
-    //auto gemm_n = ofw;
-    //auto gemm_m = bc;
-    //auto gemm_k = bk;
-    /*
-    auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bc, bk, stride_w*bc, dtype, dtype, dtype, dtype );
-    auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
-    auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_OFFSET, 0, 0, 0 );
-    auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
-    zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-    l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp*ifhp, 1, bc*ifwp*ifhp, bc*ifwp*ifhp, dtype, dtype, dtype);
-    zero_kernel_all_pixels = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);   
-    brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-    */
+    //printf("Not implemented (missing support for LIBXSMM_GEMM_BATCH_REDUCE_OFFSET for now \n");
+    //exit(-1);
+
+    //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bc, bk, stride_w*bc, dtype, dtype, dtype, dtype );
+    //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
+    //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_OFFSET, 0, 0, 0 );
+    //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bk, bc, bc*stride_w, 1.0, 0, 0)));//, BRGEMM);
+
+    A_offsets = std::make_unique<unsigned long long[]>(Kb * R * S);
+    B_offsets = std::make_unique<unsigned long long[]>(Kb * R * S);
+
     // Prepare offset array
-    /*
-    i = 0;
+    unsigned long long i = 0;
     for (long ifm = 0; ifm < Kb_step; ifm++) {
       for (long kj = 0; kj < R; kj++) {
         for (long ki = 0; ki < S; ki++) {
           A_offsets[i] = (ifm * R * S * bc * bk +
               kj * S * bc * bk +
-              ki * bc * bk) * sizeof(DType);
+              ki * bc * bk) * sizeof(T);
           B_offsets[i] = (ifm * ofhp * ofwp * bk +
               kj * ofwp * bk +
-              ki * bk) * sizeof(DType);
+              ki * bk) * sizeof(T);
+          /* printf("A_offsets[%d] = %llu B_offsets[%d] = %llu \n", i, A_offsets[i], i, B_offsets[i]); */
           i++;
         }
       }
-    }
-    */
+    } /* outer loop for filling the offsets */
   }
 
   auto wt_trans_loop = ThreadedLoop<4>({
-      LoopSpecs{0, Kb, 1, true},
-      LoopSpecs{0, Cb, 1, true},
-      LoopSpecs{0, R, 1, true},
-      LoopSpecs{0, S, 1, true}},
+      LoopSpecs{0, Kb, 1, false}, // true},
+      LoopSpecs{0, Cb, 1, false},//, true},
+      LoopSpecs{0, R, 1, false},//, true},
+      LoopSpecs{0, S, 1, false}},//, true}},
       "ABCD");
 
   auto conv_bwd_d_loop = ThreadedLoop<7>({
-      LoopSpecs{0, N, n_step, true},
+      LoopSpecs{0, N, n_step, false},// true},
       LoopSpecs{0, Cb, c_step},
-      LoopSpecs{0, Kb, k_step, true},
+      LoopSpecs{0, Kb, k_step, false},//, true},
       LoopSpecs{0, ofh, h_step},
       LoopSpecs{0, ofw, w_step},
       LoopSpecs{0, R, r_step},
@@ -467,12 +465,36 @@ else /* bfloat16 */
                   zero_rim_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
                 }
               }
+            /*
+            if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+            {
+                for (int i = 0; i < bc; i++)
+                  printf("dinp_off before [off + %d] = %f \n", i, *((float*)(&(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][i]))) );
+            }
+            if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+            {
+                for (int i = 0; i < bk; i++)
+                  printf("gradout[%d] = %f \n", i, *((float*)(&(gradout[i_n][i_k][i_h][i_w][i]))) );
+                for (int i = 0; i < bk; i++)
+                  printf("weight_tr[%d] = %f \n", i, *((float*)(&( weight_tr[i_c][i_k][i_r][i_s][0][i]))) );
+            }
+            */
+
               //brgemm_kernel.gemm( &gemm_param );
               brgemm_tpp(gradout  [i_n][i_k][i_h][i_w],
                          weight_tr[i_c][i_k][i_r][i_s][0],
                          dinp_off [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                         B_offsets.get(), A_offsets.get(),
                          Kb_step * r_step * s_step,
                          true);
+
+            /*
+            if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+            {
+                for (int i = 0; i < bc; i++)
+                  printf("dinp_off[off + %d] = %f \n", i, *((float*)(&(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][i]))) );
+            }
+            */
 
             } else { /* for non_1x1_with_strides == 0 */
               //unsigned long long brcount = Kb_step * r_step * s_step;

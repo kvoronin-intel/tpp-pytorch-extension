@@ -11,6 +11,7 @@ std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 
 int R = cfg.R;
 int S = cfg.S;
+//int ifm = cfg.C;
 int ofh = cfg.ofh;
 int ofw = cfg.ofw;
 int ifhp = cfg.ifhp;
@@ -24,15 +25,15 @@ int stride_w = cfg.v;
 int Cb = cfg.blocksifm;
 int Kb = cfg.blocksofm;
 
-int pad_h_in = cfg.pad_h_in;
-int pad_w_in = cfg.pad_w_in;
+//int pad_h_in = cfg.pad_h_in;
+//int pad_w_in = cfg.pad_w_in;
 int pad_h_out = cfg.pad_h_out;
 int pad_w_out = cfg.pad_w_out;
 
 const long N  = sizes[0];
 const long CP = sizes[1];
-const long H  = sizes[2] - 2 * pad_h_in;
-const long W  = sizes[3] - 2 * pad_w_in;
+//const long H  = sizes[2] - 2 * pad_h_in;
+//const long W  = sizes[3] - 2 * pad_w_in;
 //const long bc = sizes[4];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
@@ -86,9 +87,14 @@ class BrgemmTPP {
   auto gemm_m = bk;
   auto gemm_k = bc;
 
+  long Cb_step = Cb;
+
   std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
 
   //void *brgemm_tpp, *zero_tpp;
+
+  std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
+  //unsigned long long *A_offsets = NULL, *B_offsets = NULL;
 
   //ScopedTPP<BrgemmTPP<T, T>, 0> brgemm_tpp, brgemm2_tpp;
   //ScopedTPP<SetZeroTPP<T>, 0> zero_tpp;
@@ -110,11 +116,43 @@ class BrgemmTPP {
     //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   } else {
-    std::cout << "This case has not been implemented as it requires support for brgemm with LIBXSMM_GEMM_BATCH_REDUCE_OFFSET which is absent in the functors" << std::endl;
-    exit(-1);
+    //std::cout << "This case has not been implemented as it requires support for brgemm with LIBXSMM_GEMM_BATCH_REDUCE_OFFSET which is absent in the functors" << std::endl;
+    //exit(-1);
+
+    //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
+    //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
+    //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_OFFSET, 0, 0, 0 );
+    //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+
+    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+
+    //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
+    //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+    zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
+
+    //A_offsets = (unsigned long long*) libxsmm_aligned_malloc(Cb * R * S * sizeof(unsigned long long), 2097152);
+    //B_offsets = (unsigned long long*) libxsmm_aligned_malloc(Cb * R * S * sizeof(unsigned long long), 2097152);
+    A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
+    B_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
+
+    // Prepare offset array
+    unsigned long long i = 0;
+    for (long ifm = 0; ifm < Cb_step; ifm++) {
+      for (long kj = 0; kj < R; kj++) {
+        for (long ki = 0; ki < S; ki++) {
+          A_offsets[i] = (ifm * R * S * bc * bk +
+              kj * S * bc * bk +
+              ki * bc * bk) * sizeof(T);
+          B_offsets[i] = (ifm * ifhp * ifwp * bc +
+              kj * ifwp * bc +
+              ki * bc) * sizeof(T);
+          /* printf("A_offsets[%d] = %llu B_offsets[%d] = %llu \n", i, A_offsets[i], i, B_offsets[i]); */
+          i++;
+        }
+      }
+    } /* outer loop for filling the offsets */
   }
 
-  long Cb_step = Cb;
   long n_step = 1;
   long c_step = Cb_step;
   long k_step = 1;
@@ -138,7 +176,7 @@ class BrgemmTPP {
   //char loop_specs_str[256] = "ABc";
 
   auto conv_loop = ThreadedLoop<7>({
-      LoopSpecs{0, N, n_step, true},
+      LoopSpecs{0, N, n_step, false},//, true},
       LoopSpecs{0, Cb, c_step},
       LoopSpecs{0, Kb, k_step},
       LoopSpecs{0, ofh, h_step},
@@ -156,51 +194,61 @@ class BrgemmTPP {
           int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
 
           //DType *output_libxsmm_off= (DType*)output_libxsmm + (size_t) (pad_h_out * ofwp * bk + pad_w_out * bk);
-          DECL_VLA_PTR_PT_EXT(T,     output,   [Kb][ofhp][ofwp][bk],   t_O, (pad_h_out * ofwp * bk + pad_w_out * bk));
+          DECL_VLA_PTR_PT_EXT(T,     output_off, [Kb][ofhp][ofwp][bk],   t_O, (pad_h_out * ofwp * bk + pad_w_out * bk));
           //DType *input_libxsmm  = (DType*)libxsmm_aligned_malloc( N*ifhp*ifwp*C*sizeof(DType), 2097152);
-          DECL_VLA_PTR_PT    (T,     inp,      [Cb][ifhp][ifwp][bc],   t_I);
+          DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_I);
           //DType *filter_libxsmm = (DType*)libxsmm_aligned_malloc( C*K*R*S*sizeof(DType), 2097152);
-          DECL_VLA_PTR_PT    (T,     weight,   [CP][R][S][bc][bk],     t_W);
+          DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_W);
 
           if (cfg.avoid_fmas_in_rim == 0) {
+            //unsigned long long brcount = Cb_step * r_step * s_step;
+            //libxsmm_gemm_param gemm_param;
+            //gemm_param.op.tertiary = (void*)&brcount;
+            //gemm_param.a.secondary = (void*)A_offsets;
+            //gemm_param.b.secondary = (void*)B_offsets;
+            //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
+            //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);        
+            //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);      
+
             if (i_c == 0 && i_r == 0 && i_s == 0) {
-              zero_tpp(output[i_n][i_k][i_h][i_w]);
+              //if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+              //    printf("Supposedly calling zero TPP for the first block \n");
+              zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
-            brgemm_tpp(inp   [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                       weight[i_k][i_c][i_r][i_s][0],
-                       output[i_n][i_k][i_h]                 [i_w],
+            /*
+            if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+            {
+                for (int i = 0; i < bk; i++)
+                  printf("output_off before[off + %d] = %f \n", i, *((float*)(&(output_off[i_n][i_k][i_h][i_w][i]))) );
+            }
+            if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+            {
+                for (int i = 0; i < bk; i++)
+                  printf("inp[%d] = %f \n", i, *((float*)(&(inp[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][i]))) );
+                for (int i = 0; i < bk; i++)
+                  printf("weight[%d] = %f \n", i, *((float*)(&( weight[i_k][i_c][i_r][i_s][0][i]))) );
+            }
+            */
+            brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                       weight    [i_k][i_c][i_r][i_s][0],
+                       output_off[i_n][i_k][i_h]                 [i_w],
+                       B_offsets.get(), A_offsets.get(),
                        Cb_step * r_step * s_step,
                        true);
-          } else {
+            /*
+            if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
+            {
+                for (int i = 0; i < bk; i++)
+                  printf("output_off[off + %d] = %f \n", i, *((float*)(&(output_off[i_n][i_k][i_h][i_w][i]))) );
+            }
+            */
+          } else { /* for if cfg.avoid_fmas_in_rim == 0 */
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               //libxsmm_meltw_unary_param zero_param;
               //zero_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
               //zero_kernel( &zero_param );
-              zero_tpp(output[i_n][i_k][i_h][i_w]);
+              zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
-#if 0
-            unsigned long long brcount = Cb_step;
-            libxsmm_gemm_param gemm_param;
-            gemm_param.op.tertiary = (void*)&brcount;
-            gemm_param.a.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
-            if (i_r == 0 && i_h == 0) {
-              /* Do no FLOPS  */
-            } else if (i_r == R-1 && i_h == ofh-1 ) {
-              /* Do no FLOPS  */
-            } else if ( i_w == 0 && i_s == 0 ) {
-              gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s + 1, 0, Cb, ifhp, ifwp, bc);
-              gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w + 1, 0, Kb, ofhp, ofwp, bk);
-              brgemm_kernel2.gemm( &gemm_param );
-            } else if ( i_w + w_step == ofw  && i_s == S-1) {
-              gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
-              gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
-              brgemm_kernel2.gemm( &gemm_param );
-            } else {
-              gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
-              gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
-              brgemm_kernel.gemm( &gemm_param );
-            }
-#endif
             if (i_r == 0 && i_h == 0) {
               /* Do no FLOPS  */
             } else if (i_r == R-1 && i_h == ofh-1 ) {
@@ -209,33 +257,33 @@ class BrgemmTPP {
               //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s + 1, 0, Cb, ifhp, ifwp, bc);
               //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w + 1, 0, Kb, ofhp, ofwp, bk);
               //brgemm_kernel2.gemm( &gemm_param );
-              brgemm2_tpp(inp   [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s + 1],
-                          weight[i_k][i_c][i_r][i_s][0],
-                          output[i_n][i_k][i_h]                 [i_w + 1],
+              brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s + 1],
+                          weight    [i_k][i_c][i_r][i_s][0],
+                          output_off[i_n][i_k][i_h]                 [i_w + 1],
                           Cb_step,
                           true);
             } else if ( i_w + w_step == ofw  && i_s == S-1) {
               //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
               //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
               //brgemm_kernel2.gemm( &gemm_param );
-              brgemm2_tpp(inp   [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                          weight[i_k][i_c][i_r][i_s][0],
-                          output[i_n][i_k][i_h]                 [i_w],
+              brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                          weight    [i_k][i_c][i_r][i_s][0],
+                          output_off[i_n][i_k][i_h]                 [i_w],
                           Cb_step,
                           true);
             } else {
               //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
               //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
               //brgemm_kernel.gemm( &gemm_param );
-              brgemm_tpp(inp   [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                         weight[i_k][i_c][i_r][i_s][0],
-                         output[i_n][i_k][i_h]                 [i_w],
+              brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                         weight    [i_k][i_c][i_r][i_s][0],
+                         output_off[i_n][i_k][i_h]                 [i_w],
                          Cb_step,
                          true);
             }
 
 
-          }
+          } /* for if-else cfg.avoid_fmas_in_rim == 0 */
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
         [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});

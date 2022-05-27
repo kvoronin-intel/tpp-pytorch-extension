@@ -27,6 +27,7 @@ class DummyConvTPP(Function):
         ctx.save_for_backward(input, weight)
         ctx.param_struct = param_struct
 
+        """
         print("debug: conv input shape = ",  input.shape)
         print("debug: conv output shape = ", output.shape)
 
@@ -39,6 +40,7 @@ class DummyConvTPP(Function):
         for i in range(10):
             ind = i + 0 #shift_output
             print("debug: i fwd output     = ", ind, output.view(-1)[ind].item())
+        """
 
         return output
 
@@ -54,9 +56,11 @@ class DummyConvTPP(Function):
         grad_output, = grad_outs
         param_struct = ctx.param_struct
 
+        """
         for i in range(10):
             ind = i + 0 #shift_weight
             print("debug: i bwd weight before = ", ind, weight.view(-1)[ind].item())
+        """
 
         if input.requires_grad:
           grad_input, grad_weight = conv_cpp.conv_bwd(param_struct, inputs) #grad_output, input, weight)
@@ -64,23 +68,38 @@ class DummyConvTPP(Function):
           grad_input    = None
           [grad_weight] = conv_cpp.conv_bwd(param_struct, inputs) #handle.handle, grad_output, input, weight)
 
+        """
+        print("debug: pad_h = ", param_struct.pad_h)
+        padding = [param_struct.pad_h, param_struct.pad_h, param_struct.pad_h, param_struct.pad_h]  #ctx.padding
+        print("debug: input shape, grad_input shape = ", input.shape, grad_input.shape)
+        if padding[0] != 0 or padding[1] != 0 or padding[2] != 0 or padding[3] != 0:
+            [N, CP, ifhp, ifwp, bc] = input.shape
+            shift_input  = (padding[0] * ifwp + padding[1])*bc - 5
+            [N, CP, ofhp, ofwp, bc] = grad_output.shape
+            shift_output = (padding[2] * ofwp + padding[3])*bc - 5
+            print("shift_input shift_output = ", shift_input, shift_output)
+        else:
+            shift_input  = 0
+            shift_output = 0
+
         for i in range(10):
-            ind = i + 0 #shift_output
+            ind = i + shift_input
             print("debug: i bwd input        = ", ind, input.view(-1)[ind].item())
         for i in range(10):
             ind = i + 0 #shift_weight
             print("debug: i bwd weight       = ", ind, weight.view(-1)[ind].item())
         for i in range(10):
-            ind = i + 0 #shift_grad_output
+            ind = i + shift_output
             print("debug: i bwd gradout      = ", ind, grad_output.view(-1)[ind].item())
 
         if input.requires_grad:
             for i in range(10):
-                ind = i + 0 #shift_grad_weight
+                ind = i + shift_output
                 print("debug: ind bwd grad_input = ", ind, grad_input.view(-1)[ind].item())
         for i in range(10):
             ind = i + 0 #shift_weight
-            print("debug: i bwd weight       = ", ind, weight.view(-1)[ind].item())
+            print("debug: i bwd grad weight  = ", ind, grad_weight.view(-1)[ind].item())
+        """
 
         return (None, grad_input, grad_weight)
 
@@ -155,8 +174,8 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         self.maybe_block_params()
 
         N = input.size(0)
-        self.H = input.size(2)
-        self.W = input.size(3)
+        self.H = input.size(2) - 2 * self.pad_h
+        self.W = input.size(3) - 2 * self.pad_w
 
         #input = input.to(global_dtype).contiguous()
         #weight = self.weight.to(global_dtype) #switched to self.weight below
@@ -179,8 +198,10 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
           self.N = N
 
         if self.config == None:
-            # 0s for physical padding
-            self.config = conv_cpp.conv_setup(self.N, self.C, self.H, self.W, self.K, self.R, self.S, self.pad_h, self.pad_w, 0, 0, 0, 0, self.stride, 0 if self.dtype == torch.float else 1)
+            # only physical padding is supported for now
+            self.config = conv_cpp.conv_setup(self.N, self.C, self.H, self.W, self.K, self.R, self.S,
+                                              self.pad_h, self.pad_w, self.pad_h, self.pad_w, self.pad_h, self.pad_w,
+                                              self.stride, 0 if self.dtype == torch.float else 1)
 
         blocked_input = self.get_blocked_tensor(
             input,
