@@ -230,9 +230,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
     global_counter = global_counter + 1
 
     return
-    exit()
+    #exit()
     """
 
+    
     if opt_has_physical_padding != False:
         x1.requires_grad              = False
         y1._t.retain_grad()
@@ -240,6 +241,8 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         if has_bias:
             opt_conv.bias.requires_grad   = False
         z1.backward(retain_graph=True,gradient=torch.tensor(1.*y1_numel / y2.numel(), dtype=torch.float))
+        #for i in range(10):
+        #    print("i after first bwd opt_conv.weight.grad = ", i, opt_conv.weight.grad.view(-1)[i].item())
         # zero the rim
         print("debug: Zeroing the rim of the output tensor on the Python side")
         nchw_shape = y1.grad.shape
@@ -257,6 +260,8 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         y1._t.backward(gradient=y1_grad_zeroed_rim)
     else:
         z1.backward(retain_graph=True)
+    
+    #z1.backward(retain_graph=True)
 
     z2.backward(retain_graph=True)
 
@@ -331,11 +336,11 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
     #    print("i opt_x_grad ref_x_grad = ", i, opt_x_grad.view(-1)[i].item(), ref_x_grad.view(-1)[i].item())
 
     # X gradient
-    print("X Allclose: ", opt_x_grad.allclose(ref_x_grad, rtol=1e-5, atol=1e-5))
+    print("X Allclose: ", opt_x_grad.allclose(ref_x_grad, rtol=1e-4 if opt_dtype == torch.float else 1e-2, atol=1e-5))
     #print("(opt_x_grad - ref_x_grad).abs().sum()                                                      = ", (opt_x_grad - ref_x_grad).abs().sum())
     print("(opt_x_grad - ref_x_grad).norm(2)                                                          = ", (opt_x_grad - ref_x_grad).norm(2))
     xgrad_rel_norm_diff = (opt_x_grad - ref_x_grad).norm(2) / (opt_x_grad.norm(2))
-    if xgrad_rel_norm_diff > 3.0e-6:
+    if (opt_dtype == torch.float and xgrad_rel_norm_diff > 1.0e-4) or (opt_dtype == torch.bfloat16 and xgrad_rel_norm_diff > 1.0e-2):
         print("warning, xgrad_rel_norm diff is too large, ", xgrad_rel_norm_diff)
     print("(opt_x_grad - ref_x_grad).norm(2) / ref_x_grad.norm                                         = ", (opt_x_grad - ref_x_grad).norm(2) / (ref_x_grad.norm(2)))
     print("(opt_x_grad - ref_x_grad).abs().norm(inf)                                                   = ", (opt_x_grad - ref_x_grad).norm(p=float('inf')))
@@ -345,10 +350,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
 
     # Bias gradient
     if has_bias:
-      print("X Bias Allclose: ", ref_bias_grad.allclose(opt_bias_grad, rtol=1e-5, atol=1e-6))
+      print("X Bias Allclose: ", ref_bias_grad.allclose(opt_bias_grad, rtol=1e-4 if opt_dtype == torch.float else 1e-2, atol=1e-6))
 
     # Weight gradient
-    #print("opt_weight_grad shape = ", opt_weight_grad.shape )
+    print("opt_weight_grad shape = ", opt_weight_grad.shape )
     #print("ref_weight_grad shape = ", ref_weight_grad.shape )
 
     #opt_weight_grad_blocked = blocked_layout.BlockedTensor(opt_weight_grad.shape, opt.)
@@ -363,7 +368,7 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         opt_weight_gradp = opt_weight_grad.permute([0,5,1,4,2,3]).contiguous().view(size)
         #print("opt_weight_gradp shape = ", opt_weight_gradp.shape)
         opt_weight_grad_unblocked = opt_weight_gradp
-    elif opt_weight_grad.dim() == 7:
+    elif opt_weight_grad.dim() == 7: #[K C R S bc/2 bk 2]
         size = [opt_weight_grad.size(0)*opt_weight_grad.size(5), opt_weight_grad.size(1)*opt_weight_grad.size(4)*opt_weight_grad.size(6), opt_weight_grad.size(2), opt_weight_grad.size(3)]
         opt_weight_gradp = opt_weight_grad.permute([0,5,1,4,6,2,3]).contiguous().view(size)
         #print("opt_weight_gradp shape = ", opt_weight_gradp.shape)
@@ -376,11 +381,31 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         ind = i
         print("ind opt_weight_grad ref_weight_grad = ", ind, opt_weight_grad_unblocked.view(-1)[ind].item(), ref_weight_grad.view(-1)[ind].item())
 
-    print("X Wt Allclose: ", ref_weight_grad.allclose(opt_weight_grad_unblocked, rtol=1e-5, atol=1e-6))
+    print("X Wt Allclose: ", ref_weight_grad.allclose(opt_weight_grad_unblocked, rtol=1e-4 if opt_dtype == torch.float else 1e-2, atol=1e-6))
+
+    """
+    counter = 0
+    counter_reldiff = 0
+    for i in range(inc*outc*K*K):
+        ind = i
+        val_ref = ref_weight_grad.view(-1)[ind].item()
+        val_opt = opt_weight_grad_unblocked.view(-1)[ind].item()
+        diff    = (val_opt - val_ref)
+        reldiff = diff / val_ref
+        if (diff > 1e-4):
+            counter = counter + 1
+            print("ind diff reldiff val_ref val_opt = ", ind, diff, reldiff, val_ref, val_opt)
+        #print("ind opt_weight_grad ref_weight_grad = ", ind, opt_weight_grad_unblocked.view(-1)[ind].item(), ref_weight_grad.view(-1)[ind].item())
+        if (reldiff > 1e-1):
+            counter_reldiff = counter_reldiff + 1
+            print("reldiff is too high for ind, val_ref val_opt ", ind, reldiff, val_ref, val_opt);
+    print("Stats: bad diffs     are X out of Y:", counter, inc*outc*K*K)
+    print("Stats: bad reldiffs  are X out of Y:", counter_reldiff, inc*outc*K*K)
+    """
 
     #print("opt_weight_grad_unblocked shape = ", opt_weight_grad_unblocked.shape)
     wgrad_rel_norm_diff = (opt_weight_grad_unblocked - ref_weight_grad).norm(2) / ref_weight_grad.norm(2)
-    if wgrad_rel_norm_diff > 1.0e-5:
+    if (opt_dtype == torch.float and wgrad_rel_norm_diff > 1.0e-4) or (opt_dtype == torch.bfloat16 and wgrad_rel_norm_diff > 1.0e-2):
         print("warning, wgrad_rel_norm diff is too large, ", wgrad_rel_norm_diff)
     #for i in range(10):
     #    print("i opt_weight_grad_unblocked ref_weight_grad = ", i, opt_weight_grad_unblocked.view(-1)[i].item(), ref_weight_grad.view(-1)[i].item())
@@ -390,7 +415,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
 
     # Output (fwd)
 
-    print("Y Allclose: ", opt_y_fp32.allclose(ref_y_fp32, rtol=1e-5, atol=1e-6))
+    print("Y Allclose: ", opt_y_fp32.allclose(ref_y_fp32, rtol=1e-4 if opt_dtype == torch.float else 1e-2, atol=1e-6))
+    y_rel_norm_diff = (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2)
+    if (opt_dtype == torch.float and y_rel_norm_diff > 1.0e-4) or (opt_dtype == torch.bfloat16 and y_rel_norm_diff > 1.0e-2):
+        print("warning, y_rel_norm diff is too large, ", y_rel_norm_diff)
 
     """
     if y1.dim() == 5: # for opt conv
