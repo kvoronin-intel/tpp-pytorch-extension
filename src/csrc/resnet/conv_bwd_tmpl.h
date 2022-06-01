@@ -129,7 +129,7 @@ if (sizeof(T) == 2) {
     sprintf(bf16_conv_spec_string,"ABEFCd");
   } else {
     //sprintf(bf16_conv_spec_string,"A{C:7}B{R:8}EFcd"); hardcoded for 56 threads
-    sprintf(bf16_conv_spec_string,"ABEFCd");
+    sprintf(bf16_conv_spec_string,"ABEFcd");
   }
   par_over_h_pixels = use_h_par_bf16;
 
