@@ -6,7 +6,6 @@ import numpy as np
 
 import pcl_pytorch_extension
 from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
-
 import batchnorm as batchnorm_py
 
 import pcl_cgbp
