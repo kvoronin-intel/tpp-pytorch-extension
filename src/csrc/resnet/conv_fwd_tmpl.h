@@ -43,8 +43,8 @@ std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb <<
 
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
-return std::vector<at::Tensor>({t_O});
-#if 0
+//return std::vector<at::Tensor>({t_O});
+//#if 0
 
 /*
 class BrgemmTPP {
@@ -297,4 +297,4 @@ class BrgemmTPP {
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 return std::vector<at::Tensor>({t_O});
 
-#endif
+//#endif

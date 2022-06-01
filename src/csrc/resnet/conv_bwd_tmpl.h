@@ -147,7 +147,7 @@ if (sizeof(T) == 2) {
   SCOPEIT_DECL(XformExtTPP<T>)              trans_xform_tpp, vnni_xform_tpp, wt_vnni_xform_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_float_tpp, wt_reduce1_float_tpp;
 
-#define DEBUGGING
+//#define DEBUGGING
 
 #ifdef DEBUGGING
   libxsmm_xmmfunction tileconfig_kernel;
@@ -223,7 +223,7 @@ if (sizeof(T) == 2) {
 #endif
 
   if (sizeof(T) == 4) {
-#if 0
+//#if 0
     gemm_n = bc;
     gemm_m = bk;
     gemm_k = ofw;
@@ -258,8 +258,9 @@ if (sizeof(T) == 2) {
     gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bc*stride_w, bk, bk, 1.0, 1 /*a_trans*/, 0)));//, BRGEMM);
 
     //std::cout << "Got here  3 " << std::endl;
-#endif
+//#endif
   } else {
+
     //printf("Untested so far!\n");
     //exit(-1);
 
@@ -351,7 +352,7 @@ if (sizeof(T) == 2) {
       LoopSpecs{0, R, r_step},
       LoopSpecs{0, S, s_step}},
       "Abcde");
-#if 0
+//#if 0
 
   /* FIXME: Fix this! */
   char loop_specs_str[256] = "Abcdefg";
@@ -365,7 +366,7 @@ if (sizeof(T) == 2) {
       LoopSpecs{0, R, r_step},//, true},
       LoopSpecs{0, S, s_step}},//, true}},
       loop_specs_str);
-#endif
+//#endif
 
   long tr_step  = 1;
   auto tr_input_loop = ThreadedLoop<3>({
@@ -409,6 +410,7 @@ if (sizeof(T) == 2) {
       LoopSpecs{0, S, s_step}},
       "ABCD");
 
+  std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
   std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
   std::cout << "bf16_upfront_trans = " << bf16_upfront_trans << std::endl;
   std::cout << "use_private_trans = " << use_private_trans << std::endl;
@@ -419,7 +421,7 @@ if (sizeof(T) == 2) {
     RECORD_SCOPE(conv_bwd_upd, {});
     {
       if (sizeof(T) == 4) {
-#if 0
+//#if 0
         if (use_mb_par == 0) {
           printf("Untested so far!\n");
           exit(-1);
@@ -516,7 +518,7 @@ if (sizeof(T) == 2) {
             [&]() {},
             [&]() {});
         }
-#endif
+//#endif
       } else { /* T = bfloat16 goes into else */
         if (bf16_upfront_trans > 0  && use_private_trans == 0) {
 #ifdef DEBUGGING
@@ -524,12 +526,15 @@ if (sizeof(T) == 2) {
           [&](int* ind) {
             int i_c = ind[0], i_h = ind[1], i_w = ind[2];
             libxsmm_meltw_unary_param trans_param;
-            DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
-            DECL_VLA_PTR_PT    (T,    tr_input,       [ifhp][ifwp][bc]  [bn],   t_tr_input);
-            trans_param.in.primary  = (void*)input[0][i_c][i_h][i_w];
-            trans_param.out.primary = (void*)tr_input[i_c][i_h][i_w][0];
-            //trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, 0, i_c, i_h, i_w, 0, Cb, ifhp, ifwp, bc);
-            //trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h, i_w, 0, 0, ifhp, ifwp, bc, bn);
+            //DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
+            //DECL_VLA_PTR_PT    (T,    tr_input,       [ifhp][ifwp][bc]  [bn],   t_tr_input);
+            //trans_param.in.primary  = (void*)input[0][i_c][i_h][i_w];
+            //trans_param.out.primary = (void*)tr_input[i_c][i_h][i_w][0];
+            typedef T DType;
+            T* input_libxsmm = t_I.data_ptr<T>();
+            T* tr_input_libxsmm = t_tr_input.data_ptr<T>();
+            trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, 0, i_c, i_h, i_w, 0, Cb, ifhp, ifwp, bc);
+            trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h, i_w, 0, 0, ifhp, ifwp, bc, bn);
             trans_xform_kernel( &trans_param );
           },
           [&]() {},
@@ -539,12 +544,15 @@ if (sizeof(T) == 2) {
           [&](int* ind) {
             int i_k = ind[0], i_h = ind[1], i_w = ind[2];
             libxsmm_meltw_unary_param trans_param;
-            DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
-            DECL_VLA_PTR_PT    (T,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_tr_output);
-            trans_param.in.primary = (void*)output[0][i_k][i_h][i_w];
-            trans_param.out.primary = (void*)tr_output[i_k][i_h][i_w][0];
-            //trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, 0, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
-            //trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h, i_w, 0, 0, ofhp, ofwp, bn, bk);
+            //DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
+            //DECL_VLA_PTR_PT    (T,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_tr_output);
+            //trans_param.in.primary = (void*)output[0][i_k][i_h][i_w];
+            //trans_param.out.primary = (void*)tr_output[i_k][i_h][i_w][0];
+            typedef T DType;
+            T* output_libxsmm = t_GO.data_ptr<T>();
+            T* tr_output_libxsmm = t_tr_output.data_ptr<T>();
+            trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, 0, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
+            trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h, i_w, 0, 0, ofhp, ofwp, bn, bk);
             vnni_xform_kernel( &trans_param );
           },
           [&]() {},
@@ -624,37 +632,43 @@ if (sizeof(T) == 2) {
             int tid = omp_get_thread_num();
             libxsmm_gemm_param gemm_param;
             
-              DECL_VLA_PTR_PT    (T,     tr_input,      [ifhp][ifwp][bc]  [bn],   t_tr_input);
-              DECL_VLA_PTR_PT    (T,     tr_output,     [ofhp][ofwp][bn]  [bk],   t_tr_output);
-              DECL_VLA_PTR_PT    (float, scratch_float, [Kb][Cb][R][S][bc][bk],   t_scratch_float);
-              DECL_VLA_PTR_PT    (T,     filter,        [Cb][R][S][bc][bk],       t_grad_weight);
+            typedef T DType;
+              //DECL_VLA_PTR_PT    (T,     tr_input,      [ifhp][ifwp][bc]  [bn],   t_tr_input);
+              //DECL_VLA_PTR_PT    (T,     tr_output,     [ofhp][ofwp][bn]  [bk],   t_tr_output);
+              //DECL_VLA_PTR_PT    (float, scratch_float, [Kb][Cb][R][S][bc][bk],   t_scratch_float);
+              //DECL_VLA_PTR_PT    (T,     filter,        [Cb][R][S][bc][bk],       t_grad_weight);
+            float *scratch_libxsmm = t_scratch_float.data_ptr<float>();
 
             if (i_h == 0 && i_w == 0 && par_over_h_pixels == 0) {
               libxsmm_meltw_unary_param zero_param;
-              zero_param.out.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
-              //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
+              //zero_param.out.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+              zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
               zero_kernel( &zero_param );
             }
 
             unsigned long long brcount = w_step*h_step;
             gemm_param.op.tertiary = (void*)&brcount;
-            //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h + pad_h_out, i_w + pad_w_out, 0, 0, ofhp, ofwp, bn, bk);
-            //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, 0, ifhp, ifwp, bc, bn);
-            //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);        
-            gemm_param.a.primary = (void*)tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0];
-            gemm_param.b.primary = (void*)tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0];
-            gemm_param.c.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+            T *tr_input_libxsmm = t_tr_input.data_ptr<T>();
+            T *tr_output_libxsmm = t_tr_output.data_ptr<T>();
+            //float *scratch_libxsmm = t_scratch_float.data_ptr<float>();
+            //gemm_param.a.primary = (void*)tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0];
+            //gemm_param.b.primary = (void*)tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0];
+            //gemm_param.c.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+            gemm_param.a.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h + pad_h_out, i_w + pad_w_out, 0, 0, ofhp, ofwp, bn, bk);
+            gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, 0, ifhp, ifwp, bc, bn);
+            gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
             brgemm_kernel_acc_pixel.gemm( &gemm_param );
 
+            T *filter_libxsmm = t_grad_weight.data_ptr<T>();
             if ((i_h == ofh - h_step) && (i_w == ofw - w_step) && (par_over_h_pixels == 0)) {
               libxsmm_meltw_unary_param xform_param;
-              //xform_param.in.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
-              //xform_param.out.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
-              xform_param.in.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
-              xform_param.out.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+              xform_param.in.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
+              xform_param.out.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
+              //xform_param.in.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+              //xform_param.out.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
               fp32bf16_cvt_kernel( &xform_param );
-              //xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
-              xform_param.out.primary = (void*)filter[i_k][i_c][i_r][i_s][0];
+              xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
+              //xform_param.out.primary = (void*)filter[i_k][i_c][i_r][i_s][0];
               wt_vnni_kernel( &xform_param );
             }
           }
@@ -757,21 +771,21 @@ if (sizeof(T) == 2) {
                 //zero_kernel( &zero_param );
                 zero_float_tpp(scratch_float[tid][i_k][i_c][i_r][i_s][0]);
               }
-
+/*
               if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && i_h == 0 && i_w == 0) {
                 for (int i = 0; i < 10; i++) {
                   float ftmp = scratch_float[tid][i_k][i_c][i_r][i_s][0][0];
                   printf("i = %d scratch_float after zero = %f \n", i, ftmp);
                 }
               }
-
+*/
               //unsigned long long brcount = w_step*h_step;
               //gemm_param.op.tertiary = (void*)&brcount;
               //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h + pad_h_out, i_w + pad_w_out, 0, 0, ofhp, ofwp, bn, bk);
               //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, 0, ifhp, ifwp, bc, bn);
               //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
               //brgemm_kernel_acc_pixel.gemm( &gemm_param );
-
+/*
                 if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && ((i_h == 0 && i_w == 0) || (i_h == ofh/4 && i_w == ofw/4) || (i_h == ofh - h_step && i_w == ofw - w_step))) {
                   for (int i = 0; i < 10; i++) {
                     float ftmp = 0.0f;
@@ -786,35 +800,38 @@ if (sizeof(T) == 2) {
                     printf("i = %d tr_output = %f \n", i, ftmp);
                   }
                 }
-
+*/
               brgemm_acc_pixel_tpp(tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0],
                                    tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0],
                                    scratch_float[tid][i_k][i_c][i_r][i_s][0],
                                    w_step * h_step, /* brcount */
                                    true);
-
+/*
               if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0) {
                 for (int i = 0; i < 10; i++) {
                   float ftmp = scratch_float[tid][i_k][i_c][i_r][i_s][0][0];
                   printf("i = %d scratch_float after brgemm = %f \n", i, ftmp);
                 }
               }
-
+*/
               if ((i_h == ofh - h_step) && (i_w == ofw - w_step) && (par_over_h_pixels == 0)) {
                 //libxsmm_meltw_unary_param xform_param;
                 //xform_param.in.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm,  tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
                 //xform_param.out.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
                 //fp32bf16_cvt_kernel( &xform_param );
+/*
               if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0) {
                 for (int i = 0; i < 10; i++) {
                   float ftmp = scratch_float[tid][i_k][i_c][i_r][i_s][0][0];
                   printf("i = %d scratch_float before cvt = %f \n", i, ftmp);
                 }
               }
+*/
                 fp32bf16_cvt_tpp(scratch_float[tid][i_k][i_c][i_r][i_s][0], (T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]));
                 //xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
                 //wt_vnni_kernel( &xform_param );
                 wt_vnni_xform_tpp((T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]), filter[i_k][i_c][i_r][i_s][0] );
+/*
                 if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0) {
                   for (int i = 0; i < bk*gemm_n; i++) {
                     float ftmp = 0.0f;
@@ -822,6 +839,7 @@ if (sizeof(T) == 2) {
                     printf("i = %d upconverted filter = %10.10f \n", i, ftmp);
                   }
                 }
+*/
               }
             } /* for if-else use_private_trans > 0 */
           },
@@ -875,9 +893,8 @@ if (sizeof(T) == 2) {
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_bwd_upd scope */
 
-return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
-
-#if 0
+//return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
+//#if 0
 
   long Kb_step = Kb;
 
@@ -1193,7 +1210,7 @@ return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_bwd_d scope */
 
-#endif
+//#endif
 
 } /* end of the dummy scope */
 
