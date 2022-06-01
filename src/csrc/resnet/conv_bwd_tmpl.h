@@ -147,7 +147,83 @@ if (sizeof(T) == 2) {
   SCOPEIT_DECL(XformExtTPP<T>)              trans_xform_tpp, vnni_xform_tpp, wt_vnni_xform_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_float_tpp, wt_reduce1_float_tpp;
 
+#define DEBUGGING
+
+#ifdef DEBUGGING
+  libxsmm_xmmfunction tileconfig_kernel;
+  libxsmm_xmmfunction tilerelease_kernel;
+  libxsmm_xmmfunction gemm_kernel;
+  libxsmm_xmmfunction brgemm_kernel_acc_pixel;
+  libxsmm_meltwfunction_unary zero_kernel;
+  libxsmm_meltwfunction_unary zero_kernel_bf16;
+  libxsmm_meltwfunction_unary wt_reduce_kernel0_f32;
+  libxsmm_meltwfunction_unary wt_reduce_kernel1_f32;
+  libxsmm_meltwfunction_unary wt_reduce_kernel0_f32bf16;
+  libxsmm_meltwfunction_unary wt_reduce_kernel1_f32bf16;
+  libxsmm_meltwfunction_unary trans_xform_kernel;
+  libxsmm_meltwfunction_unary vnni_xform_kernel;
+  libxsmm_meltwfunction_unary fp32bf16_cvt_kernel;
+  libxsmm_meltwfunction_unary wt_vnni_kernel;
+
+  {
+    typedef T DType;
+
+  auto l_flags    = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') | LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG | LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG ) : LIBXSMM_GEMM_FLAGS('N', 'T');
+  auto l_tc_flags = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG | LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') ) : LIBXSMM_GEMM_FLAGS('N', 'T');
+  auto l_tr_flags = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG | LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') ) : LIBXSMM_GEMM_FLAGS('N', 'T');
+  auto dtype      = (sizeof(DType) == 2) ? LIBXSMM_DATATYPE_BF16 : LIBXSMM_DATATYPE_F32;
+
+
+    auto gemm_n = bc;
+    auto gemm_m = bk;
+    auto gemm_k = bn;
+    auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bn, bk, dtype, dtype, LIBXSMM_DATATYPE_F32, dtype);
+    auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
+    auto tr_unary_shape = libxsmm_create_meltw_unary_shape(bc, bn, C*ifhp*ifwp, bn, dtype, dtype, dtype);
+    printf("trans_xform_kernel:\n");
+    printf("tr_unary_shape m n ldi ldo = %d %d %d %d \n", tr_unary_shape.m, tr_unary_shape.n, tr_unary_shape.ldi, tr_unary_shape.ldo);
+    trans_xform_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
+    tr_unary_shape = libxsmm_create_meltw_unary_shape(bk, bn, K*ofhp*ofwp, bk, dtype, dtype, dtype);
+    printf("vnni_xform_kernel:\n");
+    printf("tr_unary_shape m n ldi ldo = %d %d %d %d \n", tr_unary_shape.m, tr_unary_shape.n, tr_unary_shape.ldi, tr_unary_shape.ldo);
+    vnni_xform_kernel =  libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
+    /* Tr input is : Cb ifhp ifwp bc bn  */
+    /* Tr output is: Kb ofhp ofwp bn/2 bk 2  */
+    gemm_kernel.gemm      = libxsmm_dispatch_gemm_v2( l_shape, l_flags, l_prefetch_flags );
+    tileconfig_kernel.gemm  = libxsmm_dispatch_gemm_v2( l_shape, l_tc_flags, l_prefetch_flags );
+    tilerelease_kernel.gemm = libxsmm_dispatch_gemm_v2( l_shape, l_tr_flags, l_prefetch_flags );
+
+    printf("brgemm_kernel_acc_pixel:\n");
+    printf("l_shape       m n k lda ldb ldc = %d %d %d %d %d %d\n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
+    printf("l_flags = %d \n", l_flags);
+
+    auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, bn*bk*sizeof(DType), stride_w*bc*bn*sizeof(DType), 0 );
+    brgemm_kernel_acc_pixel.gemm  = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+
+    auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
+    zero_kernel_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+
+    l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32);
+    zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+
+    l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
+    fp32bf16_cvt_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+    l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, dtype, dtype, dtype);
+    wt_vnni_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+    printf("wt_vnni_kernel:\n");
+    printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
+
+    l_unary_shape = libxsmm_create_meltw_unary_shape(chunk0, nThreads, K * C *R * S, chunk0, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
+    wt_reduce_kernel0_f32bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ;
+    l_unary_shape.m         = chunk1;
+    l_unary_shape.ldo       = chunk1;
+    wt_reduce_kernel1_f32bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ; 
+    printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
+  }
+#endif
+
   if (sizeof(T) == 4) {
+#if 0
     gemm_n = bc;
     gemm_m = bk;
     gemm_k = ofw;
@@ -182,7 +258,7 @@ if (sizeof(T) == 2) {
     gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bc*stride_w, bk, bk, 1.0, 1 /*a_trans*/, 0)));//, BRGEMM);
 
     //std::cout << "Got here  3 " << std::endl;
-
+#endif
   } else {
     //printf("Untested so far!\n");
     //exit(-1);
@@ -215,6 +291,7 @@ if (sizeof(T) == 2) {
     //brgemm_kernel_acc_pixel.gemm  = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
     brgemm_acc_pixel_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(gemm_n, gemm_m, gemm_k, stride_w*bc*bn, bn*bk, bn, bk, bk, 1.0, 0 /*a_trans*/, 0)));//, BRGEMM);
 
+    std::cout << "zero_bf16_tpp " << std::endl;
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
     //zero_kernel_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
@@ -274,6 +351,7 @@ if (sizeof(T) == 2) {
       LoopSpecs{0, R, r_step},
       LoopSpecs{0, S, s_step}},
       "Abcde");
+#if 0
 
   /* FIXME: Fix this! */
   char loop_specs_str[256] = "Abcdefg";
@@ -287,6 +365,7 @@ if (sizeof(T) == 2) {
       LoopSpecs{0, R, r_step},//, true},
       LoopSpecs{0, S, s_step}},//, true}},
       loop_specs_str);
+#endif
 
   long tr_step  = 1;
   auto tr_input_loop = ThreadedLoop<3>({
@@ -340,6 +419,7 @@ if (sizeof(T) == 2) {
     RECORD_SCOPE(conv_bwd_upd, {});
     {
       if (sizeof(T) == 4) {
+#if 0
         if (use_mb_par == 0) {
           printf("Untested so far!\n");
           exit(-1);
@@ -436,8 +516,40 @@ if (sizeof(T) == 2) {
             [&]() {},
             [&]() {});
         }
+#endif
       } else { /* T = bfloat16 goes into else */
         if (bf16_upfront_trans > 0  && use_private_trans == 0) {
+#ifdef DEBUGGING
+        tr_input_loop(
+          [&](int* ind) {
+            int i_c = ind[0], i_h = ind[1], i_w = ind[2];
+            libxsmm_meltw_unary_param trans_param;
+            DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
+            DECL_VLA_PTR_PT    (T,    tr_input,       [ifhp][ifwp][bc]  [bn],   t_tr_input);
+            trans_param.in.primary  = (void*)input[0][i_c][i_h][i_w];
+            trans_param.out.primary = (void*)tr_input[i_c][i_h][i_w][0];
+            //trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, 0, i_c, i_h, i_w, 0, Cb, ifhp, ifwp, bc);
+            //trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h, i_w, 0, 0, ifhp, ifwp, bc, bn);
+            trans_xform_kernel( &trans_param );
+          },
+          [&]() {},
+          [&]() {});
+
+        tr_output_loop(
+          [&](int* ind) {
+            int i_k = ind[0], i_h = ind[1], i_w = ind[2];
+            libxsmm_meltw_unary_param trans_param;
+            DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
+            DECL_VLA_PTR_PT    (T,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_tr_output);
+            trans_param.in.primary = (void*)output[0][i_k][i_h][i_w];
+            trans_param.out.primary = (void*)tr_output[i_k][i_h][i_w][0];
+            //trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, 0, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
+            //trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h, i_w, 0, 0, ofhp, ofwp, bn, bk);
+            vnni_xform_kernel( &trans_param );
+          },
+          [&]() {},
+          [&]() {});
+#else
 //#if 0
 //          printf("calling trans_xform_tpp");
           tr_input_loop(
@@ -480,6 +592,7 @@ if (sizeof(T) == 2) {
             [&]() {},
             [&]() {});
 //#endif
+#endif
         }
 
         if (par_over_h_pixels > 0) {
@@ -502,6 +615,54 @@ if (sizeof(T) == 2) {
         }
 
 //#if 0
+#ifdef DEBUGGING
+      conv_loop_bf16(
+        [&](int* ind) {
+          if (use_private_trans > 0) {
+          } else {
+            int i_c = ind[0], i_k = ind[1], i_h = ind[2], i_w = ind[3], i_r = ind[4], i_s = ind[5];
+            int tid = omp_get_thread_num();
+            libxsmm_gemm_param gemm_param;
+            
+              DECL_VLA_PTR_PT    (T,     tr_input,      [ifhp][ifwp][bc]  [bn],   t_tr_input);
+              DECL_VLA_PTR_PT    (T,     tr_output,     [ofhp][ofwp][bn]  [bk],   t_tr_output);
+              DECL_VLA_PTR_PT    (float, scratch_float, [Kb][Cb][R][S][bc][bk],   t_scratch_float);
+              DECL_VLA_PTR_PT    (T,     filter,        [Cb][R][S][bc][bk],       t_grad_weight);
+
+            if (i_h == 0 && i_w == 0 && par_over_h_pixels == 0) {
+              libxsmm_meltw_unary_param zero_param;
+              zero_param.out.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+              //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
+              zero_kernel( &zero_param );
+            }
+
+            unsigned long long brcount = w_step*h_step;
+            gemm_param.op.tertiary = (void*)&brcount;
+            //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h + pad_h_out, i_w + pad_w_out, 0, 0, ofhp, ofwp, bn, bk);
+            //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, 0, ifhp, ifwp, bc, bn);
+            //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);        
+            gemm_param.a.primary = (void*)tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0];
+            gemm_param.b.primary = (void*)tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0];
+            gemm_param.c.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+            brgemm_kernel_acc_pixel.gemm( &gemm_param );
+
+            if ((i_h == ofh - h_step) && (i_w == ofw - w_step) && (par_over_h_pixels == 0)) {
+              libxsmm_meltw_unary_param xform_param;
+              //xform_param.in.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
+              //xform_param.out.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
+              xform_param.in.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+              xform_param.out.primary = (void*)scratch_float[tid][i_k][i_c][i_r][i_s][0];
+              fp32bf16_cvt_kernel( &xform_param );
+              //xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
+              xform_param.out.primary = (void*)filter[i_k][i_c][i_r][i_s][0];
+              wt_vnni_kernel( &xform_param );
+            }
+          }
+        },
+        [&]() {if (sizeof(T) == 2) tileconfig_kernel.gemm(NULL);},
+        [&]() {if (sizeof(T) == 2) tilerelease_kernel.gemm(NULL);});
+
+#else
         conv_loop_bf16(
           [&](int* ind) {
             if (use_private_trans > 0) {
@@ -597,6 +758,13 @@ if (sizeof(T) == 2) {
                 zero_float_tpp(scratch_float[tid][i_k][i_c][i_r][i_s][0]);
               }
 
+              if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && i_h == 0 && i_w == 0) {
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = scratch_float[tid][i_k][i_c][i_r][i_s][0][0];
+                  printf("i = %d scratch_float after zero = %f \n", i, ftmp);
+                }
+              }
+
               //unsigned long long brcount = w_step*h_step;
               //gemm_param.op.tertiary = (void*)&brcount;
               //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h + pad_h_out, i_w + pad_w_out, 0, 0, ofhp, ofwp, bn, bk);
@@ -604,22 +772,56 @@ if (sizeof(T) == 2) {
               //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
               //brgemm_kernel_acc_pixel.gemm( &gemm_param );
 
+                if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && ((i_h == 0 && i_w == 0) || (i_h == ofh/4 && i_w == ofw/4) || (i_h == ofh - h_step && i_w == ofw - w_step))) {
+                  for (int i = 0; i < 10; i++) {
+                    float ftmp = 0.0f;
+                    libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0][i]), &ftmp, 1);
+                    printf("i = %d tr_input = %f \n", i, ftmp);
+                  }
+                }
+                if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && ((i_h == 0 && i_w == 0) || (i_h == ofh/4 && i_w == ofw/4) || (i_h == ofh - h_step && i_w == ofw - w_step))) {
+                  for (int i = 0; i < 10; i++) {
+                    float ftmp = 0.0f;
+                    libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0][i]), &ftmp, 1);
+                    printf("i = %d tr_output = %f \n", i, ftmp);
+                  }
+                }
+
               brgemm_acc_pixel_tpp(tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0],
                                    tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0],
                                    scratch_float[tid][i_k][i_c][i_r][i_s][0],
                                    w_step * h_step, /* brcount */
                                    true);
 
+              if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0) {
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = scratch_float[tid][i_k][i_c][i_r][i_s][0][0];
+                  printf("i = %d scratch_float after brgemm = %f \n", i, ftmp);
+                }
+              }
 
               if ((i_h == ofh - h_step) && (i_w == ofw - w_step) && (par_over_h_pixels == 0)) {
                 //libxsmm_meltw_unary_param xform_param;
                 //xform_param.in.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm,  tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
                 //xform_param.out.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, tid, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
                 //fp32bf16_cvt_kernel( &xform_param );
+              if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0) {
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = scratch_float[tid][i_k][i_c][i_r][i_s][0][0];
+                  printf("i = %d scratch_float before cvt = %f \n", i, ftmp);
+                }
+              }
                 fp32bf16_cvt_tpp(scratch_float[tid][i_k][i_c][i_r][i_s][0], (T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]));
                 //xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
                 //wt_vnni_kernel( &xform_param );
                 wt_vnni_xform_tpp((T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]), filter[i_k][i_c][i_r][i_s][0] );
+                if (i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0) {
+                  for (int i = 0; i < bk*gemm_n; i++) {
+                    float ftmp = 0.0f;
+                    libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&filter[i_k][i_c][i_r][i_s][0][i]), &ftmp, 1);
+                    printf("i = %d upconverted filter = %10.10f \n", i, ftmp);
+                  }
+                }
               }
             } /* for if-else use_private_trans > 0 */
           },
@@ -627,6 +829,7 @@ if (sizeof(T) == 2) {
           [&]() {if (sizeof(T) == 2) brgemm_acc_pixel_tpp.release();});
         /* end of gemm_loop_bf16 definition */
 //#endif
+#endif
 //#if 0
         if (par_over_h_pixels > 0) {
           reduce_wt_loop(
@@ -672,7 +875,9 @@ if (sizeof(T) == 2) {
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_bwd_upd scope */
 
-//return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
+return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
+
+#if 0
 
   long Kb_step = Kb;
 
@@ -988,9 +1193,10 @@ if (sizeof(T) == 2) {
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_bwd_d scope */
 
+#endif
+
 } /* end of the dummy scope */
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 //return std::vector<at::Tensor>({t_dummy, t_grad_weight});
 return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
-
