@@ -75,8 +75,8 @@ class DummyConvTPP(Function):
         if padding[0] != 0 or padding[1] != 0 or padding[2] != 0 or padding[3] != 0:
             [N, CP, ifhp, ifwp, bc] = input.shape
             shift_input  = (padding[0] * ifwp + padding[1])*bc - 5
-            [N, CP, ofhp, ofwp, bc] = grad_output.shape
-            shift_output = (padding[2] * ofwp + padding[3])*bc - 5
+            [N, KP, ofhp, ofwp, bk] = grad_output.shape
+            shift_output = (padding[2] * ofwp + padding[3])*bk - 5
             print("shift_input shift_output = ", shift_input, shift_output)
         else:
             shift_input  = 0
