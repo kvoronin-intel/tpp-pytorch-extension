@@ -10,8 +10,8 @@ auto t_IA = inputs[2]; /* input_add */
 auto t_W  = inputs[3]; /* weight */
 auto t_M  = inputs[4]; /* mean */
 auto t_V  = inputs[5]; /* var  */
-//auto t_IV = inputs[6]; /* invstd  */
-auto t_R  = inputs[7]; /* relumask */
+//auto t_IV = inputs[6]; /* invstd  removed from API */
+auto t_R  = inputs[6]; /* relumask */
 
 std::cout << "padding = " << padding << std::endl;
 

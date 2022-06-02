@@ -8,7 +8,7 @@ auto t_W  = inputs[2];
 auto t_B  = inputs[3];
 auto t_M  = inputs[4];
 auto t_V  = inputs[5];
-auto t_IV = inputs[6]; /* should be unused */
+//auto t_IV = inputs[6]; /* should be unused , removed from args */
 
 std::cout << "padding = " << padding << std::endl;
 
@@ -40,6 +40,7 @@ const float scale = 1.0f /((float)N * H * W);
 
 std::vector<long> output_size{N, CP, ofhp, ofwp, bc};
 
+std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 
 std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
@@ -76,6 +77,9 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   use_hw_blocking    = true; /* using [hw, bc] blocks */
   spatial_block_size = H * W / num_HW_blocks;
 }
+
+std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+//std::cout << "Got here 0" << std::endl;
 
 {
 #ifndef THREADED_LOOPS
@@ -123,6 +127,14 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
       LoopSpecs{0, CP, cp_step, {/*l1_k_step, l0_k_step*/}}},  // Logical CP loop specs
       cp_loop_specs_str);
 #endif
+
+std::cout << "Got here 1" << std::endl;
+//          DECL_VLA_PTR_PT    (float,         mean_dbg0,     [bc],     t_M);
+//          DECL_VLA_PTR_PT    (float,         var_dbg0,      [bc],     t_V);
+
+//for (int i = 0; i < CP; i++)
+//  for (int j = 0; j < bc; j++)
+//    printf("mean_dbg0[%d] = %f var_dbg0[%d] = %f \n", i*bc+j, mean_dbg0[i][j],i*bc+j, var_dbg0[i][j]);
 
   {
     RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
@@ -199,6 +211,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_fwd_reduce scope */
 
+//std::cout << "Got here 2" << std::endl;
+
   {
     RECORD_SCOPE(bn_fwd_stats, {});
     {
@@ -244,6 +258,15 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_fwd_stats scope */
 
+
+//std::cout << "Got here 3" << std::endl;
+//          DECL_VLA_PTR_PT    (float,         mean_dbg,     [bc],     t_M);
+//          DECL_VLA_PTR_PT    (float,         var_dbg,      [bc],     t_V);
+
+//for (int i = 0; i < CP; i++)
+//  for (int j = 0; j < bc; j++)
+//    printf("mean_dbg[%d] = %f var_dbg[%d] = %f \n", i*bc+j, mean_dbg[i][j], i*bc+j, var_dbg[i][j]);
+
   {
     RECORD_SCOPE(bn_fwd_scale, {});
     {
@@ -251,6 +274,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
       ncp_loop(
         [&](int *ind) {
           const int n = ind[0], cp = ind[1];
+
+          //std::cout << "Got here 3.0" << std::endl;
 
           DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
           DECL_VLA_PTR_PT_EXT(T,             inp_add,  [CP][ifhp][ifwp][bc], t_IA, (hi_start * ifwp + wi_start) * bc);
@@ -261,13 +286,105 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_M);
           DECL_VLA_PTR_PT    (float,         var,      [bc],     t_V);
 
+          //std::cout << "Got here 3.1" << std::endl;
+
           LIBXSMM_ALIGNED(float s[bc], 64);
           LIBXSMM_ALIGNED(float b[bc], 64);
 
           coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
 
+          //std::cout << "Got here 3.2" << std::endl;
+
           /*
           if (n == 1 && cp == 0) {
+            for (int j = 0; j < 10; j++)
+              printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
+          }
+          */
+
+          //std::cout << "Got here 3.25" << std::endl;
+
+          if (!use_hw_blocking) {
+
+            if (pad_h_out != 0) {
+              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, 0, 0, 0, CP, ofhp, ofwp, bc);
+              //cfg.all_zero_hp_kernel(&all_zero_param);
+              zero_hp_tpp(out[n][cp][0][0]);
+            }
+
+          //std::cout << "Got here 3.27" << std::endl;
+
+            for (int hi = 0, ho = ho_start; hi < H; hi++, ho++) {
+              /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
+              if (pad_w_out != 0) {
+                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, 0, 0, CP, ofhp, ofwp, bc);
+                //cfg.all_zero_wp_kernel(&all_zero_param);
+                zero_wp_tpp(out[n][cp][ho][0]);
+              }
+          //std::cout << "Got here 3.3" << std::endl;
+
+              for (int wb = 0; wb < num_W_blocks; wb++) {
+                //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
+                normalize_tpp(inp[n][cp][hi][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[cp], beta[cp],
+                                eltwise ? inp_add[n][cp][hi][wb*(W/num_W_blocks)] : NULL,
+                                out[n][cp][ho][wo_start + wb*(W/num_W_blocks)],
+                                relu ? relumask[n][cp][ho][wo_start + wb*(W/num_W_blocks)] : NULL);
+          //std::cout << "Got here 3.4" << std::endl;
+              }
+              /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
+              if (pad_w_out != 0) {
+                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_end, 0, CP, ofhp, ofwp, bc);
+                //cfg.all_zero_wp_kernel(&all_zero_param);
+                zero_wp_tpp(out[n][cp][ho][wo_end]);
+              }
+            }
+          //std::cout << "Got here 3.5" << std::endl;
+            //printf("Third part of parallel for is not implemented for w blocking\n");
+            //exit(-1);
+            /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
+            if (pad_h_out != 0) {
+              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
+              //cfg.all_zero_hp_kernel(&all_zero_param);
+              zero_hp_tpp(out[n][cp][ho_end][0]);
+            }
+
+          } else {
+          //std::cout << "Got here 3.27 alt" << std::endl;
+            for(int hwb = 0; hwb < num_HW_blocks; hwb++){
+              int hi = (hwb*(H*W/num_HW_blocks))/W;
+              int ho = hi;
+              int w  = (hwb*(H*W/num_HW_blocks))%W;
+
+              /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
+              //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
+          //std::cout << "Got here 3.3 alt" << std::endl;
+              normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
+                              eltwise ? inp_add[n][cp][hi][w] : NULL,
+                              out[n][cp][ho][w],
+                              relu ? relumask[n][cp][ho][w] : NULL);
+          //std::cout << "Got here 3.4 alt" << std::endl;
+            }
+          } /* if-else for the presence of padding */
+        },
+        [&]() {},
+        [&]() {});
+#else /* THREADED_LOOPS */
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+//#pragma omp parallel for collapse(2)
+      for (int n = 0; n < N; n++) {
+        for (int cp = 0; cp < CP; cp++) {
+
+          LIBXSMM_ALIGNED(float s[bc], 64);
+          LIBXSMM_ALIGNED(float b[bc], 64);
+
+          //printf("n = %d cp = %d \n", n, cp);
+
+          coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
+
+          //printf("coeffs_tpp called\n");
+          /*
+          //if (n == 1 && cp == 0)
+          {
             for (int j = 0; j < 10; j++)
               printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
           }
@@ -315,74 +432,15 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
               int ho = hi;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
-              /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
-              //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
-              normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
-                              eltwise ? inp_add[n][cp][hi][w] : NULL,
-                              out[n][cp][ho][w],
-                              relu ? relumask[n][cp][ho][w] : NULL);
-            }
-          } /* if-else for the presence of padding */
-        },
-        [&]() {},
-        [&]() {});
-#else /* THREADED_LOOPS */
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2)
-      for (int n = 0; n < N; n++) {
-        for (int cp = 0; cp < CP; cp++) {
+              //printf("hwb = %d \n", hwb);
 
-          LIBXSMM_ALIGNED(float s[bc], 64);
-          LIBXSMM_ALIGNED(float b[bc], 64);
-
-          coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
-
-          if (n == 1 && cp == 0) {
-            for (int j = 0; j < 10; j++)
-              printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
-          }
-
-          if (!use_hw_blocking) {
-            if (pad_h_out != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, 0, 0, 0, CP, ofhp, ofwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
-              zero_hp_tpp(out[n][cp][0][0]);
-            }
-            for (int hi = 0, ho = ho_start; hi < H; hi++, ho++) {
-              /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
-              if (pad_w_out != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, 0, 0, CP, ofhp, ofwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
-                zero_wp_tpp(out[n][cp][ho][0]);
+              /*
+              if (hwb == 0)
+              {
+                  printf("eltwise = %d relu = %d \n", eltwise, relu);
+                  for (int i = 0; i < 10; i++)
               }
-              for (int wb = 0; wb < num_W_blocks; wb++) {
-                //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
-                normalize_tpp(inp[n][cp][hi][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[cp], beta[cp],
-                                eltwise ? inp_add[n][cp][hi][wb*(W/num_W_blocks)] : NULL,
-                                out[n][cp][ho][wo_start + wb*(W/num_W_blocks)],
-                                relu ? relumask[n][cp][ho][wo_start + wb*(W/num_W_blocks)] : NULL);
-              }
-              /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
-              if (pad_w_out != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_end, 0, CP, ofhp, ofwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
-                zero_wp_tpp(out[n][cp][ho][wo_end]);
-              }
-            }
-            //printf("Third part of parallel for is not implemented for w blocking\n");
-            //exit(-1);
-            /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
-            if (pad_h_out != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
-              zero_hp_tpp(out[n][cp][ho_end][0]);
-            }
-
-          } else {
-            for(int hwb = 0; hwb < num_HW_blocks; hwb++){
-              int hi = (hwb*(H*W/num_HW_blocks))/W;
-              int ho = hi;
-              int w  = (hwb*(H*W/num_HW_blocks))%W;
+              */
 
               /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
               //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
@@ -390,6 +448,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                               eltwise ? inp_add[n][cp][hi][w] : NULL,
                               out[n][cp][ho][w],
                               relu ? relumask[n][cp][ho][w] : NULL);
+              //printf("hwb = %d succeeded \n", hwb);
             }
           } /* if-else for the presence of padding */
         } /* end of cp loop */
@@ -399,5 +458,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   } /* end of the bn_fwd_scale scope */
 
 } /* end of the dummy scope */
+
+//std::cout << "Got here 5" << std::endl;
 
 return std::vector<at::Tensor>({t_O, t_relu_mask});

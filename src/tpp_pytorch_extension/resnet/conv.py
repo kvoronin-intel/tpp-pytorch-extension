@@ -20,7 +20,7 @@ class DummyConvTPP(Function):
     @staticmethod
     def forward(ctx, param_struct, *inputs):
 
-        output, = conv_cpp.conv_fwd(param_struct, inputs)
+        output = conv_cpp.conv_fwd(param_struct, inputs)
 
         ( input, weight) = inputs
 

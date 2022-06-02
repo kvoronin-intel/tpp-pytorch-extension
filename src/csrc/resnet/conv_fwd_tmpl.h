@@ -37,6 +37,7 @@ const long CP = sizes[1];
 //const long bc = sizes[4];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
+std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 
 std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
@@ -101,6 +102,8 @@ class BrgemmTPP {
   //ScopedTPP<SetZeroTPP<T>, 0> zero_tpp;
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
+
+  //cfg.avoid_fmas_in_rim = 1;
 
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
   if ((R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1)) {
@@ -172,6 +175,9 @@ class BrgemmTPP {
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
 
+  std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
+
   /* FIXME: Fix this! */
   char loop_specs_str[256] = "Abcdefg";
   //char loop_specs_str[256] = "ABc";
@@ -222,6 +228,7 @@ class BrgemmTPP {
                 for (int i = 0; i < bk; i++)
                   printf("output_off before[off + %d] = %f \n", i, *((float*)(&(output_off[i_n][i_k][i_h][i_w][i]))) );
             }
+            
             if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
             {
                 for (int i = 0; i < bk; i++)
@@ -230,6 +237,7 @@ class BrgemmTPP {
                   printf("weight[%d] = %f \n", i, *((float*)(&( weight[i_k][i_c][i_r][i_s][0][i]))) );
             }
             */
+
             brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
                        weight    [i_k][i_c][i_r][i_s][0],
                        output_off[i_n][i_k][i_h]                 [i_w],
@@ -295,6 +303,7 @@ class BrgemmTPP {
 } /* end of the dummy scope */
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
-return std::vector<at::Tensor>({t_O});
+return t_O;
+//return std::vector<at::Tensor>({t_O});
 
 //#endif

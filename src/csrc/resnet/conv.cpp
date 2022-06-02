@@ -32,11 +32,12 @@ REGISTER_SCOPE(conv_bwd_d,   "conv_bwd_d");
 /* Has the conv_config and all setters */
 #include "conv_setup.h"
 
-std::vector<at::Tensor> conv_fwd(
+//std::vector<at::Tensor> conv_fwd(
+at::Tensor conv_fwd(
     conv_config cfg,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);
-  if (inputs[1].dtype() == at::kFloat) {
+  if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "conv_fwd_tmpl.h"
   } else {

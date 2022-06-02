@@ -43,9 +43,9 @@ class DummyBatchNormFunction(torch.autograd.Function):
     def forward(ctx, training, relu, eltwise, eps, padding, *inputs):
         # print("DummyBatchNormFunction FWD Called")
         ( output, relu_mask ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
-        ( input, input_add, weight, bias, mean, var, invstd ) = inputs
+        ( input, input_add, weight, bias, mean, var ) = inputs
         if training:
-            ctx.save_for_backward(input, input_add, weight, mean, var, invstd, relu_mask, output)
+            ctx.save_for_backward(input, input_add, weight, mean, var, relu_mask, output)
         ctx.relu    = relu
         ctx.eltwise = eltwise
         ctx.eps     = eps
@@ -89,7 +89,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
         inputs += ctx.saved_tensors
         (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
 
-        (input, input_add, weight, mean, var, invstd, relu_mask, output) = ctx.saved_tensors
+        (input, input_add, weight, mean, var, relu_mask, output) = ctx.saved_tensors
 
         padding = ctx.padding
         print("debug: input shape, grad_input shape = ", input.shape, grad_input.shape)
@@ -144,7 +144,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         self.track_running_stats = track_running_stats
         self.mean = torch.empty(num_channels)
         self.var = torch.empty(num_channels)
-        self.invstd = torch.empty(num_channels)
+        #self.invstd = torch.empty(num_channels)
         self.eps = eps
         self.dtype = dtype
 
@@ -226,11 +226,11 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         #output_size = [self.N, self.C // self.Cblock, self.H, self.W, self.Cblock]
 
         if not self.training and self.track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd ]
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)
         else:
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
         print("blocked_input shape = ", blocked_input.shape)
