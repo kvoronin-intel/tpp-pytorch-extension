@@ -82,6 +82,7 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 //std::cout << "Got here 0" << std::endl;
 
 {
+
 #ifndef THREADED_LOOPS
   DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
   DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_W);
@@ -128,7 +129,7 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
       cp_loop_specs_str);
 #endif
 
-std::cout << "Got here 1" << std::endl;
+//std::cout << "Got here 1" << std::endl;
 //          DECL_VLA_PTR_PT    (float,         mean_dbg0,     [bc],     t_M);
 //          DECL_VLA_PTR_PT    (float,         var_dbg0,      [bc],     t_V);
 
@@ -136,128 +137,129 @@ std::cout << "Got here 1" << std::endl;
 //  for (int j = 0; j < bc; j++)
 //    printf("mean_dbg0[%d] = %f var_dbg0[%d] = %f \n", i*bc+j, mean_dbg0[i][j],i*bc+j, var_dbg0[i][j]);
 
-  {
-    RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
+  if (training) {
     {
+      RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
+      {
 #ifdef THREADED_LOOPS
-      ncp_loop(
-        [&](int *ind) {
-          const int n = ind[0], cp = ind[1];
+        ncp_loop(
+          [&](int *ind) {
+            const int n = ind[0], cp = ind[1];
 
-          DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
-          DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              scratch, sum_N_offset);
-          DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              scratch, sumsq_N_offset);
+            DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              scratch, sum_N_offset);
+            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              scratch, sumsq_N_offset);
 
-          zero_tpp(sum_N  [cp][n]);
-          zero_tpp(sumsq_N[cp][n]);
+            zero_tpp(sum_N  [cp][n]);
+            zero_tpp(sumsq_N[cp][n]);
 
-          LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
+            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
 
-          if (!use_hw_blocking) {
-            for (int hi = 0; hi < H; hi++) {
-              for (int w = 0; w < W; w += spatial_block_size) {
+            if (!use_hw_blocking) {
+              for (int hi = 0; hi < H; hi++) {
+                for (int w = 0; w < W; w += spatial_block_size) {
+                  reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
+                  helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
+                  helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                }
+              }
+              //printf("First part of parallel for is not implemented for w blocking\n");
+              //exit(-1);
+            } else {
+              for(int hwb=0; hwb < num_HW_blocks; hwb++){
+                int hi = (hwb*(H*W/num_HW_blocks))/W;
+                int w  = (hwb*(H*W/num_HW_blocks))%W;
                 reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
                 helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
                 helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
               }
             }
-            //printf("First part of parallel for is not implemented for w blocking\n");
-            //exit(-1);
-          } else {
-            for(int hwb=0; hwb < num_HW_blocks; hwb++){
-              int hi = (hwb*(H*W/num_HW_blocks))/W;
-              int w  = (hwb*(H*W/num_HW_blocks))%W;
-              reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-              helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-              helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
-            }
-          }
-        },
-        [&]() {},
-        [&]() {});
+          },
+          [&]() {},
+          [&]() {});
 #else /* THREADED_LOOPS */
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+        RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
-      for (int n = 0; n < N; n++) {
-        for (int cp = 0; cp < CP; cp++) {
+        for (int n = 0; n < N; n++) {
+          for (int cp = 0; cp < CP; cp++) {
 
-          zero_tpp(sum_N  [cp][n]);
-          zero_tpp(sumsq_N[cp][n]);
+            zero_tpp(sum_N  [cp][n]);
+            zero_tpp(sumsq_N[cp][n]);
 
-          LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
+            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
 
-          if (!use_hw_blocking) {
-            for (int hi = 0; hi < H; hi++) {
-              for (int w = 0; w < W; w += spatial_block_size) {
+            if (!use_hw_blocking) {
+              for (int hi = 0; hi < H; hi++) {
+                for (int w = 0; w < W; w += spatial_block_size) {
+                  reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
+                  helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
+                  helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                }
+              }
+              //printf("First part of parallel for is not implemented for w blocking\n");
+              //exit(-1);
+            } else {
+              for(int hwb=0; hwb < num_HW_blocks; hwb++){
+                int hi = (hwb*(H*W/num_HW_blocks))/W;
+                int w  = (hwb*(H*W/num_HW_blocks))%W;
                 reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
                 helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
                 helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
               }
             }
-            //printf("First part of parallel for is not implemented for w blocking\n");
-            //exit(-1);
-          } else {
-            for(int hwb=0; hwb < num_HW_blocks; hwb++){
-              int hi = (hwb*(H*W/num_HW_blocks))/W;
-              int w  = (hwb*(H*W/num_HW_blocks))%W;
-              reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-              helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-              helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
-            }
-          }
-        } /* end of cp loop */
-      } /* end of n loop */
+          } /* end of cp loop */
+        } /* end of n loop */
 #endif /* THREADED_LOOPS */
-    } /* end of the scope with recorded parallel for */
-  } /* end of the bn_fwd_reduce scope */
+      } /* end of the scope with recorded parallel for */
+    } /* end of the bn_fwd_reduce scope */
 
-//std::cout << "Got here 2" << std::endl;
+  //std::cout << "Got here 2" << std::endl;
 
-  {
-    RECORD_SCOPE(bn_fwd_stats, {});
     {
+      RECORD_SCOPE(bn_fwd_stats, {});
+      {
 #ifdef THREADED_LOOPS
-      cp_loop(
-        [&](int *ind) {
-          const int cp = ind[0];
+        cp_loop(
+          [&](int *ind) {
+            const int cp = ind[0];
 
-          DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc], scratch);
-          DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],  scratch, sum_N_offset);
-          DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],  scratch, sumsq_N_offset);
-          DECL_VLA_PTR_PT    (float, mean,     [bc],     t_M);
-          DECL_VLA_PTR_PT    (float, var,      [bc],     t_V);
+            DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc], scratch);
+            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],  scratch, sum_N_offset);
+            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],  scratch, sumsq_N_offset);
+            DECL_VLA_PTR_PT    (float, mean,     [bc],     t_M);
+            DECL_VLA_PTR_PT    (float, var,      [bc],     t_V);
 
+            zero_tpp(sum_X_X2[0][cp]);
+            zero_tpp(sum_X_X2[1][cp]);
+
+            for(int ni = 0; ni < N; ni++){
+              helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
+              helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
+            }
+
+            mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);
+          },
+          [&]() {},
+          [&]() {});
+#else /* THREADED_LOOPS */
+        RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for
+        for (int cp = 0; cp < CP; cp++) {
           zero_tpp(sum_X_X2[0][cp]);
           zero_tpp(sum_X_X2[1][cp]);
 
           for(int ni = 0; ni < N; ni++){
-            helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
-            helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
+              helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
+              helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
           }
 
           mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);
-        },
-        [&]() {},
-        [&]() {});
-#else /* THREADED_LOOPS */
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for
-      for (int cp = 0; cp < CP; cp++) {
-        zero_tpp(sum_X_X2[0][cp]);
-        zero_tpp(sum_X_X2[1][cp]);
 
-        for(int ni = 0; ni < N; ni++){
-            helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
-            helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
-        }
-
-        mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);
-
-      } /* end of cp loop */
+        } /* end of cp loop */
 #endif /* THREADED_LOOPS */
-    } /* end of the scope with recorded parallel for */
-  } /* end of the bn_fwd_stats scope */
-
+      } /* end of the scope with recorded parallel for */
+    } /* end of the bn_fwd_stats scope */
+  } /* end of if (training) for computing the stats */
 
 //std::cout << "Got here 3" << std::endl;
 //          DECL_VLA_PTR_PT    (float,         mean_dbg,     [bc],     t_M);
