@@ -60,7 +60,7 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
     torch.manual_seed(0)
     if test_module == 'cnn_tpp':
         print("info: testing TPP module from CNN (pcl_cgbp)")
-        if opt_padding != None:
+        if opt_padding != None and opt_padding != [0, 0, 0, 0]:
             print("Error: Python side of batchnorm in cnn_tpp does not support padding")
             exit()
         opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
@@ -280,7 +280,7 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
         ref_y_fp32 = torch.nn.functional.pad(ref_y_fp32,         output_hw_padding, mode='constant', value=0.0)
         ref_x_grad = torch.nn.functional.pad(ref_x_grad,         input_hw_padding,  mode='constant', value=0.0)
         if has_eltwise:
-            ref_x_grad_add = torch.nn.functional.pad(ref_x_grad_add, input_hw_padding,  mode='constant', value=0.0)
+            ref_x_add_grad = torch.nn.functional.pad(ref_x_add_grad, input_hw_padding,  mode='constant', value=0.0)
 
     print("opt_x_grad shape = ", opt_x_grad.shape)
     print("ref_x_grad shape = ", ref_x_grad.shape)
@@ -407,6 +407,7 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
     if with_perf:
         print("Performance part is not implemented for this test!")
 
+    return
     exit()
 
 def main():
@@ -432,7 +433,7 @@ def main():
             integer_map = map(int, string_list[:4])
             #print(integer_map)
             [N, C, H, W] = list(integer_map)
-            opt_padding = [4, 4, 6, 6]
+            opt_padding = [4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
             run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
     

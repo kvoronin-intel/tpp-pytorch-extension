@@ -41,5 +41,7 @@ OMP_NUM_THREADS=28 srun python test_conv.py
 #python test_bn.py #--use-bf16-opt
 #python test_bn.py --use-bf16-opt
 #gdb --args python test_bn.py
-gdb --args python test_bn_ext.py --test-module ext_tpp #--use-bf16-opt
+#gdb --args python test_bn_ext.py --test-module ext_tpp #--use-bf16-opt
+#gdb --args  python test_bn_ext.py $@
+            python -u test_bn_ext.py $@
 #python test_conv.py --use-bf16-opt --with-perf
