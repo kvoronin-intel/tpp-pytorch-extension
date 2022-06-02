@@ -30,7 +30,7 @@ REGISTER_SCOPE(conv_bwd_upd, "conv_bwd_upd");
 REGISTER_SCOPE(conv_bwd_d,   "conv_bwd_d");
 
 /* Has the conv_config and all setters */
-#include "conv_setup.h"
+#include "conv_setup_full.h"
 
 //std::vector<at::Tensor> conv_fwd(
 at::Tensor conv_fwd(
