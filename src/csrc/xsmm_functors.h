@@ -319,7 +319,7 @@ class BaseTPP {
 
 class UnaryTPP : public BaseTPP {
  public:
-  UnaryTPP() {}
+  UnaryTPP() {initialized = false;}
   UnaryTPP(
       libxsmm_blasint rows,
       libxsmm_blasint cols,
@@ -5538,7 +5538,7 @@ class BatchNormFwdScaleTPP : public BaseTPP {
  protected:
   std::string hash_str() override {
     char hash[200];
-    snprintf(hash, 200, "batchnorm_fwd_scale_eqn_m%d_n%d", m, n);
+    snprintf(hash, 200, "batchnorm_fwd_scale_eqn_m%d_n%d_fuse%d", m, n, (int)fuse_type);
     return std::string(hash);
   }
   void* build_kernel() override {
@@ -5909,7 +5909,7 @@ class BatchNormBwdWTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            (relu ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE),
+            LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT, /* always with bytemask here */
             LIBXSMM_MELTW_TYPE_UNARY_RELU_INV) {
     fuse_type = set_fuse_type(relu, eltwise);
   }
