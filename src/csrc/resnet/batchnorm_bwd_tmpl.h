@@ -79,6 +79,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   spatial_block_size = H * W / num_HW_blocks;
 }
 
+std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 
 {
 #ifndef THREADED_LOOPS
@@ -355,14 +356,14 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           abc_coeffs_tpp(gamma[cp], dgamma[cp], var[cp], mean[cp], dbeta[cp], &a[0], &b[0], &c[0]);
 
           if (!use_hw_blocking) {
-            if (pad_h_in != 0 && eltwise ) {
+            if (pad_h_in != 0) {
               //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
               //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][0][0]);
             }
             for (int ho = 0, hi = hi_start; ho < H; ho++, hi++) {
               /* zeroing out starting [0, wi_start) x bc block for fixed hi */
-              if (pad_w_in != 0 && eltwise ) {
+              if (pad_w_in != 0) {
                 //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
                 //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][0]);
@@ -372,7 +373,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                 grad_d_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], &c[0], gamma[cp], dout[n][cp][ho][wb*(W/num_W_blocks)], din[n][cp][hi][wi_start + wb*(W/num_W_blocks)]);
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
-              if (pad_w_in != 0 && eltwise ) {
+              if (pad_w_in != 0) {
                 //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
                 //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][wi_end]);
@@ -380,7 +381,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
             }
             /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
-            if (pad_h_in != 0 && eltwise ) {
+            if (pad_h_in != 0) {
               //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
               //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][hi_end][0]);
@@ -415,14 +416,14 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           abc_coeffs_tpp(gamma[cp], dgamma[cp], var[cp], mean[cp], dbeta[cp], &a[0], &b[0], &c[0]);
 
           if (!use_hw_blocking) {
-            if (pad_h_in != 0 && eltwise ) {
+            if (pad_h_in != 0) {
               //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
               //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][0][0]);
             }
             for (int ho = 0, hi = hi_start; ho < H; ho++, hi++) {
               /* zeroing out starting [0, wi_start) x bc block for fixed hi */
-              if (pad_w_in != 0 && eltwise ) {
+              if (pad_w_in != 0) {
                 //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
                 //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][0]);
@@ -432,7 +433,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                 grad_d_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], &c[0], gamma[cp], dout[n][cp][ho][wb*(W/num_W_blocks)], din[n][cp][hi][wi_start + wb*(W/num_W_blocks)]);
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
-              if (pad_w_in != 0 && eltwise ) {
+              if (pad_w_in != 0 ) {
                 //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
                 //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][wi_end]);
@@ -440,7 +441,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
             }
             /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
-            if (pad_h_in != 0 && eltwise ) {
+            if (pad_h_in != 0) {
               //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
               //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][hi_end][0]);
