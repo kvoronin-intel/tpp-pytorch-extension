@@ -40,9 +40,5 @@ OMP_NUM_THREADS=28 srun python test_conv.py
 
 export OMP_NUM_THREADS=28
 # Functional
-#gdb --args python test_conv_ext.py
-#gdb --args python test_conv_ext.py --test-module ext_tpp #--use-bf16-opt
-#python test_conv_ext.py --test-module ext_tpp #--use-bf16-opt
-#gdb --args python test_conv_ext.py $@ #--use-bf16-opt
+#gdb --args python test_bottleneck_ext.py $@ #--use-bf16-opt
             python -u test_bottleneck_ext.py $@ #--use-bf16-opt
-#python test_conv_ext.py --use-bf16-opt --with-perf

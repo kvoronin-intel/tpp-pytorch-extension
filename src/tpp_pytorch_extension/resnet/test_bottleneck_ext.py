@@ -38,7 +38,8 @@ parser.add_argument('--use-groupnorm', action="store_true", default=False, dest=
 
 #import pdb
 
-torch.autograd.set_detect_anomaly(True)
+# When physical padding is on, rims can be nans
+#torch.autograd.set_detect_anomaly(True)
 
 def gn_init(m, zero_init=False):
     #assert isinstance(m, nn.GroupNorm) or isinstance(m, pcl_cgbp.nn_GroupNorm)

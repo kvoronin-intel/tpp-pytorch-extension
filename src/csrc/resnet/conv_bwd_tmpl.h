@@ -976,6 +976,9 @@ if (sizeof(T) == 2) {
     //brgemm_kernel2.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
     brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bk*ofhp*ofwp, R*S*bc*bk, bk, bc, bc*stride_w, 1.0, 0, 0)));//, BRGEMM);
 
+    //printf("Didn't allocate A_offsets and B_offsets");
+    //            printf("A_offsets get = %p B_offsets get = %p \n", A_offsets.get(), B_offsets.get());
+
   } else {
     //printf("Not implemented (missing support for LIBXSMM_GEMM_BATCH_REDUCE_OFFSET for now \n");
     //exit(-1);
@@ -1005,6 +1008,8 @@ if (sizeof(T) == 2) {
         }
       }
     } /* outer loop for filling the offsets */
+    //printf("Allocated and initialized A_offsets and B_offsets");
+    //            printf("A_offsets get = %p B_offsets get = %p \n", A_offsets.get(), B_offsets.get());
   }
 
   auto wt_trans_loop = ThreadedLoop<4>({
@@ -1099,6 +1104,24 @@ if (sizeof(T) == 2) {
             }
             */
 
+/*
+              if (i_n == 0 && i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && i_h == 0 && i_w == 0) {
+                printf("count = %d \n", Kb_step * r_step * s_step);
+                printf("A_offsets get = %p B_offsets get = %p \n", A_offsets.get(), B_offsets.get());
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = *(((float*)&(gradout  [i_n][i_k][i_h][i_w])));
+                  printf("i = %d gradout = %f \n", i, ftmp);
+                }
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = *(((float*)&(weight_tr[i_c][i_k][i_r][i_s][0])));
+                  printf("i = %d weight_tr = %f \n", i, ftmp);
+                }
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = *(((float*)&(dinp_off [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s])));
+                  printf("i = %d dinp_off before = %f \n", i, ftmp);
+                }
+              }
+*/
               //brgemm_kernel.gemm( &gemm_param );
               brgemm_tpp(gradout  [i_n][i_k][i_h][i_w],
                          weight_tr[i_c][i_k][i_r][i_s][0],
@@ -1106,7 +1129,14 @@ if (sizeof(T) == 2) {
                          B_offsets.get(), A_offsets.get(),
                          Kb_step * r_step * s_step,
                          true);
-
+/*
+              if (i_n == 0 && i_c == 0 && i_k == 0 && i_r == 0 && i_s == 0 && i_h == 0 && i_w == 0) {
+                for (int i = 0; i < 10; i++) {
+                  float ftmp = *(((float*)&(dinp_off [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s])));
+                  printf("i = %d dinp_off after = %f \n", i, ftmp);
+                }
+              }
+*/
             /*
             if (i_n == 0 && i_c ==  0 && i_k == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0)
             {
