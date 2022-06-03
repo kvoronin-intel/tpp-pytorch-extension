@@ -1202,7 +1202,7 @@ if (sizeof(T) == 2) {
                          Kb_step,
                          true);
             }
-          }
+          } /* else-if for avoid_rim_fmas */
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
         [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
@@ -1213,6 +1213,7 @@ if (sizeof(T) == 2) {
 //#endif
 
 } /* end of the dummy scope */
+
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 //return std::vector<at::Tensor>({t_dummy, t_grad_weight});

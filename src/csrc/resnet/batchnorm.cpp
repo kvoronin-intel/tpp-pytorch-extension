@@ -58,7 +58,7 @@ std::vector<at::Tensor> batchnorm_bwd(
     std::vector<long> padding,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
-  if (inputs[1].dtype() == at::kFloat) {
+  if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "batchnorm_bwd_tmpl.h"
   } else {

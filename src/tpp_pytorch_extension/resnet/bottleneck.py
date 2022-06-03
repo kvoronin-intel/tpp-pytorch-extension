@@ -326,7 +326,7 @@ class BottleneckApplyBNTPP(Function):
          b1m, b2m, b3m, b4m,
          b1n, b2n, b3n, b4n) = inputs
 
-        """
+        
         #print("nan check in bottleneck for input after, nancount = ", torch.isnan(input.view(-1)).sum())
         print("nan check in bottleneck for conv1_out, nancount = ", torch.isnan(conv1_out.view(-1)).sum())
         print("nan check in bottleneck for bn1_out, nancount = ", torch.isnan(bn1_out.view(-1)).sum())
@@ -338,11 +338,11 @@ class BottleneckApplyBNTPP(Function):
         print("nan check in bottleneck for bn4_out, nancount = ", torch.isnan(bn4_out.view(-1)).sum())
         print("nan check in bottleneck for bn3_out, nancount = ", torch.isnan(bn3_out.view(-1)).sum())
         print("nan check in bottleneck for output, nancount = ", torch.isnan(output.view(-1)).sum())
-        """
-
-        global_tensor_x_counter = 0
+        
 
         dump = False
+
+        global_tensor_x_counter = 0
 
         rank = int(os.environ.get("PMI_RANK", -1))
         if rank < 0:
@@ -355,10 +355,11 @@ class BottleneckApplyBNTPP(Function):
         if dump:
 
             #tmp_tensor = bn4_out.unblocked_tensor() if type(bn4_out) is BlockedTensor else bn4_out
-            #np.savetxt('myext_layer_bn4_fwd_output_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
+            #np.savetxt('my_layer_bn4_fwd_output_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             #global_tensor_x_counter = global_tensor_x_counter + 1
             #exit()
 
+            """
             if type(c1w) is BlockedParameter:
                 c1w.unblock()
             #else:
@@ -366,7 +367,8 @@ class BottleneckApplyBNTPP(Function):
             #tmp_tensor = c1w.unblocked_tensor() if type(c1w) is BlockedParameter else c1w
             np.savetxt('my_layer_conv1_forward_weight_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             global_tensor_x_counter = global_tensor_x_counter + 1
-            
+            """
+
             tmp_tensor = input.unblocked_tensor() if type(input) is BlockedTensor else input
             np.savetxt('my_layer_conv1_forward_input_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             global_tensor_x_counter = global_tensor_x_counter + 1
@@ -376,7 +378,7 @@ class BottleneckApplyBNTPP(Function):
             tmp_tensor = conv1_out.unblocked_tensor() if type(conv1_out) is BlockedTensor else conv1_out
             np.savetxt('my_layer_conv1_forward_output_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             global_tensor_x_counter = global_tensor_x_counter + 1
-            """
+            
             tmp_tensor = bn1_out.unblocked_tensor() if type(bn1_out) is BlockedTensor else bn1_out
             np.savetxt('my_layer_conv2_forward_input_out_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             global_tensor_x_counter = global_tensor_x_counter + 1
@@ -406,7 +408,7 @@ class BottleneckApplyBNTPP(Function):
             #tmp_tensor = conv3_out.unblocked_tensor() if type(conv3_out) is BlockedTensor else conv3_out
             #np.savetxt('my_layer_conv3_forward_output_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             #global_tensor_x_counter = global_tensor_x_counter + 1
-            """
+            
 
         ctx.config = config
 
@@ -440,6 +442,39 @@ class BottleneckApplyBNTPP(Function):
         #print("dbg: bottleneck_backward_new called")
 
         grad_input = grad_c1i + grad_c4i
+
+        """
+        print("debug: pad_h = ", param_struct.pad_h)
+        padding = [param_struct.pad_h, param_struct.pad_h, param_struct.pad_h, param_struct.pad_h]  #ctx.padding
+        print("debug: input shape, grad_input shape = ", input.shape, grad_input.shape)
+        if padding[0] != 0 or padding[1] != 0 or padding[2] != 0 or padding[3] != 0:
+            [N, CP, ifhp, ifwp, bc] = input.shape
+            shift_input  = (padding[0] * ifwp + padding[1])*bc - 5
+            [N, KP, ofhp, ofwp, bk] = grad_output.shape
+            shift_output = (padding[2] * ofwp + padding[3])*bk - 5
+            print("shift_input shift_output = ", shift_input, shift_output)
+        else:
+            shift_input  = 0
+            shift_output = 0
+        """
+        """
+        for i in range(10):
+            ind = i
+            print("ind grad_c1w grad_c2w grad_c3w ", ind, grad_c1w.view(-1)[ind].item(), grad_c2w.view(-1)[ind].item(), grad_c3w.view(-1)[ind].item())
+
+        for i in range(10):
+            ind = i
+            print("ind grad_b1w grad_b2w grad_b3w ", ind, grad_b1w.view(-1)[ind].item(), grad_b2w.view(-1)[ind].item(), grad_b3w.view(-1)[ind].item())
+
+        for i in range(10):
+            ind = i
+            print("ind grad_b1b grad_b2b grad_b3b ", ind, grad_b1b.view(-1)[ind].item(), grad_b2b.view(-1)[ind].item(), grad_b3b.view(-1)[ind].item())
+
+        for i in range(10):
+            ind = i + 0 #shift_input
+            print("ind grad_c1i grad_c4i ", ind, grad_c1i.view(-1)[ind].item(), grad_c4i.view(-1)[ind].item())
+        """
+
 
         return (None, None, # for handle and training arguments in forward
                 grad_input,

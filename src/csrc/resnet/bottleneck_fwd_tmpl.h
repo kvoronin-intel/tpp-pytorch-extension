@@ -70,7 +70,7 @@ auto t_W  = inputs[1];
 
   //return {dummy_return, conv1_out, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return, dummy_return};
 
-  printf("running bn1\n");
+  //printf("running bn1\n");
 
   bool bn1_relu = true, bn1_eltwise = false;
   std::vector<long> bn1_padding{0, 0, cfg.pad_size, cfg.pad_size};
@@ -79,11 +79,11 @@ auto t_W  = inputs[1];
   auto bn1_out = bn1_ret[0];
   auto bn1_relu_out = bn1_ret[1];
 
-  printf("running conv2\n");
+  //printf("running conv2\n");
 
   auto conv2_out = conv_fwd(cfg.conv2, {bn1_out, conv2_weight});//conv2_inputs);//bn1_out, conv2_weight, conv2_output_size);
 
-  printf("running bn2\n");
+  //printf("running bn2\n");
 
   bool bn2_relu = true, bn2_eltwise = false;
   std::vector<long> bn2_padding{cfg.pad_size, cfg.pad_size, 0, 0};
@@ -92,41 +92,31 @@ auto t_W  = inputs[1];
   auto bn2_out = bn2_ret[0];
   auto bn2_relu_out = bn2_ret[1];
 
-  printf("running conv3\n");
+  //printf("running conv3\n");
 
   auto conv3_out = conv_fwd(cfg.conv3, {bn2_out, conv3_weight});//conv3_inputs);//bn2_out, conv3_weight, conv3_output_size);
 
   at::Tensor conv4_out, residual, bn4_relu_out, bn3_out, bn3_relu_out;
   //std::vector<at::Tensor> bn4_ret;
   if (cfg.has_residual_conv) {
-    printf("running conv4\n");
+    //printf("running conv4\n");
     //conv4_out = conv_forward_new(cfg.conv4, input, conv4_weight, conv4_output_size);
     conv4_out = conv_fwd(cfg.conv4, {input, conv4_weight});//conv4_inputs);
 
-    printf("running bn4\n");
-
-//    int bc = 64;
-//    int CP = 4;
-//    DECL_VLA_PTR_PT    (float,         mean_dbg,     [bc],     bn4_mean);
-//    DECL_VLA_PTR_PT    (float,         var_dbg,      [bc],     bn4_var);
-//    for (int i = 0; i < CP; i++)
-//      for (int j = 0; j < bc; j++)
-//        printf("before running bn4 mean_dbg[%d] = %f var_dbg[%d] = %f \n", i*bc+j, mean_dbg[i][j],i*bc+j, var_dbg[i][j]);
+    //printf("running bn4\n");
 
     bool bn4_relu = false, bn4_eltwise = false;
     auto bn4_ret  = batchnorm_fwd(training, bn4_relu, bn4_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn4_padding*/, std::vector<at::Tensor>{conv4_out, dummy_add, bn4_weight, bn4_bias, bn4_mean, bn4_var});
     //bn4_inputs);//bnorm_forward_new(cfg.bn4, conv4_out, dummy_add, bn4_weight, bn4_bias, bn4_mean, bn4_var, dummy_invstd, bn4_output_size, bn_norm_type);
-    printf("ran bn4\n");
     residual = bn4_ret[0];
     bn4_relu_out = bn4_ret[1];
   } else {
     conv4_out    = dummy_return;
-    printf("setting residual to equal input");
     residual     = input;
     bn4_relu_out = dummy_return;
   }
 
-  printf("running bn3\n");
+  //printf("running bn3\n");
 
   bool bn3_relu = true, bn3_eltwise = true;
   auto bn3_ret = batchnorm_fwd(training, bn3_relu, bn3_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn3_padding*/, std::vector<at::Tensor>{conv3_out, residual, bn3_weight, bn3_bias, bn3_mean, bn3_var});

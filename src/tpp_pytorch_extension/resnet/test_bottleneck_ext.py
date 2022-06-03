@@ -224,7 +224,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     print("(y1 - y2).abs().norm(inf)              = ", (opt_y_fp32 - ref_y_fp32).abs().norm(p=float('inf')))
     print("(y1 - y2).abs().norm(2)   / y2.norm(2) = ", (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2))
 
-    return
+    #return
     #exit()
 
     z1.backward(retain_graph=True)
@@ -286,7 +286,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     for i in range(10):
         print("i opt_bn3_weight_grad ref_bn3_weight_grad = ", i, opt_bn3_weight_grad_unblocked.view(-1)[i].item(), ref_bn3_weight_grad.view(-1)[i].item())
 
-    #return
+    return
     exit()
 
     if has_bias:

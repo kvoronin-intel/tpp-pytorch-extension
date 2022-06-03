@@ -26,7 +26,10 @@ static int my_rank = guess_mpi_rank();
 #include "conv_setup_external.h" /* for conv_config and conv_setup declaration */
 
 extern at::Tensor conv_fwd(conv_config cfg, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> conv_bwd(conv_config cfg, std::vector<at::Tensor> inputs);
+
 extern std::vector<at::Tensor> batchnorm_fwd(bool  training, bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> batchnorm_bwd(bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
 
 typedef struct bottleneck_bn_config {
   libxsmm_blasint N;

@@ -433,7 +433,7 @@ def main():
             integer_map = map(int, string_list[:4])
             #print(integer_map)
             [N, C, H, W] = list(integer_map)
-            opt_padding = [4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
+            opt_padding = [4, 4, 6, 6] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
             run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
     

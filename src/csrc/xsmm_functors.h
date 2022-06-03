@@ -2076,10 +2076,11 @@ class BrgemmTPP {
       snprintf(
           hash,
           200,
-          "brgemm_m%ld_n%ld_k%ld_a%ld_b%ld_t%ld_beta%d_at%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d",
+          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d",
           p->M,
           p->N,
           p->K,
+          p->reduce_offset,
           p->str_a,
           p->str_b,
           brgemm_type,
