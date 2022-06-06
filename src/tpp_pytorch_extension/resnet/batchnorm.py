@@ -14,8 +14,6 @@ from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
 import time
 from contextlib import contextmanager
 
-USE_BF16_PARAMS = True
-
 class DummyLinear(BlockedModule):
     def __init__(self, in_features, out_features, bias=True):
         super(DummyLinear, self).__init__()
@@ -42,10 +40,13 @@ class DummyBatchNormFunction(torch.autograd.Function):
     #def forward(ctx, p, training, need_attention_output, *inputs):
     def forward(ctx, training, relu, eltwise, eps, padding, *inputs):
         # print("DummyBatchNormFunction FWD Called")
-        ( output, relu_mask ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
-        ( input, input_add, weight, bias, mean, var ) = inputs
+        ( input, input_add, weight, bias, mean, var, scratch ) = inputs
+        #print("debug: scratch numel before = ", scratch.numel())
+        ( output, relu_mask, scratch ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
+        #( input, input_add, weight, bias, mean, var, scratch ) = inputs
+        #print("debug: scratch numel after = ", scratch.numel())
         if training:
-            ctx.save_for_backward(input, input_add, weight, mean, var, relu_mask, output)
+            ctx.save_for_backward(input, input_add, weight, mean, var, relu_mask, output, scratch)
         ctx.relu    = relu
         ctx.eltwise = eltwise
         ctx.eps     = eps
@@ -89,9 +90,12 @@ class DummyBatchNormFunction(torch.autograd.Function):
         inputs += [g.contiguous() for g in grad_outs]
 
         inputs += ctx.saved_tensors
+
+        (input, input_add, weight, mean, var, relu_mask, output, scratch) = ctx.saved_tensors
+        #print("debug: scratch numel in bwd = ", scratch.numel())
+
         (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
 
-        (input, input_add, weight, mean, var, relu_mask, output) = ctx.saved_tensors
 
         """
         padding = ctx.padding
@@ -126,7 +130,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
             print("debug: ind bwd grad_bias        = ", ind, grad_bias.view(-1)[ind].item())
         """
         # print("Returning from DummyBatchNormFunction BWD")
-        return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None)
+        return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None, None)
 
 class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
@@ -151,6 +155,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         #self.invstd = torch.empty(num_channels)
         self.eps = eps
         self.dtype = dtype
+        self.scratch = torch.Tensor()
 
         if len(padding) != 4:
             print("Error: padding must be supplied to DummyBatchNormTPP as a list of 4 elements")
@@ -228,11 +233,11 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         #output_size = [self.N, self.C // self.Cblock, self.H, self.W, self.Cblock]
 
         if not self.training and self.track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var ]
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.scratch ]
+            #inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)
         else:
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
+            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.scratch ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
         output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, *inputs) #output_size, *inputs)
