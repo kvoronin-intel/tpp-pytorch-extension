@@ -11,6 +11,7 @@ auto t_W  = inputs[3]; /* weight */
 auto t_M  = inputs[4]; /* mean */
 auto t_V  = inputs[5]; /* var  */
 auto t_R  = inputs[6]; /* relumask */
+auto t_scratch  = inputs[7]; /* pre-allocated scratch */
 
 //std::cout << "padding = " << padding << std::endl;
 //std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
@@ -53,6 +54,8 @@ const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + CP * N * bc, 64);
 const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
 
 const long dbeta_N_offset        = LIBXSMM_UP2(CP * N * bc, 64);
+
+/*
 const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64);
 
 const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
@@ -61,6 +64,7 @@ const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scra
 std::vector<long> scratch_size{full_scratch_size};
 
 auto scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
+*/
 
 bool use_hw_blocking = true;
 
@@ -85,8 +89,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_W);
   DECL_VLA_PTR_PT    (float,         mean,     [bc],                 t_M);
   DECL_VLA_PTR_PT    (float,         var,      [bc],                 t_V);
-  DECL_VLA_PTR_PT    (float,         dgamma_N, [N][bc],              scratch);
-  DECL_VLA_PTR_PT_EXT(float,         dbeta_N,  [N][bc],              scratch, dbeta_N_offset);
+  DECL_VLA_PTR_PT    (float,         dgamma_N, [N][bc],              t_scratch);
+  DECL_VLA_PTR_PT_EXT(float,         dbeta_N,  [N][bc],              t_scratch, dbeta_N_offset);
   DECL_VLA_PTR_PT    (T,             din,      [CP][ifhp][ifwp][bc], t_grad_input);
   DECL_VLA_PTR_PT    (T,             din_add,  [CP][ifhp][ifwp][bc], t_grad_input_add);
   DECL_VLA_PTR_PT    (float,         dgamma,   [bc],                 t_grad_weight);
@@ -151,8 +155,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           DECL_VLA_PTR_PT    (float,         var,      [bc],                 t_V);
           DECL_VLA_PTR_PT_EXT(T,             dout,     [CP][ofhp][ofwp][bc],               t_GO, (ho_start * ofwp + wo_start) * bc);
           DECL_VLA_PTR_PT_EXT(unsigned char, relumask, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_R,  (ho_start * ofwp + wo_start) * bc/BITS_PER_CHAR);
-          DECL_VLA_PTR_PT    (float,         dgamma_N, [N][bc],              scratch);
-          DECL_VLA_PTR_PT_EXT(float,         dbeta_N,  [N][bc],              scratch, dbeta_N_offset);
+          DECL_VLA_PTR_PT    (float,         dgamma_N, [N][bc],              t_scratch);
+          DECL_VLA_PTR_PT_EXT(float,         dbeta_N,  [N][bc],              t_scratch, dbeta_N_offset);
           DECL_VLA_PTR_PT    (T,             din_add,  [CP][ifhp][ifwp][bc], t_grad_input_add);
 
           LIBXSMM_ALIGNED(float lcl_dgamma_ptr[bc], 64);
@@ -314,8 +318,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
           DECL_VLA_PTR_PT    (float, dgamma,   [bc],    t_grad_weight);
           DECL_VLA_PTR_PT    (float, dbeta,    [bc],    t_grad_bias);
-          DECL_VLA_PTR_PT    (float, dgamma_N, [N][bc], scratch);
-          DECL_VLA_PTR_PT_EXT(float, dbeta_N,  [N][bc], scratch, dbeta_N_offset);
+          DECL_VLA_PTR_PT    (float, dgamma_N, [N][bc], t_scratch);
+          DECL_VLA_PTR_PT_EXT(float, dbeta_N,  [N][bc], t_scratch, dbeta_N_offset);
 
           zero_tpp(dgamma[cp]);
           zero_tpp(dbeta [cp]);
