@@ -10,12 +10,10 @@ auto t_IA = inputs[2]; /* input_add */
 auto t_W  = inputs[3]; /* weight */
 auto t_M  = inputs[4]; /* mean */
 auto t_V  = inputs[5]; /* var  */
-//auto t_IV = inputs[6]; /* invstd  removed from API */
 auto t_R  = inputs[6]; /* relumask */
 
-std::cout << "padding = " << padding << std::endl;
-
-std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+//std::cout << "padding = " << padding << std::endl;
+//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 
 auto t_grad_input     = at::empty(t_I.sizes(),  torch::TensorOptions().dtype(t_I.dtype()));
 auto t_grad_input_add = at::empty(t_IA.sizes(), torch::TensorOptions().dtype(t_I.dtype()));
@@ -79,7 +77,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   spatial_block_size = H * W / num_HW_blocks;
 }
 
-std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+//std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 
 {
 #ifndef THREADED_LOOPS

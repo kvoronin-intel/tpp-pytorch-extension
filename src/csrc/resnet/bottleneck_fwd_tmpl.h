@@ -37,33 +37,7 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   }
   */
 
-#if 0
-std::vector<at::Tensor> batchnorm_fwd(
-    bool  training,
-    bool  relu,
-    bool  eltwise,
-    float eps,
-    std::vector<long> padding,
-    std::vector<at::Tensor> inputs) {
-
-auto t_I  = inputs[0]; // [N][CP][H][W][bc]
-auto t_IA = inputs[1];
-auto t_W  = inputs[2];
-auto t_B  = inputs[3];
-auto t_M  = inputs[4];
-auto t_V  = inputs[5];
-auto t_IV = inputs[6]; /* should be unused */
-
-
-std::vector<at::Tensor> conv_fwd(
-    conv_config cfg,
-    std::vector<at::Tensor> inputs) 
-auto t_I  = inputs[0]; // [N][CP][H][W][bc]
-auto t_W  = inputs[1];
-
-#endif
-
-  printf("running conv1\n");
+  //printf("running conv1\n");
 
   //auto conv1_out = conv_forward_new(cfg.conv1, input, conv1_weight, conv1_output_size);
   auto conv1_out = conv_fwd(cfg.conv1, {input, conv1_weight});//conv1_inputs);

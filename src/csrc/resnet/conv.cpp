@@ -19,7 +19,6 @@ static int my_rank = guess_mpi_rank();
 
 #ifdef THREADED_LOOPS
 #   warning "Building conv with threaded loops instead of OpenMP pragmas"
-//#   error   "Building conv with threaded loops instead of OpenMP pragmas is not supported yet"
 #   include "threaded_loops.h"
 #endif
 
@@ -32,7 +31,6 @@ REGISTER_SCOPE(conv_bwd_d,   "conv_bwd_d");
 /* Has the conv_config and all setters */
 #include "conv_setup_full.h"
 
-//std::vector<at::Tensor> conv_fwd(
 at::Tensor conv_fwd(
     conv_config cfg,
     std::vector<at::Tensor> inputs) {
@@ -81,9 +79,9 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
   //libxsmm_blasint bk      = K_BLOCK_SIZE;       /* hardcoded for now */
   libxsmm_blasint threads = (libxsmm_blasint)omp_get_max_threads();
 
-  printf("debug: calling conv_setup_new with tensor N H W C K R S padding stride bc bk: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+  /* printf("debug: calling conv_setup_new with tensor N H W C K R S padding stride bc bk: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
                                                                                           N, H, W, C, K, R, S,
-                                                                                          pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, bc, bk);
+                                                                                          pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, bc, bk); */
 
   libxsmm_dnn_conv_eltwise_fuse fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_NONE; /* FIXME: to be changed later? */
 

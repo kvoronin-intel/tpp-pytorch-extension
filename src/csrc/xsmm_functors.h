@@ -415,6 +415,7 @@ class UnaryTPP : public BaseTPP {
     return std::string(hash);
   }
   void* build_kernel() override {
+
     libxsmm_meltw_unary_shape shape = libxsmm_create_meltw_unary_shape(
         cols, rows, ldi, ldo, dt_in, dt_out, dt_compute);
     return (void*)libxsmm_dispatch_meltw_unary_v2(type, shape, flags);
@@ -1683,6 +1684,7 @@ class XformExtTPP {
       zero_offset = in_cols * BS;
     }
     if (std::is_same<T, bfloat16>::value)
+    if (std::is_same<T, bfloat16>::value)
       cvt = ConvertTPP<float, bfloat16>(in_rows, in_cols);
   }
   void operator()(T* in, T* out) {
@@ -1976,11 +1978,31 @@ class BrgemmTPP {
     gemm_param.a.secondary = (void*)B_offsets;
     gemm_param.b.primary = (void*)A;
     gemm_param.b.secondary = (void*)A_offsets;
+
+/*
+    for (int i = 0; i < 10; i++)
+      printf("A[%d] = %f \n", i, ((float*)A)[i]);
+    for (int i = 0; i < 10; i++)
+      printf("B[%d] = %f \n", i, ((float*)B)[i]);
+    for (int i = 0; i < 10; i++)
+      printf("C before[%d] = %f \n", i, ((float*)C)[i]);
+
+    if (count > 1 && A_offsets != nullptr && B_offsets != nullptr)
+    {
+      printf("count = %d \n", count);
+      for (int i = 0; i < count; i++)
+        printf("A_offsets[%d] = %llu B_offsets[%d] = %llu\n", i, A_offsets[i], i, B_offsets[i]);
+    }
+*/
     if (!no_tile_cfg) {
       k_gemm_with_tc(&gemm_param);
     } else {
       k_gemm_no_tc(&gemm_param);
     }
+/*
+    for (int i = 0; i < 10; i++)
+      printf("C after[%d] = %f \n", i, ((float*)C)[i]);
+*/
   }
   void ref(
       Tin* A,
@@ -5420,6 +5442,7 @@ class MeanVarTPP {
     for(int i = 0; i < N; i++){
       mean[i] = (float)sum_x  [i] * (float)scale;                          /* mean ~ E[X] */
       var[i]  = (float)sumsq_x[i] * (float)scale - mean[i] * mean[i];      /* var         */
+      //printf("i = %d sum_x = %f simsq_x = %f mean = %f var = %10.10f \n", i, sum_x[i], sumsq_x[i], mean[i], var[i]);
     }
   }
 };
@@ -5522,6 +5545,19 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       arg_array[5].primary = (void*)inp_add;
     }
 
+/*
+    printf("fuse_type = %d \n", fuse_type);
+    for (int i = 0; i < 10; i++)
+        printf("inp[%d] = %f \n", i, ((float*)inp)[i]);
+    for (int i = 0; i < 10; i++)
+        printf("gamma[%d] = %f \n", i, ((float*)gamma)[i]);
+    for (int i = 0; i < 10; i++)
+        printf("beta[%d] = %f \n", i, ((float*)beta)[i]);
+    for (int i = 0; i < 10; i++)
+        printf("s[%d] = %f \n", i, ((float*)s)[i]);
+    for (int i = 0; i < 10; i++)
+        printf("b[%d] = %f \n", i, ((float*)b)[i]);
+*/
     eqn_param.inputs         = arg_array;
     eqn_param.output.primary = out;
     if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
@@ -5530,6 +5566,10 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     }
 
     kernel(&eqn_param);
+/*
+    for (int i = 0; i < 10; i++)
+        printf("out[%d] = %f \n", i, ((float*)out)[i]);
+*/
   }
   void ref(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
     printf("ref() not implemented for BatchNormFwdScaleTPP\n");
@@ -5925,6 +5965,18 @@ class BatchNormBwdWTPP {
     arg_array[5].primary = (void*)dbeta_local;
     arg_array[6].primary = (void*)gamma;
 
+/*
+    printf("fuse_type = %d \n", fuse_type);
+
+    for (int i = 0; i < 10; i++)
+      printf("dgamma_local before[%d] = %f \n", i, ((float*)dgamma_local)[i]);
+    for (int i = 0; i < 10; i++)
+      printf("dbeta_local before[%d] = %f \n", i, ((float*)dbeta_local)[i]);
+*/
+/*
+    for (int i = 0; i < 10; i++)
+      printf("dout before relu[%d] = %f \n", i, ((float*)dout)[i]);
+*/
     if (fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE ||
       fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
       if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
@@ -5946,7 +5998,28 @@ class BatchNormBwdWTPP {
 
     eqn_param.output.primary = dgamma_local;
     eqn_dgamma(&eqn_param);
-
+/*
+    for (int i = 0; i < 10; i++)
+      printf("inp[%d] = %f \n", i, ((float*)inp)[i]);
+*/
+/*
+    for (int i = 0; i < 10; i++)
+      printf("dout after relu[%d] = %f \n", i, ((float*)dout)[i]);
+*/
+/*
+    for (int i = 0; i < 10; i++)
+      printf("a[%d] = %f \n", i, ((float*)a)[i]);
+    for (int i = 0; i < 10; i++)
+      printf("b[%d] = %f \n", i, ((float*)b)[i]);
+    for (int i = 0; i < 10; i++)
+      printf("gamma[%d] = %f \n", i, ((float*)gamma)[i]);
+*/
+/*
+    for (int i = 0; i < 10; i++)
+      printf("dgamma_local after[%d] = %f \n", i, ((float*)dgamma_local)[i]);
+    for (int i = 0; i < 10; i++)
+      printf("dbeta_local after[%d] = %f \n", i, ((float*)dbeta_local)[i]);
+*/
     eqn_param.output.primary = dbeta_local;
     eqn_dbeta(&eqn_param);
 

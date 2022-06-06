@@ -58,33 +58,6 @@ RECORD_FUNCTION("bottleneck_bn_bwd", std::vector<c10::IValue>());
           bn1_grad_beta, bn2_grad_beta, bn3_grad_beta, bn4_grad_beta,
               conv1_grad_input, conv4_grad_input;
 
-#if 0
-std::vector<at::Tensor> conv_bwd(
-    conv_config cfg,
-    std::vector<at::Tensor> inputs) {
-auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
-auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
-auto t_W  = inputs[2];
-
-std::vector<at::Tensor> batchnorm_bwd(
-    bool  relu,
-    bool  eltwise,
-    float eps,
-    std::vector<long> padding,
-    std::vector<at::Tensor> inputs) {
-
-
-auto t_GO = inputs[0]; /* grad_output */
-auto t_I  = inputs[1]; /* input */
-auto t_IA = inputs[2]; /* input_add */
-auto t_W  = inputs[3]; /* weight */
-auto t_M  = inputs[4]; /* mean */
-auto t_V  = inputs[5]; /* var  */
-//auto t_IV = inputs[6]; /* invstd  removed from API */
-auto t_R  = inputs[6]; /* relumask */
-
-#endif
-
 //  printf("running bn3 bwd\n");
 
   bool bn3_relu = true, bn3_eltwise = true;

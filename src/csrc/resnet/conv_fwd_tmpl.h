@@ -7,7 +7,6 @@ auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
 
 auto sizes = t_I.sizes();
-std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 
 int R = cfg.R;
 int S = cfg.S;
@@ -25,63 +24,22 @@ int stride_w = cfg.v;
 int Cb = cfg.blocksifm;
 int Kb = cfg.blocksofm;
 
-//int pad_h_in = cfg.pad_h_in;
-//int pad_w_in = cfg.pad_w_in;
 int pad_h_out = cfg.pad_h_out;
 int pad_w_out = cfg.pad_w_out;
 
 const long N  = sizes[0];
-const long CP = sizes[1];
-//const long H  = sizes[2] - 2 * pad_h_in;
-//const long W  = sizes[3] - 2 * pad_w_in;
-//const long bc = sizes[4];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
-std::cout << "size of T = " << sizeof(T) << std::endl;
-std::cout << "output_size = " << output_size << std::endl;
 
-std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
+//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+//std::cout << "size of T = " << sizeof(T) << std::endl;
+//std::cout << "output_size = " << output_size << std::endl;
+//std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
 
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
 //return std::vector<at::Tensor>({t_O});
 //#if 0
-
-/*
-class BrgemmTPP {
- public:
-  BrgemmTPP() {}
-  BrgemmTPP(
-      long M,
-      long N,
-      long K,
-      long str_a,
-      long str_b,
-      float beta = 1.0,
-      int a_trans = 0,
-      int unroll_hint = 0)
-      : BrgemmTPP(
-            M,
-            N,
-            K,
-            str_a,
-            str_b,
-            (a_trans == 0 ? K : M),
-            N,
-            N,
-            beta,
-            a_trans,
-            unroll_hint) {}
-
-
-  void operator()(
-      Tin* A,
-      Tin* B,
-      Tout* C,
-      unsigned long long count,
-      bool no_tile_cfg = false) {
-
-*/
 
 {
 
@@ -91,7 +49,7 @@ class BrgemmTPP {
 
   long Cb_step = Cb;
 
-  std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+  //std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
 
   //void *brgemm_tpp, *zero_tpp;
 
@@ -170,13 +128,13 @@ class BrgemmTPP {
     s_step = 1;
   }
 
-  std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
-                                                                                                << Kb << " " << k_step << " " << ofh << " " << h_step << " "
-                                                                                                << ofw << " " << w_step << " " << R << " " << r_step << " "
-                                                                                                << S << " " << s_step << " " << std::endl;
+  //std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
+  //                                                                                              << Kb << " " << k_step << " " << ofh << " " << h_step << " "
+  //                                                                                              << ofw << " " << w_step << " " << R << " " << r_step << " "
+  //                                                                                              << S << " " << s_step << " " << std::endl;
 
-  std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
-  std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
+  //std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
+  //std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
 
   /* FIXME: Fix this! */
   char loop_specs_str[256] = "Abcdefg";

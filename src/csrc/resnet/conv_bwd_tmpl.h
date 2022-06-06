@@ -7,7 +7,6 @@ auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
 auto t_W  = inputs[2];
 
 auto sizes = t_I.sizes();
-std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 
 int R = cfg.R;
 int S = cfg.S;
@@ -38,18 +37,15 @@ int C = Cb * bc;
 int K = Kb * bk;
 
 const long N  = sizes[0];
-const long CP = sizes[1];
-//const long H  = sizes[2] - 2 * pad_h_in;
-//const long W  = sizes[3] - 2 * pad_w_in;
-//const long bc = sizes[4];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
-std::cout << "output_size = " << output_size << std::endl;
-
-std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
 
 std::vector<long> weight_tr_size{Cb, Kb, R, S, bk, bc};
-std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
+
+//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+//std::cout << "output_size = " << output_size << std::endl;
+//std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
+//std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
 
 auto t_grad_input  = at::empty(t_I.sizes(), torch::TensorOptions().dtype(t_I.dtype()));
 auto t_grad_weight = at::empty(t_W.sizes(), torch::TensorOptions().dtype(t_W.dtype()));
@@ -180,12 +176,12 @@ if (sizeof(T) == 2) {
     auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bn, bk, dtype, dtype, LIBXSMM_DATATYPE_F32, dtype);
     auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
     auto tr_unary_shape = libxsmm_create_meltw_unary_shape(bc, bn, C*ifhp*ifwp, bn, dtype, dtype, dtype);
-    printf("trans_xform_kernel:\n");
-    printf("tr_unary_shape m n ldi ldo = %d %d %d %d \n", tr_unary_shape.m, tr_unary_shape.n, tr_unary_shape.ldi, tr_unary_shape.ldo);
+    //printf("trans_xform_kernel:\n");
+    //printf("tr_unary_shape m n ldi ldo = %d %d %d %d \n", tr_unary_shape.m, tr_unary_shape.n, tr_unary_shape.ldi, tr_unary_shape.ldo);
     trans_xform_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
     tr_unary_shape = libxsmm_create_meltw_unary_shape(bk, bn, K*ofhp*ofwp, bk, dtype, dtype, dtype);
-    printf("vnni_xform_kernel:\n");
-    printf("tr_unary_shape m n ldi ldo = %d %d %d %d \n", tr_unary_shape.m, tr_unary_shape.n, tr_unary_shape.ldi, tr_unary_shape.ldo);
+    //printf("vnni_xform_kernel:\n");
+    //printf("tr_unary_shape m n ldi ldo = %d %d %d %d \n", tr_unary_shape.m, tr_unary_shape.n, tr_unary_shape.ldi, tr_unary_shape.ldo);
     vnni_xform_kernel =  libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
     /* Tr input is : Cb ifhp ifwp bc bn  */
     /* Tr output is: Kb ofhp ofwp bn/2 bk 2  */
@@ -193,9 +189,9 @@ if (sizeof(T) == 2) {
     tileconfig_kernel.gemm  = libxsmm_dispatch_gemm_v2( l_shape, l_tc_flags, l_prefetch_flags );
     tilerelease_kernel.gemm = libxsmm_dispatch_gemm_v2( l_shape, l_tr_flags, l_prefetch_flags );
 
-    printf("brgemm_kernel_acc_pixel:\n");
-    printf("l_shape       m n k lda ldb ldc = %d %d %d %d %d %d\n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
-    printf("l_flags = %d \n", l_flags);
+    //printf("brgemm_kernel_acc_pixel:\n");
+    //printf("l_shape       m n k lda ldb ldc = %d %d %d %d %d %d\n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
+    //printf("l_flags = %d \n", l_flags);
 
     auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, bn*bk*sizeof(DType), stride_w*bc*bn*sizeof(DType), 0 );
     brgemm_kernel_acc_pixel.gemm  = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
@@ -210,15 +206,15 @@ if (sizeof(T) == 2) {
     fp32bf16_cvt_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, dtype, dtype, dtype);
     wt_vnni_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-    printf("wt_vnni_kernel:\n");
-    printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
+    //printf("wt_vnni_kernel:\n");
+    //printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
 
     l_unary_shape = libxsmm_create_meltw_unary_shape(chunk0, nThreads, K * C *R * S, chunk0, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
     wt_reduce_kernel0_f32bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ;
     l_unary_shape.m         = chunk1;
     l_unary_shape.ldo       = chunk1;
     wt_reduce_kernel1_f32bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ; 
-    printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
+    //printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
   }
 #endif
 
@@ -228,13 +224,11 @@ if (sizeof(T) == 2) {
     gemm_m = bk;
     gemm_k = ofw;
 
-    std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+    //std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
 
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
     //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
-
-    //std::cout << "Got here  0 " << std::endl;
 
     //l_unary_shape.m         = chunk0;
     //l_unary_shape.n         = nThreads;
@@ -243,13 +237,10 @@ if (sizeof(T) == 2) {
     //wt_reduce_kernel0_f32 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ;
     wt_reduce0_T_tpp = SCOPEIT((ReduceAddColExtTPP<T,T>(nThreads, chunk0, K*C*R*S, chunk0)), EW_RED);
 
-    //std::cout << "Got here  1 " << std::endl;
     //l_unary_shape.m         = chunk1;
     //l_unary_shape.ldo       = chunk1;
     //wt_reduce_kernel1_f32 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ;
     wt_reduce1_T_tpp = SCOPEIT((ReduceAddColExtTPP<T,T>(nThreads, chunk1, K*C*R*S, chunk1)), EW_RED);
-
-    //std::cout << "Got here  2 " << std::endl;
 
     //auto l_flags    = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') | LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG | LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG ) : LIBXSMM_GEMM_FLAGS('N', 'T');
     //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
@@ -257,7 +248,6 @@ if (sizeof(T) == 2) {
     //gemm_kernel.gemm      = libxsmm_dispatch_gemm_v2( l_shape, l_flags, l_prefetch_flags );
     gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bc*stride_w, bk, bk, 1.0, 1 /*a_trans*/, 0)));//, BRGEMM);
 
-    //std::cout << "Got here  3 " << std::endl;
 //#endif
   } else {
 
@@ -270,12 +260,12 @@ if (sizeof(T) == 2) {
 
     //auto tr_unary_shape = libxsmm_create_meltw_unary_shape(bc, bn, C*ifhp*ifwp, bn, dtype, dtype, dtype);
     //trans_xform_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
-    std::cout << "trans_xform_tpp " << std::endl;
+    //std::cout << "trans_xform_tpp " << std::endl;
     trans_xform_tpp = SCOPEIT(XformExtTPP<T>(bn, bc, bc, bn, C*ifhp*ifwp, bn, XformTPP::XFORM_XPOSE_TPP, false), XPOSE); /* assuming row-major-ness */
 
     //tr_unary_shape = libxsmm_create_meltw_unary_shape(bk, bn, K*ofhp*ofwp, bk, dtype, dtype, dtype);
     //vnni_xform_kernel =  libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
-    std::cout << "vnni_xform_tpp " << std::endl;
+    //std::cout << "vnni_xform_tpp " << std::endl;
     vnni_xform_tpp = SCOPEIT(XformExtTPP<T>(bn, bk, bn, bk, K*ofhp*ofwp, bk, XformTPP::XFORM_N2V_TPP, false), XPOSE); /* assuming row-major-ness */
     /* Tr input is : Cb ifhp ifwp bc bn  */
     /* Tr output is: Kb ofhp ofwp bn/2 bk 2  */
@@ -287,12 +277,12 @@ if (sizeof(T) == 2) {
     //tilerelease_kernel.gemm = libxsmm_dispatch_gemm_v2( l_shape, l_tr_flags, l_prefetch_flags );
     //gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bn, bk, bk, 1.0, 0 /*a_trans*/, 0)));//, BRGEMM);
 
-    std::cout << "brgemm_acc_pixel_tpp " << std::endl;
+    //std::cout << "brgemm_acc_pixel_tpp " << std::endl;
     //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, bn*bk*sizeof(DType), stride_w*bc*bn*sizeof(DType), 0 );
     //brgemm_kernel_acc_pixel.gemm  = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
     brgemm_acc_pixel_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(gemm_n, gemm_m, gemm_k, stride_w*bc*bn, bn*bk, bn, bk, bk, 1.0, 0 /*a_trans*/, 0)));//, BRGEMM);
 
-    std::cout << "zero_bf16_tpp " << std::endl;
+    //std::cout << "zero_bf16_tpp " << std::endl;
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
     //zero_kernel_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
@@ -307,7 +297,7 @@ if (sizeof(T) == 2) {
 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, dtype, dtype, dtype);
     //wt_vnni_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-    std::cout << "wt_vnni_xform_tpp " << std::endl;
+    //std::cout << "wt_vnni_xform_tpp " << std::endl;
     wt_vnni_xform_tpp = SCOPEIT(XformExtTPP<T>(bc, bk, bk, bk, XformTPP::XFORM_N2V_TPP, false), XPOSE); /* assuming row-major-ness */
 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(chunk0, nThreads, K * C *R * S, chunk0, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
@@ -334,12 +324,12 @@ if (sizeof(T) == 2) {
   long r_step = 1;
   long s_step = 1;
 
-  std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
+  //std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
 
-  std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "
-                                                                                                << Kb << " " << k_step << " " << ofh << " " << h_step << " "
-                                                                                                << ofw << " " << w_step << " " << R << " " << r_step << " "
-                                                                                                << S << " " << s_step << " " << std::endl;
+  //std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "
+  //                                                                                              << Kb << " " << k_step << " " << ofh << " " << h_step << " "
+  //                                                                                              << ofw << " " << w_step << " " << R << " " << r_step << " "
+  //                                                                                              << S << " " << s_step << " " << std::endl;
 
   // FIXME: Is not necessary?
   DECL_VLA_PTR_PT    (T,    tmp_scratch,   [Kb][Cb][R][S][bc][bk], t_scratch);
@@ -410,12 +400,12 @@ if (sizeof(T) == 2) {
       LoopSpecs{0, S, s_step}},
       "ABCD");
 
-  std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
-  std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
-  std::cout << "bf16_upfront_trans = " << bf16_upfront_trans << std::endl;
-  std::cout << "use_private_trans = " << use_private_trans << std::endl;
-  std::cout << "use_mb_par = " << use_mb_par << std::endl;
-  std::cout << "par_over_h_pixels = " << par_over_h_pixels << std::endl;
+//  std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+//  std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
+//  std::cout << "bf16_upfront_trans = " << bf16_upfront_trans << std::endl;
+//  std::cout << "use_private_trans = " << use_private_trans << std::endl;
+//  std::cout << "use_mb_par = " << use_mb_par << std::endl;
+//  std::cout << "par_over_h_pixels = " << par_over_h_pixels << std::endl;
 
   {
     RECORD_SCOPE(conv_bwd_upd, {});
@@ -940,8 +930,8 @@ if (sizeof(T) == 2) {
   gemm_m = bc;
   gemm_k = bk;
 
-  std::cout << "gemm_n gemm_m gemm_k for bwd_d = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
-  std::cout << "avoid_rim_fmas, non_1x1_with_strides = " << avoid_rim_fmas << " " << non_1x1_with_strides << std::endl;
+  //std::cout << "gemm_n gemm_m gemm_k for bwd_d = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+  //std::cout << "avoid_rim_fmas, non_1x1_with_strides = " << avoid_rim_fmas << " " << non_1x1_with_strides << std::endl;
 
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 

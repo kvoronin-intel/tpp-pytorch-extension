@@ -1,6 +1,6 @@
 RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 
-/*        ( input, input_add, weight, bias, mean, var, invstd ) = inputs */
+/*        ( input, input_add, weight, bias, mean, var ) = inputs */
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_IA = inputs[1];
@@ -8,9 +8,6 @@ auto t_W  = inputs[2];
 auto t_B  = inputs[3];
 auto t_M  = inputs[4];
 auto t_V  = inputs[5];
-//auto t_IV = inputs[6]; /* should be unused , removed from args */
-
-std::cout << "padding = " << padding << std::endl;
 
 const long pad_h_in  = padding[0];
 const long pad_w_in  = padding[1];
@@ -40,10 +37,10 @@ const float scale = 1.0f /((float)N * H * W);
 
 std::vector<long> output_size{N, CP, ofhp, ofwp, bc};
 
-std::cout << "size of T = " << sizeof(T) << std::endl;
-std::cout << "output_size = " << output_size << std::endl;
-
-std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+//std::cout << "padding = " << padding << std::endl;
+//std::cout << "size of T = " << sizeof(T) << std::endl;
+//std::cout << "output_size = " << output_size << std::endl;
+//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
@@ -78,8 +75,7 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   spatial_block_size = H * W / num_HW_blocks;
 }
 
-std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
-//std::cout << "Got here 0" << std::endl;
+//std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 
 {
 
@@ -128,14 +124,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
       LoopSpecs{0, CP, cp_step, {/*l1_k_step, l0_k_step*/}}},  // Logical CP loop specs
       cp_loop_specs_str);
 #endif
-
-//std::cout << "Got here 1" << std::endl;
-//          DECL_VLA_PTR_PT    (float,         mean_dbg0,     [bc],     t_M);
-//          DECL_VLA_PTR_PT    (float,         var_dbg0,      [bc],     t_V);
-
-//for (int i = 0; i < CP; i++)
-//  for (int j = 0; j < bc; j++)
-//    printf("mean_dbg0[%d] = %f var_dbg0[%d] = %f \n", i*bc+j, mean_dbg0[i][j],i*bc+j, var_dbg0[i][j]);
 
   if (training) {
     {
@@ -213,8 +201,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
       } /* end of the scope with recorded parallel for */
     } /* end of the bn_fwd_reduce scope */
 
-  //std::cout << "Got here 2" << std::endl;
-
     {
       RECORD_SCOPE(bn_fwd_stats, {});
       {
@@ -261,14 +247,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
     } /* end of the bn_fwd_stats scope */
   } /* end of if (training) for computing the stats */
 
-//std::cout << "Got here 3" << std::endl;
-//          DECL_VLA_PTR_PT    (float,         mean_dbg,     [bc],     t_M);
-//          DECL_VLA_PTR_PT    (float,         var_dbg,      [bc],     t_V);
-
-//for (int i = 0; i < CP; i++)
-//  for (int j = 0; j < bc; j++)
-//    printf("mean_dbg[%d] = %f var_dbg[%d] = %f \n", i*bc+j, mean_dbg[i][j], i*bc+j, var_dbg[i][j]);
-
   {
     RECORD_SCOPE(bn_fwd_scale, {});
     {
@@ -276,8 +254,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
       ncp_loop(
         [&](int *ind) {
           const int n = ind[0], cp = ind[1];
-
-          //std::cout << "Got here 3.0" << std::endl;
 
           DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
           DECL_VLA_PTR_PT_EXT(T,             inp_add,  [CP][ifhp][ifwp][bc], t_IA, (hi_start * ifwp + wi_start) * bc);
@@ -288,23 +264,10 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
           DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_M);
           DECL_VLA_PTR_PT    (float,         var,      [bc],     t_V);
 
-          //std::cout << "Got here 3.1" << std::endl;
-
           LIBXSMM_ALIGNED(float s[bc], 64);
           LIBXSMM_ALIGNED(float b[bc], 64);
 
           coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
-
-          //std::cout << "Got here 3.2" << std::endl;
-
-          /*
-          if (n == 1 && cp == 0) {
-            for (int j = 0; j < 10; j++)
-              printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
-          }
-          */
-
-          //std::cout << "Got here 3.25" << std::endl;
 
           if (!use_hw_blocking) {
 
@@ -314,8 +277,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
               zero_hp_tpp(out[n][cp][0][0]);
             }
 
-          //std::cout << "Got here 3.27" << std::endl;
-
             for (int hi = 0, ho = ho_start; hi < H; hi++, ho++) {
               /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
               if (pad_w_out != 0) {
@@ -323,7 +284,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
                 //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(out[n][cp][ho][0]);
               }
-          //std::cout << "Got here 3.3" << std::endl;
 
               for (int wb = 0; wb < num_W_blocks; wb++) {
                 //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
@@ -331,7 +291,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
                                 eltwise ? inp_add[n][cp][hi][wb*(W/num_W_blocks)] : NULL,
                                 out[n][cp][ho][wo_start + wb*(W/num_W_blocks)],
                                 relu ? relumask[n][cp][ho][wo_start + wb*(W/num_W_blocks)] : NULL);
-          //std::cout << "Got here 3.4" << std::endl;
               }
               /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
               if (pad_w_out != 0) {
@@ -340,9 +299,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
                 zero_wp_tpp(out[n][cp][ho][wo_end]);
               }
             }
-          //std::cout << "Got here 3.5" << std::endl;
-            //printf("Third part of parallel for is not implemented for w blocking\n");
-            //exit(-1);
             /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
             if (pad_h_out != 0) {
               //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
@@ -351,7 +307,6 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
             }
 
           } else {
-          //std::cout << "Got here 3.27 alt" << std::endl;
             for(int hwb = 0; hwb < num_HW_blocks; hwb++){
               int hi = (hwb*(H*W/num_HW_blocks))/W;
               int ho = hi;
@@ -359,12 +314,10 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 
               /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
               //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
-          //std::cout << "Got here 3.3 alt" << std::endl;
               normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
                               eltwise ? inp_add[n][cp][hi][w] : NULL,
                               out[n][cp][ho][w],
                               relu ? relumask[n][cp][ho][w] : NULL);
-          //std::cout << "Got here 3.4 alt" << std::endl;
             }
           } /* if-else for the presence of padding */
         },
@@ -460,7 +413,5 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
   } /* end of the bn_fwd_scale scope */
 
 } /* end of the dummy scope */
-
-//std::cout << "Got here 5" << std::endl;
 
 return std::vector<at::Tensor>({t_O, t_relu_mask});
