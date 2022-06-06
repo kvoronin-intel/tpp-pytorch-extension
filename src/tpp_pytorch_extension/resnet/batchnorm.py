@@ -51,6 +51,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
         ctx.eps     = eps
         ctx.padding = padding
 
+        """
         padding = ctx.padding
         print("debug: input shape, output shape = ", input.shape, output.shape)
         if ctx.padding[0] != 0:
@@ -76,6 +77,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
         for i in range(10):
             ind = i + shift_output
             print("debug: i fwd output     = ", ind, output.view(-1)[ind].item())
+        """
 
         # print("Returning from DummyBatchNormFunction FWD")
         return output
@@ -91,6 +93,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
 
         (input, input_add, weight, mean, var, relu_mask, output) = ctx.saved_tensors
 
+        """
         padding = ctx.padding
         print("debug: input shape, grad_input shape = ", input.shape, grad_input.shape)
         if ctx.padding[0] != 0:
@@ -121,7 +124,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
         for i in range(10):
             ind = i + 0
             print("debug: ind bwd grad_bias        = ", ind, grad_bias.view(-1)[ind].item())
-
+        """
         # print("Returning from DummyBatchNormFunction BWD")
         return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None)
 
@@ -129,7 +132,8 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
 
     def __init__(self, num_channels, padding, eps, momentum=0.1, affine=True, track_running_stats=True, relu=False, eltwise=False, dtype=torch.float32):
-        torch.nn.BatchNorm2d.__init__(self, num_channels, eps, momentum, affine, track_running_stats, device=None, dtype=dtype)
+        #torch.nn.BatchNorm2d.__init__(self, num_channels, eps, momentum, affine, track_running_stats, device=None, dtype=dtype) # weirdly, device is reported as unknown keyword when resnet cnn code is run
+        torch.nn.BatchNorm2d.__init__(self, num_channels, eps, momentum, affine, track_running_stats, dtype=dtype)
 
         self.C = num_channels
         self.padding = padding # a list of [pad_h_in, pad_w_in, pad_h_out, pad_w_out]
@@ -207,8 +211,6 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
           self.N = N
           self.Cblock = batchnorm_cpp.batchnorm_get_c_block(self.C)
 
-        print("input shape = ", input.shape)
-
         blocked_input = self.get_blocked_tensor(
             input,
             self.blocked_input_signature,
@@ -233,12 +235,9 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
             inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
-        print("blocked_input shape = ", blocked_input.shape)
-
         output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, *inputs) #output_size, *inputs)
 
-        print("momentum = ", self.momentum)
-
+        """
         for i in range(10):
             print("debug: i fwd running mean pre update     = ", i, self.running_mean.view(-1)[i].item())
         for i in range(10):
@@ -248,16 +247,18 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
             print("debug: i fwd mean at update              = ", i, self.mean.view(-1)[i].item())
         for i in range(10):
             print("debug: i bwd var  at update              = ", i, self.var.view(-1)[i].item())
+        """
 
         if self.training and self.track_running_stats:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.mean
             self.running_var  = (1 - self.momentum) * self.running_var  + self.momentum * self.var
 
-        for i in range(10):
-            print("debug: i fwd running mean post update    = ", i, self.running_mean.view(-1)[i].item())
-        for i in range(10):
-            print("debug: i bwd running var  post update    = ", i, self.running_var.view(-1)[i].item())
-
+            """
+            for i in range(10):
+                print("debug: i fwd running mean post update    = ", i, self.running_mean.view(-1)[i].item())
+            for i in range(10):
+                print("debug: i bwd running var  post update    = ", i, self.running_var.view(-1)[i].item())
+            """
             # Unused?
             #if self.num_batches_tracked is not None:
             #    self.num_batches_tracked = self.num_batches_tracked + 1

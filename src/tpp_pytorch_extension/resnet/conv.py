@@ -118,7 +118,13 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
 
         #super(XsmmConv2dTPP, self).__init__()
         #nn_Conv2d.__init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
-        torch.nn.Conv2d.__init__(self, self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
+        #print(torch.__version__)
+        #print(torch.__file__)
+        #for arg in (self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, None, dtype):
+        #    print("type of arg, arg = ", type(arg), arg)
+        #torch.nn.Conv2d.__init__(self, self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
+        #torch.nn.Conv2d.__init__(self, in_channels=self.C_pad, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode, device=None, dtype=dtype)
+        torch.nn.Conv2d.__init__(self, self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, dtype=dtype)
 
         self.N            = 0
         self.K            = out_channels

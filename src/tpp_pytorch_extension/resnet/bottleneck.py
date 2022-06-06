@@ -326,7 +326,7 @@ class BottleneckApplyBNTPP(Function):
          b1m, b2m, b3m, b4m,
          b1n, b2n, b3n, b4n) = inputs
 
-        
+        """
         #print("nan check in bottleneck for input after, nancount = ", torch.isnan(input.view(-1)).sum())
         print("nan check in bottleneck for conv1_out, nancount = ", torch.isnan(conv1_out.view(-1)).sum())
         print("nan check in bottleneck for bn1_out, nancount = ", torch.isnan(bn1_out.view(-1)).sum())
@@ -338,8 +338,9 @@ class BottleneckApplyBNTPP(Function):
         print("nan check in bottleneck for bn4_out, nancount = ", torch.isnan(bn4_out.view(-1)).sum())
         print("nan check in bottleneck for bn3_out, nancount = ", torch.isnan(bn3_out.view(-1)).sum())
         print("nan check in bottleneck for output, nancount = ", torch.isnan(output.view(-1)).sum())
-        
+        """
 
+        """
         dump = False
 
         global_tensor_x_counter = 0
@@ -359,7 +360,7 @@ class BottleneckApplyBNTPP(Function):
             #global_tensor_x_counter = global_tensor_x_counter + 1
             #exit()
 
-            """
+            
             if type(c1w) is BlockedParameter:
                 c1w.unblock()
             #else:
@@ -367,7 +368,7 @@ class BottleneckApplyBNTPP(Function):
             #tmp_tensor = c1w.unblocked_tensor() if type(c1w) is BlockedParameter else c1w
             np.savetxt('my_layer_conv1_forward_weight_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             global_tensor_x_counter = global_tensor_x_counter + 1
-            """
+            
 
             tmp_tensor = input.unblocked_tensor() if type(input) is BlockedTensor else input
             np.savetxt('my_layer_conv1_forward_input_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
@@ -408,7 +409,7 @@ class BottleneckApplyBNTPP(Function):
             #tmp_tensor = conv3_out.unblocked_tensor() if type(conv3_out) is BlockedTensor else conv3_out
             #np.savetxt('my_layer_conv3_forward_output_x_' + str(global_tensor_x_counter) + dump_file_suffix + '.txt', tmp_tensor.contiguous().view(-1).detach().to(torch.float).numpy())
             #global_tensor_x_counter = global_tensor_x_counter + 1
-            
+        """
 
         ctx.config = config
 
