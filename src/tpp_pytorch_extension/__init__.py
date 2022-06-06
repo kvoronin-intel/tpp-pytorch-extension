@@ -2,6 +2,8 @@ import torch
 
 from . import _C
 
+from .resnet import bottleneck, batchnorm, conv
+
 try:
     from .utils import extend_profiler
 except:

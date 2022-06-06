@@ -11,10 +11,10 @@ from pcl_pytorch_extension.utils.blocked_layout import (
     get_blocking_signature,
 )
 
-import pcl_pytorch_extension
-#from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
-import batchnorm as batchnorm_py
-import conv      as conv_py
+#import pcl_pytorch_extension
+from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
+from pcl_pytorch_extension.resnet import batchnorm as batchnorm_py
+from pcl_pytorch_extension.resnet import conv      as conv_py
 
 from pcl_pytorch_extension._C import _bottleneck as bottleneck_cpp
 from pcl_pytorch_extension._C import _conv       as conv_cpp
