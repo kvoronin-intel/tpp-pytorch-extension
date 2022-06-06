@@ -10,7 +10,12 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+
 #include "jit_compile.h"
+
+/* to drop printing the generated schemes/code */
+#define NO_PRINT
+
 #include "par_loop_cost_estimator.h"
 #include "par_loop_generator.h"
 
@@ -199,9 +204,10 @@ class LoopingScheme {
       std::ofstream ofs("debug.cpp", std::ofstream::out);
       ofs << code_str + gen_code;
       ofs.close();
+#ifndef NO_PRINT
       std::cout << "Scheme: " << scheme << std::endl;
       std::cout << "Generated code:" << std::endl << gen_code;
-
+#endif
       test_kernel = (par_loop_kernel)jit_from_str(
           code_str + gen_code, " -fopenmp ", "par_nested_loops");
     }
