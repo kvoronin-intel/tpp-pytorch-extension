@@ -372,7 +372,7 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
         [&]() {});
 #else /* THREADED_LOOPS */
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-//#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(2)
       for (int n = 0; n < N; n++) {
         for (int cp = 0; cp < CP; cp++) {
 
