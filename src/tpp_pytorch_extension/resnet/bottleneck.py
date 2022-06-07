@@ -258,9 +258,9 @@ class BottleneckApplyBNTPP(Function):
          b1w, b2w, b3w, b4w,
          b1b, b2b, b3b, b4b,
          b1m, b2m, b3m, b4m,
-         b1n, b2n, b3n, b4n,
-         c1s, c2s, c3s, c4s,
-         b1s, b2s, b3s, b4s ) = inputs
+         b1n, b2n, b3n, b4n ) = inputs
+         #c1s, c2s, c3s, c4s,
+         #b1s, b2s, b3s, b4s ) = inputs
 
         #tmp_list = list(inputs)
         #tmp_list[0] = torch.ones_like(tmp_list[0])
@@ -284,9 +284,9 @@ class BottleneckApplyBNTPP(Function):
          b1w, b2w, b3w, b4w,
          b1b, b2b, b3b, b4b,
          b1m, b2m, b3m, b4m,
-         b1n, b2n, b3n, b4n,
-         c1s, c2s, c3s, c4s, # should not be used as they were changed in fwd, _out are the actual versions at this moment
-         b1s, b2s, b3s, b4s ) = inputs
+         b1n, b2n, b3n, b4n ) = inputs
+         #c1s, c2s, c3s, c4s, # should not be used as they were changed in fwd, _out are the actual versions at this moment
+         #b1s, b2s, b3s, b4s ) = inputs
 
         """
         #print("nan check in bottleneck for input after, nancount = ", torch.isnan(input.view(-1)).sum())
@@ -378,7 +378,8 @@ class BottleneckApplyBNTPP(Function):
         ctx.save_for_backward(input, c1w, c2w, c3w, c4w, b1w, b2w, b3w, b4w, b1b, b2b, b3b, b4b, b1m, b2m, b3m, b4m, b1n, b2n, b3n, b4n,
                               conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out,
                               bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
-                              c1s, c2s, c3s, c4s, b1s_out, b2s_out, b3s_out, b4s_out) # FIXME, must be cNs_out!
+                              b1s_out, b2s_out, b3s_out, b4s_out)
+                              #c1s, c2s, c3s, c4s, b1s_out, b2s_out, b3s_out, b4s_out) # FIXME, must be cNs_out!
 
         return output
 
@@ -446,9 +447,9 @@ class BottleneckApplyBNTPP(Function):
                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
                 grad_b1b, grad_b2b, grad_b3b, grad_b4b,
                 None,     None,     None,     None, # for means
-                None,     None,     None,     None, # for vars
-                None,     None,     None,     None, # for conv scratches
-                None,     None,     None,     None) # for bn   scratches
+                None,     None,     None,     None) # for vars
+                #None,     None,     None,     None, # for conv scratches
+                #None,     None,     None,     None) # for bn   scratches
 
 
 # Generic monolithic bottleneck class for batchnorm/groupnorm bottleneck (with a control flag for the norm in the constructor and if-switches)
@@ -470,6 +471,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         self.use_bf16 = True if self.dtype == torch.bfloat16 else False
         self.use_physical_3x3_padding = use_physical_3x3_padding
         self.use_groupnorm = use_groupnorm
+        """
         self.conv1_scratch = torch.Tensor()
         self.conv2_scratch = torch.Tensor()
         self.conv3_scratch = torch.Tensor()
@@ -478,7 +480,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         self.bn2_scratch   = torch.Tensor()
         self.bn3_scratch   = torch.Tensor()
         self.bn4_scratch   = torch.Tensor()
-
+        """
         #print("dbg: dtype use_bf16 = " , self.dtype, self.use_bf16)
 
         self.inplanes  = inplanes
@@ -589,18 +591,18 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                           self.bn1.weight, self.bn2.weight, self.bn3.weight, self.downsample2.weight,
                           self.bn1.bias, self.bn2.bias, self.bn3.bias, self.downsample2.bias,
                           self.bn1.running_mean, self.bn2.running_mean, self.bn3.running_mean, self.downsample2.running_mean,
-                          self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.downsample2.running_var,
-                          self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
-                          self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
+                          self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.downsample2.running_var]
+                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
+                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
             else:
                 inputs = [blocked_input,
                           self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
                           self.bn1.weight, self.bn2.weight, self.bn3.weight, self.dummy_tensor,
                           self.bn1.bias, self.bn2.bias, self.bn3.bias, self.dummy_tensor,
                           self.bn1.running_mean, self.bn2.running_mean, self.bn3.running_mean, self.dummy_tensor,
-                          self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.dummy_tensor,
-                          self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
-                          self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
+                          self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.dummy_tensor]
+                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
+                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
         else:
             if self.has_residual_conv == True:
                 inputs = [blocked_input,
@@ -608,24 +610,27 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                           self.bn1.weight, self.bn2.weight, self.bn3.weight, self.downsample2.weight,
                           self.bn1.bias, self.bn2.bias, self.bn3.bias, self.downsample2.bias,
                           self.bn1.mean, self.bn2.mean, self.bn3.mean, self.downsample2.mean,
-                          self.bn1.var, self.bn2.var, self.bn3.var, self.downsample2.var,
-                          self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
-                          self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
+                          self.bn1.var, self.bn2.var, self.bn3.var, self.downsample2.var]
+                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
+                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
             else:
                 inputs = [blocked_input,
                           self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
                           self.bn1.weight, self.bn2.weight, self.bn3.weight, self.dummy_tensor,
                           self.bn1.bias, self.bn2.bias, self.bn3.bias, self.dummy_tensor,
                           self.bn1.mean, self.bn2.mean, self.bn3.mean, self.dummy_tensor,
-                          self.bn1.var, self.bn2.var, self.bn3.var, self.dummy_tensor,
-                          self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
-                          self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
+                          self.bn1.var, self.bn2.var, self.bn3.var, self.dummy_tensor]
+                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
+                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
         # Computations happen here
         #print("dbg: calling BottleneckApplyTPP inside BottleneckBNTPP")
         if self.use_groupnorm:
             output = BottleneckApplyGNTPP.apply(self.config, self.training, *inputs)
         else:
             output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs)
+
+        #print("dbg: self.conv1_scratch numel after forward = ", self.conv1_scratch.numel())
+        #print("dbg: self.bn1_scratch   numel after forward = ", self.bn1_scratch.numel())
 
         #print("dbg: called BottleneckApplyTPP inside BottleneckBNTPP")
         blocked_output = BlockedTensor(output, self.blocked_output_signature)

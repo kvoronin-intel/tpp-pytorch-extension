@@ -14,8 +14,6 @@ from pcl_pytorch_extension._C import _conv as conv_cpp
 import time
 from contextlib import contextmanager
 
-USE_BF16_PARAMS = True
-
 class DummyConvTPP(Function):
     @staticmethod
     def forward(ctx, param_struct, *inputs):

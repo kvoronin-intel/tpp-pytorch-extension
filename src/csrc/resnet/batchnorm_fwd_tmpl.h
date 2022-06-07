@@ -8,7 +8,7 @@ auto t_W  = inputs[2];
 auto t_B  = inputs[3];
 auto t_M  = inputs[4];
 auto t_V  = inputs[5];
-auto t_scratch = inputs[6];
+//auto t_scratch = inputs[6];
 
 const long pad_h_in  = padding[0];
 const long pad_w_in  = padding[1];
@@ -52,8 +52,15 @@ const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + CP * N * bc, 64);
 
 const long dbeta_N_offset        = LIBXSMM_UP2(CP * N * bc, 64);
 
+//printf("Allocating t_scratch inside fwd\n");
+const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
+const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64);
+const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
+std::vector<long> scratch_size{full_scratch_size};
+auto t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
+
+/*
 if (t_scratch.numel() <= 1) {
-  //printf("Allocating t_scratch inside fwd\n");
   const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
   const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64);
   const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
@@ -61,6 +68,7 @@ if (t_scratch.numel() <= 1) {
   t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
   inputs[6] = t_scratch;
 }
+*/
 
 bool use_hw_blocking = true;
 
@@ -419,4 +427,5 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 //printf("t_scratch       data = %p numel = %d \n", t_scratch.data_ptr<float>(), (int)t_scratch.numel());
 //printf("inputs[6]       data = %p numel = %d \n", inputs[6].data_ptr<float>(), (int)(inputs[6].numel()));
 
-return std::vector<at::Tensor>({t_O, t_relu_mask, inputs[6]});
+//return std::vector<at::Tensor>({t_O, t_relu_mask, inputs[6]});
+return std::vector<at::Tensor>({t_O, t_relu_mask, t_scratch});

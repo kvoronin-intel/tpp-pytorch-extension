@@ -22,6 +22,7 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto bn3_var      = inputs[19];
   auto bn4_var      = inputs[20];
 
+/*
   auto conv1_scratch = inputs[21];
   auto conv2_scratch = inputs[22];
   auto conv3_scratch = inputs[23];
@@ -30,6 +31,7 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto bn2_scratch   = inputs[26];
   auto bn3_scratch   = inputs[27];
   auto bn4_scratch   = inputs[28];
+*/
 
   std::vector<long> dummy_size{0};
   //auto dummy_add    = at::Tensor(dummy_size, input.options());
@@ -57,7 +59,8 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
 
   bool bn1_relu = true, bn1_eltwise = false;
   std::vector<long> bn1_padding{0, 0, cfg.pad_size, cfg.pad_size};
-  auto bn1_ret = batchnorm_fwd(training, bn1_relu, bn1_eltwise, cfg.bn_eps, bn1_padding, std::vector<at::Tensor>{conv1_out, dummy_add, bn1_weight, bn1_bias, bn1_mean, bn1_var, bn1_scratch});
+  auto bn1_ret = batchnorm_fwd(training, bn1_relu, bn1_eltwise, cfg.bn_eps, bn1_padding, std::vector<at::Tensor>{conv1_out, dummy_add, bn1_weight, bn1_bias, bn1_mean, bn1_var});
+  //auto bn1_ret = batchnorm_fwd(training, bn1_relu, bn1_eltwise, cfg.bn_eps, bn1_padding, std::vector<at::Tensor>{conv1_out, dummy_add, bn1_weight, bn1_bias, bn1_mean, bn1_var, bn1_scratch});
   //bn1_inputs);//cfg.bn1, conv1_out, dummy_add, bn1_weight, bn1_bias, bn1_mean, bn1_var, dummy_invstd, bn1_output_size, bn_norm_type);
   auto bn1_out = bn1_ret[0];
   auto bn1_relu_out = bn1_ret[1];
@@ -71,7 +74,8 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
 
   bool bn2_relu = true, bn2_eltwise = false;
   std::vector<long> bn2_padding{cfg.pad_size, cfg.pad_size, 0, 0};
-  auto bn2_ret = batchnorm_fwd(training, bn2_relu, bn2_eltwise, cfg.bn_eps, bn2_padding, std::vector<at::Tensor>{conv2_out, dummy_add, bn2_weight, bn2_bias, bn2_mean, bn2_var, bn2_scratch});
+  auto bn2_ret = batchnorm_fwd(training, bn2_relu, bn2_eltwise, cfg.bn_eps, bn2_padding, std::vector<at::Tensor>{conv2_out, dummy_add, bn2_weight, bn2_bias, bn2_mean, bn2_var});
+  //auto bn2_ret = batchnorm_fwd(training, bn2_relu, bn2_eltwise, cfg.bn_eps, bn2_padding, std::vector<at::Tensor>{conv2_out, dummy_add, bn2_weight, bn2_bias, bn2_mean, bn2_var, bn2_scratch});
   //bn2_inputs);//bnorm_forward_new(cfg.bn2, conv2_out, dummy_add, bn2_weight, bn2_bias, bn2_mean, bn2_var, dummy_invstd, bn2_output_size, bn_norm_type);
   auto bn2_out = bn2_ret[0];
   auto bn2_relu_out = bn2_ret[1];
@@ -91,7 +95,8 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
     //printf("running bn4\n");
 
     bool bn4_relu = false, bn4_eltwise = false;
-    auto bn4_ret  = batchnorm_fwd(training, bn4_relu, bn4_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn4_padding*/, std::vector<at::Tensor>{conv4_out, dummy_add, bn4_weight, bn4_bias, bn4_mean, bn4_var, bn4_scratch});
+    auto bn4_ret  = batchnorm_fwd(training, bn4_relu, bn4_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn4_padding*/, std::vector<at::Tensor>{conv4_out, dummy_add, bn4_weight, bn4_bias, bn4_mean, bn4_var});
+    //auto bn4_ret  = batchnorm_fwd(training, bn4_relu, bn4_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn4_padding*/, std::vector<at::Tensor>{conv4_out, dummy_add, bn4_weight, bn4_bias, bn4_mean, bn4_var, bn4_scratch});
     //bn4_inputs);//bnorm_forward_new(cfg.bn4, conv4_out, dummy_add, bn4_weight, bn4_bias, bn4_mean, bn4_var, dummy_invstd, bn4_output_size, bn_norm_type);
     residual = bn4_ret[0];
     bn4_relu_out = bn4_ret[1];
@@ -106,7 +111,8 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   //printf("running bn3\n");
 
   bool bn3_relu = true, bn3_eltwise = true;
-  auto bn3_ret = batchnorm_fwd(training, bn3_relu, bn3_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn3_padding*/, std::vector<at::Tensor>{conv3_out, residual, bn3_weight, bn3_bias, bn3_mean, bn3_var, bn3_scratch});
+  auto bn3_ret = batchnorm_fwd(training, bn3_relu, bn3_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn3_padding*/, std::vector<at::Tensor>{conv3_out, residual, bn3_weight, bn3_bias, bn3_mean, bn3_var});
+  //auto bn3_ret = batchnorm_fwd(training, bn3_relu, bn3_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn3_padding*/, std::vector<at::Tensor>{conv3_out, residual, bn3_weight, bn3_bias, bn3_mean, bn3_var, bn3_scratch});
   //bn3_inputs);//bnorm_forward_new(cfg.bn3, conv3_out, residual, bn3_weight, bn3_bias, bn3_mean, bn3_var, dummy_invstd, bn3_output_size, bn_norm_type);
   auto bn3_out = bn3_ret[0];
   auto bn3_relu_out = bn3_ret[1];
