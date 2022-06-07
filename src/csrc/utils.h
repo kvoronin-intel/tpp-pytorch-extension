@@ -41,6 +41,9 @@ typedef at::BFloat8 bfloat8;
 #define DECL_VLA_PTR_PT_EXT(type, name, dims, t, offset) \
   type(*name) dims = (type(*) dims)(t.data_ptr<type>() + offset)
 
+#define DECL_VLA_PTR_PT_EXT_CAST(type, type_base, name, dims, t, offset_in_type_base) \
+  type(*name) dims = (type(*) dims)(reinterpret_cast<type *>(t.data_ptr<type_base>() + offset_in_type_base))
+
 
 extern double ifreq; // defined in init.cpp
 

@@ -5,6 +5,7 @@ RECORD_FUNCTION("conv_bwd", std::vector<c10::IValue>());
 auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
 auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
 auto t_W  = inputs[2];
+//auto t_scratch = inputs[3];
 
 auto sizes = t_I.sizes();
 
@@ -52,42 +53,73 @@ auto t_grad_weight = at::empty(t_W.sizes(), torch::TensorOptions().dtype(t_W.dty
 auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.dtype()));
 
 //  DType *scratch_libxsmm = (DType*)libxsmm_aligned_malloc( nThreads*C*K*R*S*sizeof(DType), 2097152);
+long long int max_scratch_size_in_bytes = 0;
+
 std::vector<long> scratch_size{nThreads, C, K, R, S};
 
+#if 0
 at::Tensor t_scratch;
 if (sizeof(T) == 4)
   t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
 else /* bfloat16 */
   t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kBFloat16)); /* Hopefully, not a problem */
+#endif
 
+max_scratch_size_in_bytes += nThreads * C * K * R * S * sizeof(T);
 
-at::Tensor t_private_tr_input, t_private_tr_output;
+long long int private_tr_input_offset = 0, private_tr_output_offset = 0,
+              tr_input_offset = 0, tr_output_offset = 0,
+              scratch_float_offset = 0, scratch_bf16_weight_offset = 0;
+
+//at::Tensor t_private_tr_input, t_private_tr_output;
 if (sizeof(T) == 2) {
+#if 0
   t_private_tr_input  = at::empty({nThreads, N, ifhp, ifwp, C}, torch::TensorOptions().dtype(at::kBFloat16));
   t_private_tr_output = at::empty({nThreads, N, ofhp, ofwp, K}, torch::TensorOptions().dtype(at::kBFloat16));
+#endif
   //DType **private_tr_input_libxsmm  = (DType**)libxsmm_aligned_malloc( nThreads*sizeof(DType*), 2097152);
   //DType **private_tr_output_libxsmm = (DType**)libxsmm_aligned_malloc( nThreads*sizeof(DType*), 2097152);
   //for (int thr = 0; thr < nThreads; thr++) {
   //  private_tr_input_libxsmm[thr] = (DType*)libxsmm_aligned_malloc( N*ifhp*ifwp*C*sizeof(DType), 2097152);
   //  private_tr_output_libxsmm[thr] = (DType*)libxsmm_aligned_malloc( N*ofhp*ofwp*K*sizeof(DType), 2097152);
   //}
+  private_tr_input_offset = max_scratch_size_in_bytes;
+  max_scratch_size_in_bytes += nThreads * N * ifhp * ifwp * C * sizeof(T);
+  private_tr_output_offset = max_scratch_size_in_bytes;
+  max_scratch_size_in_bytes += nThreads * N * ofhp * ofwp * K * sizeof(T);
 }
 
-at::Tensor t_tr_input, t_tr_output;
+//at::Tensor t_tr_input, t_tr_output;
 if (sizeof(T) == 2) {
+#if 0
   //DType *tr_input_libxsmm  = (DType*)libxsmm_aligned_malloc( N*ifhp*ifwp*C*sizeof(DType), 2097152);
   //DType *tr_output_libxsmm = (DType*)libxsmm_aligned_malloc( N*ofhp*ofwp*K*sizeof(DType), 2097152);
   t_tr_input  = at::empty({N, ifhp, ifwp, C}, torch::TensorOptions().dtype(at::kBFloat16));
   t_tr_output = at::empty({N, ofhp, ofwp, K}, torch::TensorOptions().dtype(at::kBFloat16));
+#endif
+  tr_input_offset = max_scratch_size_in_bytes;
+  max_scratch_size_in_bytes += N * ifhp * ifwp * C * sizeof(T);
+  tr_output_offset = max_scratch_size_in_bytes;
+  max_scratch_size_in_bytes += N * ofhp * ofwp * K * sizeof(T);
 }
 
-at::Tensor t_scratch_float, t_scratch_bf16_weight;
+//at::Tensor t_scratch_float, t_scratch_bf16_weight;
 if (sizeof(T) == 2) {
+#if 0
   //float *scratch_libxsmm = (float*)libxsmm_aligned_malloc( nThreads*C*K*R*S*sizeof(float), 2097152);
   //libxsmm_bfloat16 *scratch_libxsmm_bf16_weights = (libxsmm_bfloat16*)libxsmm_aligned_malloc(C*K*R*S*sizeof(libxsmm_bfloat16), 2097152);
   t_scratch_float       = at::empty({nThreads, C, K, R, S}, torch::TensorOptions().dtype(at::kFloat));
   t_scratch_bf16_weight = at::empty({C, K, R, S},           torch::TensorOptions().dtype(at::kBFloat16));
+#endif
+  scratch_float_offset = max_scratch_size_in_bytes;
+  max_scratch_size_in_bytes += nThreads * C * K * R * S * sizeof(float);
+  scratch_bf16_weight_offset = max_scratch_size_in_bytes;
+  max_scratch_size_in_bytes +=            C * K * R * S * sizeof(T);
 }
+
+auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::TensorOptions().dtype(at::kByte));
+
+//if (t_scratch.numel() <= 1) {
 
 //return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
 
@@ -332,8 +364,8 @@ if (sizeof(T) == 2) {
   //                                                                                              << S << " " << s_step << " " << std::endl;
 
   // FIXME: Is not necessary?
-  DECL_VLA_PTR_PT    (T,    tmp_scratch,   [Kb][Cb][R][S][bc][bk], t_scratch);
-  memset((T*)(tmp_scratch[0][0][0][0][0][0]), 0, nThreads*C*K*R*S*sizeof(T));
+  //DECL_VLA_PTR_PT    (T,    tmp_scratch,   [Kb][Cb][R][S][bc][bk], t_scratch);
+  //memset((T*)(tmp_scratch[0][0][0][0][0][0]), 0, nThreads*C*K*R*S*sizeof(T));
 
   auto zero_wt_loop = ThreadedLoop<5>({
       LoopSpecs{0, nThreads, 1, false},// true}, 
@@ -453,7 +485,11 @@ if (sizeof(T) == 2) {
             [&](int* ind) {
               int i_n = ind[0], i_k = ind[1], i_c = ind[2], i_r = ind[3], i_s = ind[4];
 
+#if 0
               DECL_VLA_PTR_PT    (T,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+#endif
               //libxsmm_meltw_unary_param zero_param;
               //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(7, sizeof(DType), (DType*)scratch_libxsmm, i_n, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
               //zero_kernel( &zero_param );
@@ -472,7 +508,11 @@ if (sizeof(T) == 2) {
               //DType *input_libxsmm  = (DType*)libxsmm_aligned_malloc( N*ifhp*ifwp*C*sizeof(DType), 2097152);
               DECL_VLA_PTR_PT    (T,    inp,       [Cb][ifhp][ifwp][bc],   t_I);
               //DType *scratch_libxsmm = (DType*)libxsmm_aligned_malloc( nThreads*C*K*R*S*sizeof(DType), 2097152);
+#if 0
               DECL_VLA_PTR_PT    (T,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+#endif
 
               //libxsmm_gemm_param gemm_param;
               //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
@@ -493,7 +533,11 @@ if (sizeof(T) == 2) {
               int i_n = ind[0];
 
               DECL_VLA_PTR_PT    (T,    weight2d,  [chunk0],               t_grad_weight);
+#if 0
               DECL_VLA_PTR_PT    (T,    scratch2d, [chunk0],               t_scratch);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST(T,    unsigned char, scratch2d, [chunk0],               t_scratch_experimental, 0);
+#endif
               //libxsmm_meltw_unary_param reduce_param;
               //reduce_param.in.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)scratch_libxsmm, i_n, 0, chunk0);
               //reduce_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)filter_libxsmm,  i_n, 0, chunk0);
@@ -555,7 +599,11 @@ if (sizeof(T) == 2) {
               int i_c = ind[0], i_h = ind[1], i_w = ind[2];
 
               DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
+#if 0
               DECL_VLA_PTR_PT    (T,    tr_input,       [ifhp][ifwp][bc]  [bn],   t_tr_input);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST(T,  unsigned char,  tr_input,       [ifhp][ifwp][bc]  [bn],   t_scratch_experimental, tr_input_offset);
+#endif
               //libxsmm_meltw_unary_param trans_param;
               //trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType),  input_libxsmm,    0,   i_c, i_h, i_w, 0, Cb,   ifhp, ifwp, bc);
               //trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_input_libxsmm, i_c, i_h, i_w, 0,   0, ifhp, ifwp, bc,   bn);
@@ -576,7 +624,11 @@ if (sizeof(T) == 2) {
               int i_k = ind[0], i_h = ind[1], i_w = ind[2];
 
               DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
+#if 0
               DECL_VLA_PTR_PT    (T,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_tr_output);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST (T, unsigned char,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_scratch_experimental, tr_output_offset);
+#endif
               //libxsmm_meltw_unary_param trans_param;
               //trans_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType),  output_libxsmm,    0,   i_k, i_h, i_w, 0, Kb,   ofhp, ofwp, bk);
               //trans_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), tr_output_libxsmm, i_k, i_h, i_w, 0,   0, ofhp, ofwp, bn,   bk);
@@ -598,7 +650,11 @@ if (sizeof(T) == 2) {
             [&](int* ind) {
               int i_n = ind[0], i_k = ind[1], i_c = ind[2], i_r = ind[3], i_s = ind[4];
 
+#if 0
               DECL_VLA_PTR_PT    (float, scratch_float, [Kb][Cb][R][S][bc][bk], t_scratch_float);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST    (float, unsigned char, scratch_float, [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
+#endif
               //libxsmm_meltw_unary_param zero_param;
               //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, i_n, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);
               //zero_kernel( &zero_param );
@@ -675,11 +731,20 @@ if (sizeof(T) == 2) {
 
               DECL_VLA_PTR_PT    (T,     input,             [Cb][ifhp][ifwp][bc],   t_I);
               DECL_VLA_PTR_PT    (T,     output,            [Kb][ofhp][ofwp][bk],   t_GO);
+#if 0
               DECL_VLA_PTR_PT    (float, scratch_float,     [Kb][Cb][R][S][bc][bk], t_scratch_float);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST    (float, unsigned char, scratch_float,     [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
+#endif
               DECL_VLA_PTR_PT    (T,     filter,            [Cb][R][S][bc][bk],     t_grad_weight);
 
+#if 0
               DECL_VLA_PTR_PT_EXT(T,     private_tr_input,  [ifhp][ifwp][bc][bn],   t_private_tr_input,  tid*(N*ifhp*ifwp*C));
               DECL_VLA_PTR_PT_EXT(T,     private_tr_output, [ofhp][ofwp][bn][bk],   t_private_tr_output, tid*(N*ofhp*ofwp*K));
+#else
+              DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,     private_tr_input,  [ifhp][ifwp][bc][bn],   t_scratch_experimental, private_tr_input_offset  + tid*(N*ifhp*ifwp*C) * sizeof(T));
+              DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,     private_tr_output, [ofhp][ofwp][bn][bk],   t_scratch_experimental, private_tr_output_offset + tid*(N*ofhp*ofwp*K) * sizeof(T));
+#endif
 
               //libxsmm_gemm_param gemm_param;
               int *inp_loc = (int*) trans_tracker.get() + tid * trans_tracker_size + i_c;
@@ -749,9 +814,15 @@ if (sizeof(T) == 2) {
               int tid = omp_get_thread_num();
               //libxsmm_gemm_param gemm_param;
 
+#if 0
               DECL_VLA_PTR_PT    (T,     tr_input,      [ifhp][ifwp][bc]  [bn],   t_tr_input);
               DECL_VLA_PTR_PT    (T,     tr_output,     [ofhp][ofwp][bn]  [bk],   t_tr_output);
               DECL_VLA_PTR_PT    (float, scratch_float, [Kb][Cb][R][S][bc][bk],   t_scratch_float);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST    (T, unsigned char,     tr_input,      [ifhp][ifwp][bc]  [bn],   t_scratch_experimental, tr_input_offset);
+              DECL_VLA_PTR_PT_EXT_CAST    (T, unsigned char,     tr_output,     [ofhp][ofwp][bn]  [bk],   t_scratch_experimental, tr_output_offset);
+              DECL_VLA_PTR_PT_EXT_CAST    (float, unsigned char, scratch_float, [Kb][Cb][R][S][bc][bk],   t_scratch_experimental, scratch_float_offset);
+#endif
               DECL_VLA_PTR_PT    (T,     filter,        [Cb][R][S][bc][bk],       t_grad_weight);
 
 
@@ -844,8 +915,13 @@ if (sizeof(T) == 2) {
             [&](int* ind) {
               int i_n = ind[0];
 
+#if 0
               DECL_VLA_PTR_PT    (float, scratch_float_2d,        [chunk0],               t_scratch_float);
               DECL_VLA_PTR_PT    (T,     scratch_bf16_weight_2d,  [chunk0],               t_scratch_bf16_weight);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST    (float, unsigned char, scratch_float_2d,        [chunk0], t_scratch_experimental,              scratch_float_offset);
+              DECL_VLA_PTR_PT_EXT_CAST    (T,     unsigned char, scratch_bf16_weight_2d,  [chunk0], t_scratch_experimental,              scratch_bf16_weight_offset);
+#endif
               //libxsmm_meltw_unary_param reduce_param;
               //reduce_param.in.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(float), (float*)scratch_libxsmm, i_n, 0, chunk0);
               //reduce_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)scratch_libxsmm_bf16_weights, i_n, 0, chunk0);
@@ -864,7 +940,11 @@ if (sizeof(T) == 2) {
             [&](int* ind) {
               int i_k = ind[0], i_c = ind[1], i_r = ind[2], i_s = ind[3];
 
+#if 0
               DECL_VLA_PTR_PT    (T,     scratch_bf16_weight, [Cb][R][S][bc][bk],     t_scratch_bf16_weight);
+#else
+              DECL_VLA_PTR_PT_EXT_CAST    (T,     unsigned char, scratch_bf16_weight,  [Cb][R][S][bc][bk], t_scratch_experimental,              scratch_bf16_weight_offset);
+#endif
               DECL_VLA_PTR_PT    (T,     filter,              [Cb][R][S][bc][bk],     t_grad_weight);
 
               //libxsmm_meltw_unary_param xform_param;
