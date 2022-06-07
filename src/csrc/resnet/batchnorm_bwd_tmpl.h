@@ -51,11 +51,12 @@ const float scale = 1.0f /((float)N * H * W);
 
 const long sum_N_offset          = LIBXSMM_UP2(CP * 2 * bc, 64);
 const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + CP * N * bc, 64);
-const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
 
 const long dbeta_N_offset        = LIBXSMM_UP2(CP * N * bc, 64);
 
 /*
+const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
+
 const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64);
 
 const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
