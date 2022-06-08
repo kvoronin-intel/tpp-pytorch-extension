@@ -1539,6 +1539,32 @@ class BrgemmTPP {
       float beta,
       int a_trans,
       int unroll_hint)
+      : BrgemmTPP(
+            M,
+            N,
+            K,
+            str_a,
+            str_b,
+            (a_trans == 0 ? K : M),
+            N,
+            N,
+            beta,
+            a_trans,
+            false,
+            unroll_hint) {}
+  BrgemmTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint)
       : M(M),
         N(N),
         K(K),
@@ -1550,6 +1576,7 @@ class BrgemmTPP {
         ldc(ldc),
         beta(beta),
         a_trans(a_trans),
+        c_vnni(c_vnni),
         unroll_hint(unroll_hint),
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
@@ -1565,6 +1592,28 @@ class BrgemmTPP {
       float beta,
       int a_trans,
       int unroll_hint)
+      : BrgemmTPP(
+            M,
+            N,
+            K,
+            lda,
+            ldb,
+            ldc,
+            beta,
+            a_trans,
+            false,
+            unroll_hint) {}
+  BrgemmTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint)
       : M(M),
         N(N),
         K(K),
@@ -1576,6 +1625,7 @@ class BrgemmTPP {
         ldc(ldc),
         beta(beta),
         a_trans(a_trans),
+        c_vnni(c_vnni),
         unroll_hint(unroll_hint),
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
@@ -1740,7 +1790,7 @@ class BrgemmTPP {
       snprintf(
           hash,
           200,
-          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d",
+          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_cv%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d",
           p->M,
           p->N,
           p->K,
@@ -1750,6 +1800,7 @@ class BrgemmTPP {
           brgemm_type,
           (int)p->beta,
           p->a_trans,
+          p->c_vnni,
           p->unroll_hint,
           (long)p->lda,
           (long)p->ldb,
@@ -1771,6 +1822,8 @@ class BrgemmTPP {
         l_flags |= LIBXSMM_GEMM_FLAG_VNNI_A;
       if (p->beta == 0)
         l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+      if (p->c_vnni == 1)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_C;
 
       // config = 0 - normal
       // config = 1 - no tile release
@@ -1834,6 +1887,7 @@ class BrgemmTPP {
   libxsmm_blasint ldc;
   float beta;
   int a_trans;
+  int c_vnni;
   long brgemm_type = -1;
   int unroll_hint;
   BrgemmKernel k_gemm_with_tc;
