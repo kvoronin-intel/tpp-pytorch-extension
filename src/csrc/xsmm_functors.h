@@ -12,11 +12,10 @@
 #else
 #include <pytorch_extension_wrapper.h>
 #endif
-#include <bfloat8.h>
 #include <string>
 #include <unordered_map>
 
-#define TPP_ASSERT(cond, x...) \
+#define PCL_ASSERT(cond, x...) \
   do {                         \
     if (!(cond)) {             \
       printf(x);               \
@@ -26,10 +25,9 @@
   } while (0)
 #define DECL_VLA_PTR(type, name, dims, ptr) type(*name) dims = (type(*) dims)ptr
 #define ALIGNDOWN(N, A) ((N) & ~((A)-1))
-namespace tpp {
+namespace pcl {
 typedef at::BFloat16 bfloat16;
 typedef at::Half half;
-typedef at::BFloat8 bfloat8;
 inline float upconvert_to_float(float val) {
   return val;
 }
@@ -37,9 +35,6 @@ inline float upconvert_to_float(bfloat16 val) {
   return (float)val;
 }
 inline float upconvert_to_float(half val) {
-  return (float)val;
-}
-inline float upconvert_to_float(bfloat8 val) {
   return (float)val;
 }
 template <typename T>
@@ -63,10 +58,6 @@ inline libxsmm_datatype XsmmDtype<bfloat16>() {
 template <>
 inline libxsmm_datatype XsmmDtype<half>() {
   return LIBXSMM_DATATYPE_F16;
-}
-template <>
-inline libxsmm_datatype XsmmDtype<bfloat8>() {
-  return LIBXSMM_DATATYPE_BF8;
 }
 
 #ifdef __AVX512F__
@@ -161,47 +152,7 @@ inline void _mm512_mask_split_storeu_ps(
   _mm256_mask_storeu_epi16(
       (__m256i*)lo, k, _mm512_cvtepi32_epi16(_mm512_castps_si512(a)));
 }
-inline __m512 _mm512_convert_bf8_ps(__m128i a) {
-  return _mm512_cvtph_ps(_mm256_slli_epi16(_mm256_cvtepi8_epi16(a), 8));
-}
-inline __m128i _mm_convert_ps_bf8(__m512 a) {
-  return _mm256_cvtepi16_epi8(_mm256_srai_epi16(
-      _mm512_cvtps_ph(a, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC), 8));
-}
-
-inline __m512 _mm512_loadu_ps_auto(bfloat8 const* mem_addr) {
-  return _mm512_convert_bf8_ps(_mm_loadu_si128((__m128i const*)mem_addr));
-}
-inline __m512 _mm512_maskz_loadu_ps_auto(__mmask16 k, bfloat8 const* mem_addr) {
-  return _mm512_convert_bf8_ps(
-      _mm_maskz_loadu_epi8(k, (__m128i const*)mem_addr));
-}
-inline void _mm512_storeu_ps_auto(bfloat8* mem_addr, __m512 a) {
-  _mm_storeu_si128((__m128i*)mem_addr, _mm_convert_ps_bf8(a));
-}
-inline void _mm512_mask_storeu_ps_auto(
-    bfloat8* mem_addr,
-    __mmask16 k,
-    __m512 a) {
-  _mm_mask_storeu_epi8((__m128i*)mem_addr, k, _mm_convert_ps_bf8(a));
-}
 #endif
-
-inline int xsmm_get_vnni_block_size(libxsmm_datatype dtype) {
-  if (dtype == LIBXSMM_DATATYPE_F32) {
-    return 1;
-  } else if (dtype == LIBXSMM_DATATYPE_BF16) {
-#ifdef __aarch64__
-    return 4;
-#else
-    return 2;
-#endif
-  } else if (dtype == LIBXSMM_DATATYPE_BF8) {
-    return 1;
-  } else {
-    throw std::invalid_argument("Unsupported datatype");
-  }
-}
 
 inline void debug_print_eqn_tree(libxsmm_blasint eqn_no) {
   if (false) {
@@ -301,10 +252,6 @@ class BaseTPP {
     }
     return kernel;
   }
-  // We should make hash_str() public
-  std::string get_hash_str() {
-    return hash_str();
-  }
 
  protected:
   std::unordered_map<std::string, void*>& get_kernel_cache() {
@@ -340,8 +287,7 @@ class UnaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_unary)get_kernel();
-    if (kernel)
-      initialized = true;
+    initialized = true;
   }
 
   void operator()(void* in, void* out) {
@@ -482,8 +428,7 @@ class BinaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_binary)get_kernel();
-    if (kernel)
-      initialized = true;
+    initialized = true;
   }
 
   void operator()(void* in0, void* in1, void* out) {
@@ -599,8 +544,7 @@ class ConvertTPP {
         init_done(true) {}
   void operator()(Tin* in, Tout* out) {
     if (!(XsmmDtype<Tin>() == LIBXSMM_DATATYPE_F32 &&
-          XsmmDtype<Tout>() == LIBXSMM_DATATYPE_F32) ||
-        ((void*)in != (void*)out))
+          XsmmDtype<Tout>() == LIBXSMM_DATATYPE_F32))
       kernel((void*)in, (void*)out);
   }
   void ref(Tin* in, Tout* out) {
@@ -824,46 +768,6 @@ class AddTPP {
   BinaryTPP kernel;
 };
 
-template <typename Tin, typename Tout = Tin>
-class MulTPP {
- public:
-  MulTPP() {}
-  MulTPP(int N) : MulTPP(1, N) {}
-  MulTPP(int rows, int cols) : MulTPP(rows, cols, cols, cols) {}
-  MulTPP(int rows, int cols, int ldi, int ldo)
-      : rows(rows),
-        cols(cols),
-        ldi(ldi),
-        ldo(ldo),
-        kernel(
-            rows,
-            cols,
-            ldi,
-            ldo,
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tout>(),
-            LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_BINARY_NONE,
-            LIBXSMM_MELTW_TYPE_BINARY_MUL) {}
-  void operator()(Tin* in0, Tin* in1, Tout* out) {
-    kernel((void*)in0, (void*)in1, (void*)out);
-  }
-  void ref(Tin* in0, Tin* in1, Tout* out) {
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
-        out[r * ldo + c] = (float)in0[r * ldi + c] * (float)in1[r * ldi + c];
-      }
-    }
-  }
-
- private:
-  int rows = 0;
-  int cols = 0;
-  int ldi;
-  int ldo;
-  BinaryTPP kernel;
-};
-
 template <typename Tin>
 class GradBiasTPP {
  public:
@@ -906,81 +810,6 @@ class GradBiasTPP {
   AddTPP<float, float> add;
 };
 
-// ############################# Mul & Reduction TPP
-// #####################################
-
-template <typename T1, typename T2 = T1, typename T3 = T1>
-class MulReduceTPP : public BaseTPP {
- public:
-  MulReduceTPP() {}
-  MulReduceTPP(int N, int M) : N(N), M(M) {
-    kernel = (libxsmm_matrix_eqn_function)get_kernel();
-    initialized = true;
-  }
-
-  void operator()(T1* in0, T2* in1, T3* out) {
-    if (!initialized)
-      return;
-    libxsmm_matrix_eqn_param eqn_param;
-    libxsmm_matrix_arg arg_array[2];
-    arg_array[0].primary = (void*)in0;
-    arg_array[1].primary = (void*)in1;
-    eqn_param.inputs = arg_array;
-    eqn_param.output.primary = (void*)out;
-
-    kernel(&eqn_param);
-  }
-
-  void ref(T1* in0, T2* in1, T3* out) {
-    for (int r = 0; r < N; r++) {
-      for (int c = 0; c < M; c++) {
-        out[r] += (float)in0[r * M + c] * (float)in1[r * M + c];
-      }
-    }
-  }
-
- protected:
-  std::string hash_str() override {
-    char hash[200];
-    snprintf(
-        hash,
-        200,
-        "mul_reduce_eqn_t%d_%d_%d_r%d_c%d",
-        XsmmDtype<T1>(),
-        XsmmDtype<T2>(),
-        XsmmDtype<T3>(),
-        N, //);
-        M);
-    return std::string(hash);
-  }
-  void* build_kernel() override {
-    auto dt1 = XsmmDtype<T1>();
-    auto dt2 = XsmmDtype<T2>();
-    auto dt3 = XsmmDtype<T3>();
-    libxsmm_blasint ld = 1;
-    libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();
-    meqn_push_unary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD,
-        LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
-        LIBXSMM_DATATYPE_F32);
-    // libxsmm_matrix_eqn_push_back_arg(my_eqn0, M, N, M, 0, 0, dt1);
-    meqn_push_binary_op(
-        my_eqn0,
-        LIBXSMM_MELTW_TYPE_BINARY_MUL,
-        LIBXSMM_MELTW_FLAG_BINARY_NONE,
-        LIBXSMM_DATATYPE_F32);
-    meqn_push_arg(my_eqn0, M, N, M, 0, 0, dt1);
-    meqn_push_arg(my_eqn0, M, N, M, 1, 0, dt2);
-    debug_print_eqn_tree(my_eqn0);
-    return (void*)meqn_dispatch(1, N, &ld, dt3, my_eqn0);
-  }
-
- private:
-  int N = 0;
-  int M = 0;
-  libxsmm_matrix_eqn_function kernel = NULL;
-};
 template <typename Tin, typename Tout = Tin>
 class ReduceAddColTPP {
  public:
@@ -1072,39 +901,42 @@ class ReduceAddRowTPP {
   AddTPP<Tout, Tout> add;
 };
 
-// ############################# Broadcast & Multiplication TPP
-// #####################################
-template <typename Tin, typename Tout = Tin>
+template <typename T>
 class BCastMulTPP {
  public:
   BCastMulTPP() {}
-  BCastMulTPP(int rows, int cols) : BCastMulTPP(rows, cols, cols, cols) {}
-  BCastMulTPP(int rows, int cols, int ldi, int ldo)
+  BCastMulTPP(int rows, int cols) : BCastMulTPP(rows, cols, cols) {}
+  BCastMulTPP(int rows, int cols, int ld)
       : rows(rows),
         cols(cols),
-        ldi(ldi),
-        ldo(ldo),
+        ld(ld),
         kernel(
             rows,
             cols,
-            1,
-            ldi,
-            ldo,
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tout>(),
+            ld,
+            ld,
             LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0, // Broadcast in Row
-                                                      // Dimension
-            LIBXSMM_MELTW_TYPE_BINARY_MUL) // Multiplication
-  {}
-  void operator()(Tin* in0, Tin* in1, Tout* out) {
-    kernel((void*)in0, (void*)in1, (void*)out);
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL),
+        cvt() {
+    if (!std::is_same<T, T>::value)
+      cvt = ConvertTPP<T, T>(1, rows);
   }
-  void ref(Tin* in0, Tin* in1, Tout* out) {
+  void operator()(T* in, T* out) {
+    if (std::is_same<T, T>::value) {
+      kernel((void*)in, (void*)out, (void*)out);
+    } else {
+      T tmp[rows];
+      cvt(in, tmp);
+      kernel((void*)tmp, (void*)out, (void*)out);
+    }
+  }
+  void ref(T* in, T* out) {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        out[c * ldo + r] = (Tin)in0[r] * in1[c * ldi + r];
+        out[c * ld + r] *= (T)in[r];
       }
     }
   }
@@ -1112,57 +944,9 @@ class BCastMulTPP {
  private:
   int rows = 0;
   int cols = 0;
-  int ldi;
-  int ldo;
+  int ld;
   BinaryTPP kernel;
-  ConvertTPP<Tin, Tout> cvt;
-};
-
-// ############################# Broadcast & Multiplication Addition TPP
-// #####################################
-template <typename Tin, typename Tout = Tin>
-class BCastMulAddTPP {
- public:
-  BCastMulAddTPP() {}
-  BCastMulAddTPP(int rows, int cols) : BCastMulAddTPP(rows, cols, cols, cols) {}
-  BCastMulAddTPP(int rows, int cols, int ldi, int ldo)
-      : rows(rows),
-        cols(cols),
-        ldi(ldi),
-        ldo(ldo),
-        kernel(
-            rows,
-            cols,
-            1,
-            ldi,
-            ldo,
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tout>(),
-            LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0, // Broadcast in Row
-                                                      // Dimension
-            LIBXSMM_MELTW_TYPE_BINARY_MULADD) // Multiplication
-  {}
-  void operator()(Tin* in0, Tin* in1, Tout* out) {
-    kernel((void*)in0, (void*)in1, (void*)out);
-  }
-
-  void ref(Tin* in0, Tin* in1, Tout* out) {
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
-        out[c * ldo + r] += (Tin)in0[r] * (Tin)in1[c * ldi + r];
-      }
-    }
-  }
-
- private:
-  int rows = 0;
-  int cols = 0;
-  int ldi;
-  int ldo;
-  BinaryTPP kernel;
-  ConvertTPP<Tin, Tout> cvt;
+  ConvertTPP<T, T> cvt;
 };
 
 template <typename Tin, typename Tout>
@@ -1358,131 +1142,6 @@ class ScaleAddTPP {
   BinaryTPP kernel;
 };
 
-template <typename Tin, typename Tind, typename Tout>
-class EmbeddingFwdTPP {
- public:
-  EmbeddingFwdTPP() {}
-  EmbeddingFwdTPP(int rows, int cols, int ldi)
-      : EmbeddingFwdTPP(rows, cols, ldi, ldi) {}
-  EmbeddingFwdTPP(int rows, int cols)
-      : EmbeddingFwdTPP(rows, cols, cols, cols) {}
-  EmbeddingFwdTPP(int rows, int cols, int ldi, int ldo)
-      : rows(rows),
-        cols(cols),
-        ldi(ldi),
-        ldo(ldo),
-        kernel(
-            rows,
-            cols,
-            ldi,
-            ldo,
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tout>(),
-            LIBXSMM_DATATYPE_F32,
-            (LIBXSMM_MELTW_FLAG_UNARY_GS_COLS |
-             (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                                : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
-            LIBXSMM_MELTW_TYPE_UNARY_GATHER) {}
-  void operator()(Tin* in0, Tind* in1, Tout* out) {
-    kernel((void*)in0, (void*)in1, NULL, (void*)out, NULL);
-  }
-  void ref(Tin* in0, Tind* in1, Tout* out) {
-    for (int r = 0; r < rows; r++) {
-      auto ind = in1[r];
-      for (int c = 0; c < cols; c++) {
-        out[r * ldo + c] = in0[ind * ldi + c];
-      }
-    }
-  }
-
- private:
-  int rows = 0;
-  int cols = 0;
-  int ldi = 0;
-  int ldo = 0;
-  UnaryTPP kernel;
-};
-
-template <typename Tin, typename Tind, typename Tout>
-class EmbeddingBwdTPP {
- public:
-  EmbeddingBwdTPP() {}
-  EmbeddingBwdTPP(int E)
-      : E(E),
-        kernel(
-            0,
-            E,
-            E,
-            E,
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tout>(),
-            LIBXSMM_DATATYPE_F32,
-            (libxsmm_meltw_unary_flags)(
-                sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                                  : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES),
-            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX_OP_ADD) {}
-  void operator()(Tin* in0, Tind* in1, Tout* out, int N) {
-    unsigned long long _N = N;
-    kernel((void*)in0, (void*)in1, (void*)&_N, (void*)out, NULL);
-  }
-  void ref(Tin* in0, Tind* in1, Tout* out, int N) {
-    for (long v = 0; v < E; v++)
-      out[v] = 0;
-    for (long s = 0; s < N; s++) {
-      auto ind = in1[s];
-      for (long v = 0; v < E; v++)
-        out[v] += in0[ind * E + v];
-    }
-  }
-
- private:
-  int E = 0;
-  UnaryTPP kernel;
-};
-
-template <typename Tin, typename Tind, typename Tout>
-class ScatterTPP {
- public:
-  ScatterTPP() {}
-  ScatterTPP(int rows, int cols, int ldi) : ScatterTPP(rows, cols, ldi, ldi) {}
-  ScatterTPP(int rows, int cols) : ScatterTPP(rows, cols, cols, cols) {}
-  ScatterTPP(int rows, int cols, int ldi, int ldo)
-      : rows(rows),
-        cols(cols),
-        ldi(ldi),
-        ldo(ldo),
-        kernel(
-            rows,
-            cols,
-            ldi,
-            ldo,
-            XsmmDtype<Tin>(),
-            XsmmDtype<Tout>(),
-            LIBXSMM_DATATYPE_F32,
-            (LIBXSMM_MELTW_FLAG_UNARY_GS_COLS |
-             (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                                : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
-            LIBXSMM_MELTW_TYPE_UNARY_SCATTER) {}
-  void operator()(Tin* in, Tind* out1, Tout* out) {
-    kernel((void*)in, NULL, NULL, (void*)out, (void*)out1);
-  }
-  void ref(Tin* in, Tind* out1, Tout* out) {
-    for (int r = 0; r < rows; r++) {
-      auto ind = out1[r];
-      for (int c = 0; c < cols; c++) {
-        out[ind * ldo + c] = in[r * ldi + c];
-      }
-    }
-  }
-
- private:
-  int rows = 0;
-  int cols = 0;
-  int ldi = 0;
-  int ldo = 0;
-  UnaryTPP kernel;
-};
-
 class XformTPP {
  public:
   XformTPP() {}
@@ -1517,7 +1176,8 @@ class XformTPP {
     XFORM_XPOSE_TPP = 1,
     XFORM_N2V_TPP = 2,
     XFORM_XPOSE_N2V_TPP = 3,
-    XFORM_XPOSE_V2V_TPP = 4
+    XFORM_XPOSE_V2V_TPP = 4,
+    XFORM_N2V_PAD_TPP   = 5
   } XFORM_TYPE;
 
  private:
@@ -1586,29 +1246,26 @@ class XformExtTPP {
         zero() {
     libxsmm_meltw_unary_type unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
     if (ignore_vnni_for_fp32 == false) {
-      TPP_ASSERT(
+      PCL_ASSERT(
           (xtype == XformTPP::XFORM_XPOSE_TPP || dtype != LIBXSMM_DATATYPE_F32),
           "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
           (int)xtype);
     }
-    const int BS = xsmm_get_vnni_block_size(dtype);
-    if (xtype == XformTPP::XFORM_N2V_TPP) {
+    const int BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    if (xtype == XformTPP::XFORM_N2V_TPP || xtype == XformTPP::XFORM_N2V_PAD_TPP) {
       in_rows_p = out_rows;
       in_cols_p = out_cols;
-      if (dtype == LIBXSMM_DATATYPE_F32) {
-        unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
-      } else if (dtype == LIBXSMM_DATATYPE_BF16) {
-#ifdef __aarch64__
-        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4;
-#else
-        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2;
-#endif
-        TPP_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
-      } else if (dtype == LIBXSMM_DATATYPE_BF8) {
-        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4;
-        TPP_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
+      if (dtype != LIBXSMM_DATATYPE_F32) {
+        if (xtype == XformTPP::XFORM_N2V_TPP) {
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2;
+          PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
+        }
+        else { /* XformTPP::XFORM_N2V_PAD_TPP */
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2_PAD;
+          PCL_ASSERT(in_rows_p % BS == 1, "N2VTPP_PAD: even number of rows\n");
+        }
       } else {
-        TPP_ASSERT(false, "N2VTPP: unknown dtype\n");
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
       }
     } else {
       in_rows_p = out_cols;
@@ -1619,30 +1276,23 @@ class XformExtTPP {
         } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
           // unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNIT;
           unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
-          TPP_ASSERT(
+          PCL_ASSERT(
               in_cols_p % BS == 0, "XposeN2VTPP: uneven number of cols\n");
         } else {
-          if (dtype == LIBXSMM_DATATYPE_BF16) {
-#ifdef __aarch64__
-            unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI4_TO_VNNI4T;
-#else
-            unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI2_TO_VNNI2T;
-#endif
-          } else {
-            unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI4_TO_VNNI4T;
-          }
-          TPP_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
-          TPP_ASSERT(
+          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI2_TO_VNNI2T;
+          PCL_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
+          PCL_ASSERT(
               in_cols_p % BS == 0, "XposeV2VTPP: uneven number of cols\n");
         }
       } else {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
       }
     }
-    TPP_ASSERT(
+    printf("in_rows = %d in_cols = %d in_rows_p = %d in_cols_p = %d out_rows = %d out_cols = %d ldi = %d \n", in_rows, in_cols, in_rows_p, in_cols_p, out_rows, out_cols, ldi);
+    PCL_ASSERT(
         (in_rows_p >= in_rows && in_cols_p >= in_cols),
         "Invalid output rows or cols value\n");
-    TPP_ASSERT(
+    PCL_ASSERT(
         in_rows_p == in_rows || in_cols_p == in_cols,
         "Padding can only be done in rows or cols\n");
 
@@ -1657,13 +1307,7 @@ class XformExtTPP {
           in_cols_p / BS,
           ldi / BS,
           ldo,
-#ifdef __aarch64__
-          // This is required due to VNNI blocking of 4 for BF16 on aarch64
-          dtype == LIBXSMM_DATATYPE_BF16 ? LIBXSMM_DATATYPE_F64
-                                         : LIBXSMM_DATATYPE_F32,
-#else
           LIBXSMM_DATATYPE_F32,
-#endif
           unary_type);
     }
 
@@ -1700,7 +1344,7 @@ class XformExtTPP {
     }
   }
   void ref(T* in, T* out) {
-    const int BS = xsmm_get_vnni_block_size(dtype);
+    auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {
@@ -1747,7 +1391,7 @@ class XformExtTPP {
         }
       }
     } else {
-      TPP_ASSERT(false, "Should not come here\n");
+      PCL_ASSERT(false, "Should not come here\n");
     }
   }
 
@@ -1764,7 +1408,7 @@ class XformExtTPP {
     }
   }
   void ref(float* in, bfloat16* out) {
-    auto BS = xsmm_get_vnni_block_size(dtype);
+    auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {
@@ -1811,7 +1455,7 @@ class XformExtTPP {
         }
       }
     } else {
-      TPP_ASSERT(false, "Should not come here\n");
+      PCL_ASSERT(false, "Should not come here\n");
     }
   }
   void operator()(int count, long str_in, long str_out, T* in, T* out) {
@@ -2010,7 +1654,6 @@ class BrgemmTPP {
       Tout* C,
       unsigned long long count,
       bool no_tile_cfg = false) {
-    auto dtype = XsmmDtype<Tin>();
     for (uint64_t c = 0; c < count; c++) {
       auto A_ = &A[c * str_a];
       auto B_ = &B[c * str_b];
@@ -2029,17 +1672,16 @@ class BrgemmTPP {
           }
         }
       } else {
-        const int BS = xsmm_get_vnni_block_size(dtype);
         for (int i = 0; i < M; i++) {
           for (int j = 0; j < N; j++) {
             float sum = 0.0f;
             if (beta == 1.0 && c == 0)
               sum = C[i * ldc + j];
-            for (int k = 0; k < K / BS; k++) {
-              for (int b = 0; b < BS; b++) {
-                sum += (float)A_[i * lda + k * BS + b] *
-                    (float)B_[k * ldb * BS + j * BS + b];
-              }
+            for (int k = 0; k < K / 2; k++) {
+              sum += (float)A_[i * lda + k * 2 + 0] *
+                  (float)B_[k * ldb * 2 + j * 2 + 0];
+              sum += (float)A_[i * lda + k * 2 + 1] *
+                  (float)B_[k * ldb * 2 + j * 2 + 1];
             }
             C[i * ldc + j] = (Tout)sum;
           }
@@ -2072,7 +1714,7 @@ class BrgemmTPP {
       auto dt_out = XsmmDtype<Tout>();
       long type = -1;
       if (dt_in == LIBXSMM_DATATYPE_F32) {
-        TPP_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
+        PCL_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
         type = 0;
       } else if (dt_out == LIBXSMM_DATATYPE_F32) {
         type = 1;
@@ -2080,7 +1722,7 @@ class BrgemmTPP {
         type = 2;
       }
       if (type != 0)
-        TPP_ASSERT(
+        PCL_ASSERT(
             p->a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
       brgemm_type = type;
       kernel.gemm = (libxsmm_gemmfunction)get_kernel();
@@ -2166,6 +1808,9 @@ class BrgemmTPP {
         l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
       }
       l_brconfig.br_unroll_hint = p->unroll_hint;
+
+      printf("l_shape: %d %d %d %d %d %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
+      printf("l_flags: %d \n", l_flags);
 
       l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
           l_shape, l_flags, l_prefetch_flags, l_brconfig);
@@ -2625,7 +2270,7 @@ class SiLUFwdTPP {
     for (int i = 0; i < rows; i++) {
       for (int j = 0; j < cols; j++) {
         sigout[i * ldo + j] = 1. / (1. + exp(-in[i * ldi + j]));
-        out[i * ldo + j] = in[i * ldi + j] * sigout[i * ldo + j];
+        out[i * ldo + j] = in[i * ldo + j] * sigout[i * ldo + j];
       }
     }
   }
@@ -2838,7 +2483,6 @@ class SoftMaxFwdTPP {
       for (s1 = 0; s1 < S1; s1++) {
         for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
           __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS_3DTS(_mm512_sub_ps(
-              // __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS (_mm512_sub_ps(
               _mm512_loadu_ps_auto(
                   &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
               vmax));
@@ -2849,7 +2493,6 @@ class SoftMaxFwdTPP {
           int rem = S3 - s3;
           __mmask16 mask = (1 << rem) - 1;
           __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS_3DTS(_mm512_sub_ps(
-              // __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS (_mm512_sub_ps(
               _mm512_maskz_loadu_ps_auto(
                   mask, &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
               vmax));
@@ -3228,7 +2871,7 @@ class SoftMaxBwdTPP {
         debug_print_eqn_tree(my_eqn3);
         func = meqn_dispatch(S3, S1, &ld, dt_1, my_eqn3);
       } else {
-        TPP_ASSERT(false, "Should not come here\n");
+        PCL_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -3398,7 +3041,7 @@ class VarSoftMaxFwdTPP {
       }
     }
 #else
-    // #warning "Not using AVX512 path for VarSoftMax"
+    //#warning "Not using AVX512 path for VarSoftMax"
     for (s2 = 0; s2 < S2; s2++) {
       float tmp[S1][S3];
       float max =
@@ -3611,7 +3254,7 @@ class VarSoftMaxBwdTPP {
         debug_print_eqn_tree(my_eqn3);
         func = meqn_dispatch(S3, 1, &ld, dt_1, my_eqn3);
       } else {
-        TPP_ASSERT(false, "Should not come here\n");
+        PCL_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -3626,7 +3269,7 @@ class VarSoftMaxBwdTPP {
   Eqn eqn0, eqn1;
 };
 
-template <typename T, typename LT = T>
+template <typename T>
 class LayerNormFwdTPP {
  public:
   LayerNormFwdTPP() {}
@@ -3656,13 +3299,7 @@ class LayerNormFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD),
         eqn(S1, S2, S3) {}
-  void operator()(
-      T* inp,
-      LT* gamma,
-      LT* beta,
-      float* mean,
-      float* var,
-      T* out) {
+  void operator()(T* inp, T* gamma, T* beta, float* mean, float* var, T* out) {
     LIBXSMM_ALIGNED(float tmp[2 * S3], 64);
     const float c = 1.0 / ((float)S1 * S3);
     float m, v, s, b;
@@ -3690,12 +3327,12 @@ class LayerNormFwdTPP {
       eqn(&eqn_param);
     }
   }
-  void ref(T* pinp, LT* pgamma, LT* pbeta, float* mean, float* var, T* pout) {
+  void ref(T* pinp, T* pgamma, T* pbeta, float* mean, float* var, T* pout) {
     int s1, s2, s3;
     LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
     LIBXSMM_VLA_DECL(3, T, out, pout, S2, S3);
-    LIBXSMM_VLA_DECL(2, LT, gamma, pgamma, S3);
-    LIBXSMM_VLA_DECL(2, LT, beta, pbeta, S3);
+    LIBXSMM_VLA_DECL(2, T, gamma, pgamma, S3);
+    LIBXSMM_VLA_DECL(2, T, beta, pbeta, S3);
     for (s2 = 0; s2 < S2; s2++) {
       float m = 0;
       float v = 0;
@@ -3744,9 +3381,8 @@ class LayerNormFwdTPP {
       snprintf(
           hash,
           200,
-          "layernorm_fwd_eqn_t1%d_t2%d_S1%d_S2%d_S3%d",
+          "layernorm_fwd_eqn_t%d_S1%d_S2%d_S3%d",
           XsmmDtype<T>(),
-          XsmmDtype<LT>(),
           S1,
           S2,
           S3);
@@ -3754,7 +3390,6 @@ class LayerNormFwdTPP {
     }
     void* build_kernel() override {
       auto in_dt = XsmmDtype<T>();
-      auto bg_dt = XsmmDtype<LT>();
       auto out_dt = XsmmDtype<T>();
       libxsmm_blasint tmp_ld = 1;
       libxsmm_blasint tmp_ld2 = S3;
@@ -3773,8 +3408,8 @@ class LayerNormFwdTPP {
       meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
       meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 1, 0, LIBXSMM_DATATYPE_F32);
       meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
-      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, bg_dt);
-      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, bg_dt);
+      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, in_dt);
+      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, in_dt);
       debug_print_eqn_tree(my_eqn0); // printf
       return (void*)meqn_dispatch(S3, S1, &ld, out_dt, my_eqn0);
     }
@@ -3792,7 +3427,7 @@ class LayerNormFwdTPP {
   Eqn eqn;
 };
 
-template <typename T, typename LT = T>
+template <typename T>
 class LayerNormBwdTPP {
  public:
   LayerNormBwdTPP() {}
@@ -3810,7 +3445,7 @@ class LayerNormBwdTPP {
       T* inp,
       float* mean,
       float* var,
-      LT* gamma,
+      T* gamma,
       T* din,
       float* dgamma,
       float* dbeta) {
@@ -3857,7 +3492,7 @@ class LayerNormBwdTPP {
       T* pinp,
       float* mean,
       float* var,
-      LT* pgamma,
+      T* pgamma,
       T* pdin,
       float* pdgamma,
       float* pdbeta) {
@@ -3865,7 +3500,7 @@ class LayerNormBwdTPP {
     LIBXSMM_VLA_DECL(3, T, din, pdin, S2, S3);
     LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
     LIBXSMM_VLA_DECL(3, T, dout, pdout, S2, S3);
-    LIBXSMM_VLA_DECL(2, LT, gamma, pgamma, S3);
+    LIBXSMM_VLA_DECL(2, T, gamma, pgamma, S3);
     LIBXSMM_VLA_DECL(2, float, dgamma, pdgamma, S3);
     LIBXSMM_VLA_DECL(2, float, dbeta, pdbeta, S3);
     for (s2 = 0; s2 < S2; s2++) {
@@ -3921,10 +3556,9 @@ class LayerNormBwdTPP {
       snprintf(
           hash,
           200,
-          "layernorm_bwd_eqn%d_t1%d_t2%d_S1%d_S2%d_S3%d",
+          "layernorm_bwd_eqn%d_t%d_S1%d_S2%d_S3%d",
           eqn_no,
           XsmmDtype<T>(),
-          XsmmDtype<LT>(),
           S1,
           S2,
           S3);
@@ -3932,7 +3566,6 @@ class LayerNormBwdTPP {
     }
     void* build_kernel() override {
       auto in_dt = XsmmDtype<T>();
-      auto bg_dt = XsmmDtype<LT>();
       // auto out_dt = XsmmDtype<T>();
       libxsmm_blasint tmp_ld = S3;
       libxsmm_blasint tmp_ld2 = 1;
@@ -3972,7 +3605,7 @@ class LayerNormBwdTPP {
         meqn_push_binary_op(
             my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
         meqn_push_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
-        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, bg_dt);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, in_dt);
         func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
       } else if (eqn_no == 4) {
         /* ds equation */
@@ -3981,7 +3614,7 @@ class LayerNormBwdTPP {
             my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
         meqn_push_binary_op(my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL);
         meqn_push_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
-        meqn_push_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, bg_dt);
+        meqn_push_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, in_dt);
         meqn_push_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
         func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
       } else if (eqn_no == 5) {
@@ -3995,7 +3628,7 @@ class LayerNormBwdTPP {
             my_eqn5,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
             LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
-        meqn_push_arg(my_eqn5, S3, S1, tmp_ld, 6, 0, bg_dt);
+        meqn_push_arg(my_eqn5, S3, S1, tmp_ld, 6, 0, in_dt);
         meqn_push_arg(my_eqn5, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
         meqn_push_arg(my_eqn5, S3, S1, ld, 3, 0, in_dt);
         meqn_push_ternary_op(
@@ -4009,7 +3642,7 @@ class LayerNormBwdTPP {
         meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
         func = meqn_dispatch(S3, S1, &ld, in_dt, my_eqn5);
       } else {
-        TPP_ASSERT(false, "LayerNormBwdTPP: invalid eqn. number %d\n", eqn_no);
+        PCL_ASSERT(false, "LayerNormBwdTPP: invalid eqn. number %d\n", eqn_no);
       }
       return (void*)func;
     }
@@ -4402,7 +4035,7 @@ class GroupNormBwdTPP {
         meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
         func = meqn_dispatch(S3, S1, &ld, in_dt, my_eqn5);
       } else {
-        TPP_ASSERT(false, "GroupNormBwdTPP: invalid eqn. number %d\n", eqn_no);
+        PCL_ASSERT(false, "GroupNormBwdTPP: invalid eqn. number %d\n", eqn_no);
       }
       return (void*)func;
     }
@@ -4446,8 +4079,8 @@ class SplitSGDTPP : public BaseTPP {
     auto out_hi = (libxsmm_bfloat16*)hi;
     auto out_lo = (libxsmm_bfloat16*)lo;
     for (int i = 0; i < N; i++) {
-      union libxsmm_bfloat16_f32 bf16_hp;
-      union libxsmm_bfloat16_f32 bf16_wt;
+      union libxsmm_bfloat16_hp bf16_hp;
+      union libxsmm_bfloat16_hp bf16_wt;
       bf16_wt.i[0] = 0;
       bf16_wt.i[1] = dwt[i];
       bf16_hp.i[0] = out_lo[i];
@@ -4526,8 +4159,9 @@ class EmbBagFwdTPP {
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
             (libxsmm_meltw_unary_flags)(
-                sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                                  : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES),
+                LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC |
+                (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
+                                   : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX_OP_ADD) {}
   void operator()(Tout* output, Tin* weight, Tind* input, int N) {
     unsigned long long _N = N;
@@ -4809,7 +4443,7 @@ class FusedAdamWTPP {
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn2);
       } else {
-        TPP_ASSERT(false, "Should not come here\n");
+        PCL_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -4899,7 +4533,7 @@ class FusedSplitAdamWTPP {
     float beta2_1 = 1.0f - beta2;
 #ifndef __AVX512F__
     for (long i = 0; i < sz; i++) {
-      union libxsmm_bfloat16_f32 data_hp;
+      union libxsmm_bfloat16_hp data_hp;
       float avg_i = exp_avg[i];
       float avg_sq_i = exp_avg_sq[i];
       float grad_i = grad[i];
@@ -5078,7 +4712,7 @@ class FusedSplitAdamWTPP {
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2);
       } else {
-        TPP_ASSERT(false, "Should not come here\n");
+        PCL_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -5362,7 +4996,7 @@ class FusedAdamStepTPP {
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn2);
       } else {
-        TPP_ASSERT(false, "Should not come here\n");
+        PCL_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -6213,6 +5847,254 @@ class ReduceAddColExtTPP {
 
   UnaryTPP reduce;
 };
+
+#ifdef WITH_UNUSED
+
+template <typename Tin, typename Tout>
+class GemmTPP {
+ public:
+  GemmTPP() {}
+  GemmTPP(
+      long M,
+      long N,
+      long K,
+      float beta = 1.0,
+      int a_trans = 0,
+      int unroll_hint = 0,
+      int b_vnni      = 0,
+      int c_vnni      = 0 )
+      : GemmTPP(
+            M,
+            N,
+            K,
+            (a_trans == 0 ? K : M),
+            N,
+            N,
+            beta,
+            a_trans,
+            b_vnni,
+            c_vnni,
+            unroll_hint) {}
+  GemmTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int unroll_hint,
+      int b_vnni,
+      int c_vnni)
+      : M(M),
+        N(N),
+        K(K),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        b_vnni(b_vnni),
+        c_vnni(c_vnni),
+        unroll_hint(unroll_hint),
+        k_gemm_with_tc(this, 0),
+        k_cfg(this, 1),
+        k_rls(this, 2),
+        k_gemm_no_tc(this, 3) {}
+  void config() {
+    k_cfg(NULL);
+  }
+  void release() {
+    k_rls(NULL);
+  }
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      bool no_tile_cfg = false) {
+    libxsmm_gemm_param gemm_param;
+    memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
+    gemm_param.c.primary = (void*)C;
+    gemm_param.a.primary = (void*)B;
+    gemm_param.b.primary = (void*)A;
+    if (!no_tile_cfg) {
+      k_gemm_with_tc(&gemm_param);
+    } else {
+      k_gemm_no_tc(&gemm_param);
+    }
+  }
+  void ref(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      bool no_tile_cfg = false) {
+    for (uint64_t c = 0; c < 1/*count*/; c++) {
+      auto A_ = A;//&A[c * str_a];
+      auto B_ = B;//&B[c * str_b];
+      if (std::is_same<Tin, float>::value) {
+        for (int i = 0; i < M; i++) {
+          for (int j = 0; j < N; j++) {
+            if (beta == 0.0 && c == 0)
+              C[i * N + j] = 0.0;
+            for (int k = 0; k < K; k++) {
+              if (a_trans == 1) {
+                C[i * ldc + j] += A_[k * lda + i] * B_[k * ldb + j];
+              } else {
+                C[i * ldc + j] += A_[i * lda + k] * B_[k * ldb + j];
+              }
+            }
+          }
+        }
+      } else {
+        for (int i = 0; i < M; i++) {
+          for (int j = 0; j < N; j++) {
+            float sum = 0.0f;
+            if (beta == 1.0 && c == 0)
+              sum = C[i * ldc + j];
+            for (int k = 0; k < K / 2; k++) {
+              sum += (float)A_[i * lda + k * 2 + 0] *
+                  (float)B_[k * ldb * 2 + j * 2 + 0];
+              sum += (float)A_[i * lda + k * 2 + 1] *
+                  (float)B_[k * ldb * 2 + j * 2 + 1];
+            }
+            C[i * ldc + j] = (Tout)sum;
+          }
+        }
+      }
+    }
+  }
+
+  long flops() {
+    return 2L * M * N * K;
+  }
+
+  class GemmKernel : public BaseTPP {
+   public:
+    GemmKernel() {}
+    GemmKernel(GemmTPP* p, int config) : p(p), config(config) {
+      auto dt_in = XsmmDtype<Tin>();
+      auto dt_out = XsmmDtype<Tout>();
+      long type = -1;
+      if (dt_in == LIBXSMM_DATATYPE_F32) {
+        PCL_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
+        type = 0;
+      } else if (dt_out == LIBXSMM_DATATYPE_F32) {
+        type = 1;
+      } else {
+        type = 2;
+      }
+/*
+      if (type != 0)
+        PCL_ASSERT(
+            p->a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
+      brgemm_type = type;
+*/
+      kernel.gemm = (libxsmm_gemmfunction)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_gemm_param* gemm_param) {
+      if (!initialized)
+        return;
+      kernel.gemm(gemm_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "gemm_m%ld_n%ld_k%ld_beta%d_at%d_uh%d_bv%d_bc%d_ld_a%ld_b%ld_c%ld_cfg%d",
+          p->M,
+          p->N,
+          p->K,
+          (int)p->beta,
+          p->a_trans,
+          p->unroll_hint,
+          p->b_vnni,
+          p->c_vnni,
+          (long)p->lda,
+          (long)p->ldb,
+          (long)p->ldc,
+          config);
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      // float alpha = 1.0;
+      libxsmm_gemm_shape l_shape;
+      libxsmm_gemm_batch_reduce_config l_brconfig;
+      libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N');
+      libxsmm_bitfield l_prefetch_flags = 0;
+      libxsmm_xmmfunction l_test_jit = {NULL};
+
+      if (p->a_trans == 1)
+        l_flags |= LIBXSMM_GEMM_FLAG_TRANS_B;
+      if (p->b_vnni != 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_A;
+      if (p->c_vnni != 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_C;
+      if (p->beta == 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+
+      // config = 0 - normal
+      // config = 1 - no tile release
+      // config = 2 - no tile config
+      // config = 3 - brgemm with no tile config or release
+      if (config == 1) {
+        l_flags |= LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG;
+      } else if (config == 2) {
+        l_flags |= LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG;
+      } else if (config == 3) {
+        l_flags |=
+            (LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG |
+             LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG);
+      }
+
+      /* setting update GEMM struct */
+      l_shape.m = p->N;
+      l_shape.n = p->M;
+      l_shape.k = p->K;
+      l_shape.lda = p->ldb;
+      l_shape.ldb = p->lda;
+      l_shape.ldc = p->ldc;
+      l_shape.a_in_type = XsmmDtype<Tin>();
+      l_shape.b_in_type = XsmmDtype<Tin>();
+      l_shape.out_type = XsmmDtype<Tout>();
+      l_shape.comp_type = LIBXSMM_DATATYPE_F32;
+
+      printf("l_shape: %d %d %d %d %d %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
+      printf("l_flags: %d \n", l_flags);
+
+      l_test_jit.gemm = libxsmm_dispatch_gemm_v2(
+          l_shape, l_flags, l_prefetch_flags);
+
+      return (void*)l_test_jit.gemm;
+    }
+
+   private:
+    GemmTPP* p;
+    int config;
+    libxsmm_xmmfunction kernel;
+  };
+
+ private:
+  long M, N, K;
+  libxsmm_blasint lda;
+  libxsmm_blasint ldb;
+  libxsmm_blasint ldc;
+  float beta;
+  int a_trans;
+  int b_vnni;
+  int c_vnni;
+  int unroll_hint;
+  GemmKernel k_gemm_with_tc;
+  GemmKernel k_cfg;
+  GemmKernel k_rls;
+  GemmKernel k_gemm_no_tc;
+};
+
+#endif /* for #ifdef WITH_UNUSED */
 
 }; // namespace pcl
 
