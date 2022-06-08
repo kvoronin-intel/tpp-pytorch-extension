@@ -65,7 +65,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   /* Fuse bf16 necessary transposes */
   long bf16_use_nchw_format = 1;//1; // FIXME back!
   long bf16_use_chwn_format = 1;
-  long bf16_fuse_upd_transposes = 1;//1; FIXME back!
+  long bf16_fuse_upd_transposes = 0;//1; FIXME back!
 
   /* Control variants for chwn format */
   long bf16_acc_nw = 1;
@@ -981,17 +981,20 @@ printf("Set the libxsmm kernels\n");
           //printf("Case bf16_use_nchw_format > 0 is untested so far!\n");
           //exit(-1);
           if (bf16_fuse_upd_transposes == 0) {
-            printf("Case bf16_fuse_upd_transposes == 0 is untested so far!\n");
-            exit(-1);
-            /*
+            //printf("Case bf16_fuse_upd_transposes == 0 is untested so far!\n");
+            //exit(-1);
             tr_input_nchw_loop(
               [&](int* ind) {
                 int i_n = ind[0], i_c = ind[1];
-                libxsmm_meltw_unary_param unary_param;
+                //DType *input_libxsmm  = (DType*)libxsmm_aligned_malloc( N*ifhp*ifwp*C*sizeof(DType), 2097152);
+                DECL_VLA_PTR_PT         (T,                input,                      [Cb][ifhp][ifwp][bc],   t_I);
+                DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char, input_mylinearized_pixels,  [Cb][bc][input_pixels], t_scratch_experimental, input_mylinearized_pixels_offset);
+                //libxsmm_meltw_unary_param unary_param;
                 for (int ij = 0; ij < ifhp; ij++) {
-                  unary_param.in.primary = (void*) LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm,           i_n, i_c, ij, 0, 0, Cb, ifhp, ifwp, bc);
-                  unary_param.out.primary= (void*) LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, ij*ifwp, Cb, bc, input_pixels);
-                  transpose_input_pixels_bf16( &unary_param );
+                  //unary_param.in.primary = (void*) LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm,           i_n, i_c, ij, 0, 0, Cb, ifhp, ifwp, bc);
+                  //unary_param.out.primary= (void*) LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, ij*ifwp, Cb, bc, input_pixels);
+                  //transpose_input_pixels_bf16( &unary_param );
+                  transpose_input_pixels_bf16_xform_tpp(input[i_n][i_c][ij][0], &input_mylinearized_pixels[i_n][i_c][0][ij*ifwp]);
                 }
               },
               [&]() {},
@@ -1000,18 +1003,29 @@ printf("Set the libxsmm kernels\n");
             tr_output_nchw_loop(
               [&](int* ind) {
                 int i_n = ind[0], i_k = ind[1];
-                libxsmm_meltw_unary_param unary_param;
-                unary_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm,           i_n, i_k, pad_h, pad_w, 0, Kb, ofhp, ofwp, bk);
-                unary_param.out.primary= LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, 0, 0, Kb, output_pixels, bk);
-                vnni_output_compute_pixels_bf16( &unary_param );
+                //DType *output_libxsmm_off= (DType*)output_libxsmm + (size_t) (pad_h_out * ofwp * bk + pad_w_out * bk);
+                DECL_VLA_PTR_PT         (T,                gradout,                    [Kb][ofhp][ofwp][bk],   t_GO);
+                DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char, output_mylinearized_pixels, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
+
+                //libxsmm_meltw_unary_param unary_param;
+                //unary_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm,           i_n, i_k, pad_h, pad_w, 0, Kb, ofhp, ofwp, bk);
+                //unary_param.out.primary= LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, 0, 0, Kb, output_pixels, bk);
+                //vnni_output_compute_pixels_bf16( &unary_param );
+                //if (upd_remaining_pixels > 0) {
+                //  unary_param.out.primary= LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, (compute_pixels+1)/2, 0, Kb, output_pixels, bk);
+                //  vnni_output_zero_remaining_pixels_bf16( &unary_param );
+                //}
+                vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
                 if (upd_remaining_pixels > 0) {
-                  unary_param.out.primary= LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, (compute_pixels+1)/2, 0, Kb, output_pixels, bk);
-                  vnni_output_zero_remaining_pixels_bf16( &unary_param );
+                  //unary_param.out.primary= LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, (compute_pixels+1)/2, 0, Kb, output_pixels, bk);
+                  //vnni_output_zero_remaining_pixels_bf16( &unary_param );
+                  printf("Case upd_remaining_pixels > 0 is untested so far!\n");
+                  exit(-1);
+                  vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][(compute_pixels+1)/2]);
                 }
               },
               [&]() {},
               [&]() {});
-            */
           } /* for if bf16_fuse_upd_transposes == 0 */
 
           if (use_hybrid_imgfm_parallelization == 0) {
@@ -1019,6 +1033,7 @@ printf("Set the libxsmm kernels\n");
             //exit(-1);
 //            #if 0
 
+/*
             typedef T DType;
             T* input_libxsmm = t_I.data_ptr<T>();
             //T* input_linearized_pixels = t_input_linearized_pixels.data_ptr<T>();
@@ -1027,7 +1042,7 @@ printf("Set the libxsmm kernels\n");
             float *scratch_libxsmm = reinterpret_cast<float*>(t_scratch_experimental.data_ptr<unsigned char>() + scratch_float_offset);
             T *filter_libxsmm = t_grad_weight.data_ptr<T>();
             T *scratch_libxsmm_bf16_weights = reinterpret_cast<T*>(t_scratch_experimental.data_ptr<unsigned char>() + scratch_bf16_weight_offset);
-
+*/
             //printf("dbg: pointers here: input_libxsmm = %p output_libxsmm %p scratch_libxsmm %p filter_libxsmm %p scratch_bf16... %p \n", input_libxsmm, output_libxsmm, scratch_libxsmm, filter_libxsmm, scratch_libxsmm_bf16_weights);
 
         conv_loop_bf16_nchw(
