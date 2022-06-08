@@ -65,7 +65,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   /* Fuse bf16 necessary transposes */
   long bf16_use_nchw_format = 1;//1; // FIXME back!
   long bf16_use_chwn_format = 1;
-  long bf16_fuse_upd_transposes = 0;//1; FIXME back!
+  long bf16_fuse_upd_transposes = 1;//1; FIXME back!
 
   /* Control variants for chwn format */
   long bf16_acc_nw = 1;
