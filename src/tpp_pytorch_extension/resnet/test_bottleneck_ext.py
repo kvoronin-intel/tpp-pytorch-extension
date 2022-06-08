@@ -287,6 +287,38 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     for i in range(10):
         print("i opt_bn3_weight_grad ref_bn3_weight_grad = ", i, opt_bn3_weight_grad_unblocked.view(-1)[i].item(), ref_bn3_weight_grad.view(-1)[i].item())
 
+    opt_conv3_weight_grad = opt_bottleneck.conv3.weight.grad.to(torch.float)
+    ref_conv3_weight_grad = torch_bottleneck.conv3.weight.grad.to(torch.float)
+
+    if opt_conv3_weight_grad.dim() == 6:
+        size = [opt_conv3_weight_grad.size(0)*opt_conv3_weight_grad.size(5), opt_conv3_weight_grad.size(1)*opt_conv3_weight_grad.size(4), opt_conv3_weight_grad.size(2), opt_conv3_weight_grad.size(3)]
+        opt_conv3_weight_gradp = opt_conv3_weight_grad.permute([0,5,1,4,2,3]).contiguous().view(size)
+        #print("opt_conv3_weight_gradp shape = ", opt_conv3_weight_gradp.shape)
+        opt_conv3_weight_grad_unblocked = opt_conv3_weight_gradp
+    elif opt_conv3_weight_grad.dim() == 7:
+        size = [opt_conv3_weight_grad.size(0)*opt_conv3_weight_grad.size(5), opt_conv3_weight_grad.size(1)*opt_conv3_weight_grad.size(4)*opt_conv3_weight_grad.size(6), opt_conv3_weight_grad.size(2), opt_conv3_weight_grad.size(3)]
+        opt_conv3_weight_gradp = opt_conv3_weight_grad.permute([0,5,1,4,6,2,3]).contiguous().view(size)
+        #print("opt_conv3_weight_gradp shape = ", opt_conv3_weight_gradp.shape)
+        opt_conv3_weight_grad_unblocked = opt_conv3_weight_gradp
+    else:
+        opt_conv3_weight_grad_unblocked = opt_conv3_weight_grad
+    #print("opt_conv3_weight_grad_unblocked shape = ", opt_conv3_weight_grad_unblocked.shape)
+
+    print("conv3 Wt Allclose: ", ref_conv3_weight_grad.allclose(opt_conv3_weight_grad_unblocked, rtol=1e-5, atol=1e-6))
+
+    #print("opt_conv3_weight_grad_unblocked shape = ", opt_conv3_weight_grad_unblocked.shape)
+    wgrad_rel_norm_diff = (opt_conv3_weight_grad_unblocked - ref_conv3_weight_grad).norm(2) / ref_conv3_weight_grad.norm(2)
+    if wgrad_rel_norm_diff > 1.0e-5:
+        print("warning, wgrad_rel_norm diff is too large, ", wgrad_rel_norm_diff)
+    #for i in range(10):
+    #    print("i opt_conv3_weight_grad_unblocked ref_conv3_weight_grad = ", i, opt_conv3_weight_grad_unblocked.view(-1)[i].item(), ref_conv3_weight_grad.view(-1)[i].item())
+
+    print("(opt_conv3_weight_grad.permuted - ref_conv3_weight_grad).abs().norm(inf)               = ", (opt_conv3_weight_grad_unblocked - ref_conv3_weight_grad).norm(p=float('inf')))
+    print("(opt_conv3_weight_grad.permuted - ref_conv3_weight_grad).norm(2) / torch.w.grad        = ", (opt_conv3_weight_grad_unblocked - ref_conv3_weight_grad).norm(2) / ref_conv3_weight_grad.norm(2))
+
+    for i in range(10):
+        print("i opt_conv3_weight_grad ref_conv3_weight_grad = ", i, opt_conv3_weight_grad_unblocked.view(-1)[i].item(), ref_conv3_weight_grad.view(-1)[i].item())
+
     return
     exit()
 
