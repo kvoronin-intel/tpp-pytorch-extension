@@ -91,7 +91,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long weight_copies = 0;
   long multiple_target = 2;
   long max_compute_offset_input = 0;
-  long use_f32_wt_reduction_and_external_wt_vnni = 1; //0; FIXME back
+  long use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
   long compute_full_wt_output_block = 0;
 
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
