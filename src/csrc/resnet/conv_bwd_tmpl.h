@@ -43,9 +43,12 @@ std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
 
 std::vector<long> weight_tr_size{Cb, Kb, R, S, bk, bc};
 
-//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
-//std::cout << "output_size = " << output_size << std::endl;
-//std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
+std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+std::cout << "output_size = " << output_size << std::endl;
+std::cout << "R = " << R << " S = " << S << std::endl;
+std::cout << "stride_h = " << stride_h << " stride_w = " << stride_w << std::endl;
+std::cout << "pad_h_in = " << pad_h_in << " pad_w_in = " << pad_w_in << std::endl;
+std::cout << "Cb Kb bc Kb bk = " << Cb << " " << Kb << " " << bc << " " << Kb << " " << bk << std::endl;
 //std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
 
 auto t_grad_input  = at::empty(t_I.sizes(), torch::TensorOptions().dtype(t_I.dtype()));
@@ -85,7 +88,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long pixel_blocking = 0;
   long n_used_pixels = 0;
   long use_intermediate_f32_wt_tensor = 0;
-  long use_hybrid_imgfm_parallelization = 0;
+  long use_hybrid_imgfm_parallelization = 1; //0; FIXME back
   long n_img_teams = 7;
   long n_ofm_teams = 4;
   long weight_copies = 0;
@@ -167,6 +170,7 @@ if (sizeof(T) == 2) {
   running_scratch_size_in_bytes +=            C * K * R * S * sizeof(T);
 }
 
+//long stride_a = 0, stride_b = 0;
 if (sizeof(T) == 2) {
     if (bf16_use_nchw_format > 0) {
      if (R == 1 && S == 1 && (stride_w != 1 || stride_h != 1)) {
@@ -189,6 +193,15 @@ if (sizeof(T) == 2) {
       n_used_pixels = accum_length_pixels;
       use_intermediate_f32_wt_tensor = (pixel_blocking == n_used_pixels) ? 0 : 1;
       float beta = (use_intermediate_f32_wt_tensor) ? (float)1.0 : (float)0.0;
+      if (use_hybrid_imgfm_parallelization == 0) {
+        ;
+      } else {
+        //stride_a = K * output_pixels * sizeof(T);
+        //stride_b = C * input_pixels * sizeof(T);
+        //printf("(zero) here output_pixels = %d input_pixels = %d \n", output_pixels, input_pixels);
+        //printf("(zero) here strides: stride_a = %d stride_b = %d \n", stride_a, stride_b);
+      }
+      upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
     }
   //input_linearized_pixels  = (DType*)libxsmm_aligned_malloc( N*input_pixels*C*sizeof(DType), 2097152);
   input_mylinearized_pixels_offset = running_scratch_size_in_bytes;
@@ -230,7 +243,8 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
   char fp32_conv_spec_string[256];
 
   sprintf(fp32_conv_spec_string, "Abcdefg");
-  sprintf(bf16_conv_spec_string, "Abcdef");
+  //sprintf(bf16_conv_spec_string, "Abcdef");
+  sprintf(bf16_conv_spec_string, "A{C:7}bC{R:4}def");//specifically to test the code path with col_id = ind[9]
 /*
   if (sizeof(DType) == 4) {
     sprintf(fp32_conv_spec_string, "%s", loop_specs_str);
@@ -294,6 +308,8 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
   //SCOPEITGEMM_DECL(GemmTPP<T, T>)           gemm_kernel_non_hybrid_zerobeta_cvnni_as_brgemm_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<T,T>)     wt_reduce0_bf16bf16_tpp, wt_reduce1_bf16bf16_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_f32bf16_tpp, wt_reduce1_f32bf16_tpp;
+  SCOPEITGEMM_DECL(BrgemmTPP<T, float>)     brgemm_kernel_hybrid_tpp;
+  SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_kernel_hybrid_zerobeta_cvnni_tpp;
 
 #if 1
 
@@ -426,6 +442,8 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
       } else {
         long stride_a = K * output_pixels * sizeof(DType);
         long stride_b = C * input_pixels * sizeof(DType);
+        printf("(first) here output_pixels = %d input_pixels = %d \n", output_pixels, input_pixels);
+        printf("(first) here strides: stride_a = %d stride_b = %d \n", stride_a, stride_b);
         auto new_shape = libxsmm_create_gemm_shape( bk, bc, pixel_blocking, bk, input_pixels, bk, dtype, dtype, LIBXSMM_DATATYPE_F32, dtype);
         auto new_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
         auto new_flags = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') | LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG | LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG ) : LIBXSMM_GEMM_FLAGS('N', 'T');
@@ -433,10 +451,17 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
           new_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
         }
         auto new_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, stride_a, stride_b, 0 );
+        printf("for brgemm_kernel_hybrid\n");
+        printf("new_shape = %d %d %d %d %d %d\n", new_shape.m, new_shape.n, new_shape.k, new_shape.lda, new_shape.ldb, new_shape.ldc);
+        printf("new flags = %d \n", new_flags);
         brgemm_kernel_hybrid.gemm   = libxsmm_dispatch_brgemm_v2( new_shape, new_flags, new_prefetch_flags, new_brconfig );
 
         new_shape = libxsmm_create_gemm_shape( bk, bc, pixel_blocking, bk, input_pixels, bk, dtype, dtype, dtype, dtype);
         new_flags |=  LIBXSMM_GEMM_FLAG_BETA_0  | LIBXSMM_GEMM_FLAG_VNNI_C;
+        printf("for brgemm_kernel_hybrid_zerobeta_cvnni\n");
+        printf("new_shape = %d %d %d %d %d %d\n", new_shape.m, new_shape.n, new_shape.k, new_shape.lda, new_shape.ldb, new_shape.ldc);
+        printf("new flags = %d \n", new_flags);
+        printf("new brconfig strides = %d %d %d\n", new_brconfig.br_type, new_brconfig.br_stride_a_hint, new_brconfig.br_stride_b_hint);
         brgemm_kernel_hybrid_zerobeta_cvnni.gemm   = libxsmm_dispatch_brgemm_v2( new_shape, new_flags, new_prefetch_flags, new_brconfig );
 
         tileconfig_kernel.gemm  = libxsmm_dispatch_gemm_v2( new_shape, l_tc_flags, new_prefetch_flags );
@@ -674,7 +699,7 @@ printf("Set the libxsmm kernels\n");
         //}
         //gemm_kernel_non_hybrid.gemm = libxsmm_dispatch_gemm_v2( new_shape, new_flags, new_prefetch_flags );
 
-        printf("for gemm_kernel_non_hybrid as brgemm extension\n");
+        //printf("for gemm_kernel_non_hybrid as brgemm extension\n");
         if (use_intermediate_f32_wt_tensor == 0) {
           //new_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
           gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 0)));//, BRGEMM);
@@ -696,6 +721,34 @@ printf("Set the libxsmm kernels\n");
         //printf("Success\n");
 
       } else { /* for use_hybrid_imgfm_parallelization == 0 */
+/*
+        auto new_shape = libxsmm_create_gemm_shape( bk, bc, pixel_blocking, bk, input_pixels, bk, dtype, dtype, LIBXSMM_DATATYPE_F32, dtype);
+        auto new_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
+        auto new_flags = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') | LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG | LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG ) : LIBXSMM_GEMM_FLAGS('N', 'T');
+        if (use_intermediate_f32_wt_tensor == 0) {
+          new_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+        }
+        auto new_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, stride_a, stride_b, 0 );
+        brgemm_kernel_hybrid.gemm   = libxsmm_dispatch_brgemm_v2( new_shape, new_flags, new_prefetch_flags, new_brconfig );
+*/
+        long stride_a = K * output_pixels; // will be multiplied by element size inside the wrapper
+        long stride_b = C * input_pixels;
+        printf("(second) here strides: stride_a = %d stride_b = %d \n", stride_a, stride_b);
+
+        printf("for brgemm_kernel_hybrid_tpp\n");
+        if (use_intermediate_f32_wt_tensor == 0) {
+          //new_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+          brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 0)));//, BRGEMM);
+        } else
+          brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, 0)));//, BRGEMM);
+/*
+        new_shape = libxsmm_create_gemm_shape( bk, bc, pixel_blocking, bk, input_pixels, bk, dtype, dtype, dtype, dtype);
+        new_flags |=  LIBXSMM_GEMM_FLAG_BETA_0  | LIBXSMM_GEMM_FLAG_VNNI_C;
+        brgemm_kernel_hybrid_zerobeta_cvnni.gemm   = libxsmm_dispatch_brgemm_v2( new_shape, new_flags, new_prefetch_flags, new_brconfig );
+*/
+        printf("for brgemm_kernel_hybrid_zerobeta_cvvnn_tpp\n");
+        brgemm_kernel_hybrid_zerobeta_cvnni_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(bc, bk, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 1 /*c_vnni */, 0)));//, BRGEMM);
+
       } /* else-if for use_hybrid_imgfm_parallelization == 0 */
 
       printf("transpose_input_pixels_bf16_xform_tpp\n");
@@ -713,7 +766,7 @@ printf("Set the libxsmm kernels\n");
         vnni_output_compute_pixels_bf16_xform_tpp = SCOPEIT(XformExtTPP<T>(compute_pixels, bk, compute_pixels, bk, bk, bk, XformTPP::XFORM_N2V_PAD_TPP, false), XPOSE); /* assuming row-major-ness */
         //vnni_output_compute_pixels_bf16 =  libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2_PAD, new_tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
       }
-      upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
+      //upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
       //auto zero_unary_shape = libxsmm_create_meltw_unary_shape(bk*upd_remaining_pixels, 1, bk*upd_remaining_pixels, bk*upd_remaining_pixels, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
       //vnni_output_zero_remaining_pixels_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, zero_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
       vnni_output_zero_remaining_pixels_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bk*upd_remaining_pixels), EW_ZERO);
@@ -740,6 +793,18 @@ printf("Set the libxsmm kernels\n");
   long _r_step = 1;
   long _s_step = 1;
 #endif
+
+  printf("bf16_use_nchw_format     = %d \n", bf16_use_nchw_format);
+  printf("bf16_fuse_upd_transposes = %d \n", bf16_fuse_upd_transposes);
+  printf("    bf16_acc_nw          = %d \n", bf16_acc_nw);
+  printf("    par_over_h_pixels    = %d \n", par_over_h_pixels);
+  printf("    pack_input_upfront   = %d \n", pack_input_upfront);
+  printf("    use_intermediate_f32_wt_tensor = %d \n",  use_intermediate_f32_wt_tensor);
+  printf("      use_hybrid_imgfm_parallelization = %d \n", use_hybrid_imgfm_parallelization);
+  printf("      n_img_teams                     = %d \n", n_img_teams);
+  printf("      n_ofm_teams                     = %d \n", n_ofm_teams);
+  printf("      use_f32_wt_reduction_and_external_wt_vnni = %d \n", use_f32_wt_reduction_and_external_wt_vnni);
+  printf("      compute_full_wt_output_block    = %d \n", compute_full_wt_output_block);
 
   //std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
 
@@ -784,13 +849,13 @@ printf("Set the libxsmm kernels\n");
       LoopSpecs{0, Cb, tr_step},
       LoopSpecs{0, ifhp, tr_step},
       LoopSpecs{0, ifwp, tr_step}},
-      "ABC"); //!!! FIXME back to ABC
+      "ABC"); // FIXME back to ABC
 
   auto tr_output_loop  = ThreadedLoop<3>({
       LoopSpecs{0, Kb, tr_step},
       LoopSpecs{0, ofhp, tr_step},
       LoopSpecs{0, ofwp, tr_step}},
-      "ABC"); //!!! FIXME back to ABC
+      "ABC"); // FIXME back to ABC
 
   if (sizeof(T) == 2) {
     w_step = 1;
@@ -996,6 +1061,19 @@ printf("Set the libxsmm kernels\n");
                   //transpose_input_pixels_bf16( &unary_param );
                   transpose_input_pixels_bf16_xform_tpp(input[i_n][i_c][ij][0], &input_mylinearized_pixels[i_n][i_c][0][ij*ifwp]);
                 }
+                /*
+                if (i_n == 0 && i_c == 0) {
+                  int ij = ifhp/2;
+                  //for (int i = 0; i < 10; i++)
+                  //  printf("input[... + %d] = %u\n", i, (*(unsigned char*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm,           i_n, i_c, ij, 0, 0, Cb, ifhp, ifwp, bc)));
+                  for (int i = 0; i < 10; i++)
+                    printf("input2[... + %d] = %u\n", i, input[i_n][i_c][ij][0][i]);
+                  for (int i = 0; i < 10; i++)
+                    printf("input_lin[... + %d] = %u\n", i, (*(unsigned short*)LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, i, ij*ifwp, Cb, bc, input_pixels)));
+                  for (int i = 0; i < 10; i++)
+                    printf("input_lin2[... + %d] = %u\n", i, input_mylinearized_pixels[i_n][i_c][i][ij*ifwp]);
+                }
+                */
               },
               [&]() {},
               [&]() {});
@@ -1023,11 +1101,26 @@ printf("Set the libxsmm kernels\n");
                   exit(-1);
                   vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][(compute_pixels+1)/2]);
                 }
+                /*
+                if (i_k == 0) {
+                  printf("i_n = %d \n", i_n);
+                  for (int i = 0; i < 10; i++)
+                    printf("output2[... + %d] = %u\n", i, gradout[i_n][i_k][pad_h][pad_w][i]);
+                  for (int i = 0; i < 10; i++)
+                    printf("output_lin2[... + %d] = %u\n", i, output_mylinearized_pixels[i_n][i_k][0][i]);
+                }
+                if (i_k == 0 && i_n == 0)
+                  printf("(zero) first value of output_lin (%p) = %u\n", output_mylinearized_pixels[0][0][0], output_mylinearized_pixels[0][0][0][0]);
+                */
               },
               [&]() {},
               [&]() {});
           } /* for if bf16_fuse_upd_transposes == 0 */
 
+/*
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, output_mylinearized_pixels_dbg0, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
+        printf("(first) first value of output_lin (%p) = %u\n", output_mylinearized_pixels_dbg0[0][0][0], output_mylinearized_pixels_dbg0[0][0][0][0]);
+*/
           if (use_hybrid_imgfm_parallelization == 0) {
             //printf("Case use_hybrid_imgfm_parallelization == 0 is untested so far!\n");
             //exit(-1);
@@ -1163,7 +1256,7 @@ printf("Set the libxsmm kernels\n");
             },
             [&]() {},
             [&]() {});
-//!!!
+
           vnni_wt_loop(
             [&](int* ind) {
               int i_k = ind[0], i_c = ind[1], i_r = ind[2], i_s = ind[3];
@@ -1205,60 +1298,150 @@ printf("Set the libxsmm kernels\n");
 
 //            #endif
           } else { /* for if use_hybrid_imgfm_parallelization == 0 */
-            printf("Case else for use_hybrid_imgfm_parallelization == 0 is untested so far!\n");
-            exit(-1);
-            #if 0
+//            printf("Case else for use_hybrid_imgfm_parallelization == 0 is untested so far!\n");
+//            exit(-1);
+//            #if 0
+//!!!
+
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, output_mylinearized_pixels_dbg, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, input_mylinearized_pixels_dbg,  [Cb][bc][input_pixels],  t_scratch_experimental, input_mylinearized_pixels_offset);
+/*
+        printf("(second) first value of output_lin (%p) = %u\n", output_mylinearized_pixels_dbg[0][0][0], output_mylinearized_pixels_dbg[0][0][0][0]);
+        for (int i = 0; i < 2000; i++) {
+            printf("output_lin_dbg[... + %d] = %u, input_lin_dbg[... + %d] = %u\n", i, output_mylinearized_pixels_dbg[0][0][0][i], i, input_mylinearized_pixels_dbg[0][0][0][i]);
+        }
+*/
+
        conv_loop_bf16_nchw(
           [&](int* ind) {
             int i_n = ind[0], i_c = ind[1], i_k = ind[2], pix = ind[3], i_r = ind[4], i_s = ind[5];
+/*
+            typedef T DType;
+            T* input_libxsmm = t_I.data_ptr<T>();
+            //T* input_linearized_pixels = t_input_linearized_pixels.data_ptr<T>();
+            T* output_libxsmm = t_GO.data_ptr<T>();
+            //T* output_linearized_pixels = t_output_linearized_pixels.data_ptr<T>();
+            float *scratch_libxsmm = reinterpret_cast<float*>(t_scratch_experimental.data_ptr<unsigned char>() + scratch_float_offset);
+            T *filter_libxsmm = t_grad_weight.data_ptr<T>();
+            T *scratch_libxsmm_bf16_weights = reinterpret_cast<T*>(t_scratch_experimental.data_ptr<unsigned char>() + scratch_bf16_weight_offset);
+
+              T* output_linearized_pixels_alt = reinterpret_cast<T*>(t_scratch_experimental.data_ptr<unsigned char>() + output_mylinearized_pixels_offset);
+              T* input_linearized_pixels_alt = reinterpret_cast<T*>(t_scratch_experimental.data_ptr<unsigned char>() + input_mylinearized_pixels_offset);
+*/
+
+              //DType *output_libxsmm_off= (DType*)output_libxsmm + (size_t) (pad_h_out * ofwp * bk + pad_w_out * bk);
+//              DECL_VLA_PTR_PT         (T,                    gradout,   [Kb][ofhp][ofwp][bk],   t_GO);
+              //DType *input_libxsmm  = (DType*)libxsmm_aligned_malloc( N*ifhp*ifwp*C*sizeof(DType), 2097152);
+//              DECL_VLA_PTR_PT         (T,                    input,     [Cb][ifhp][ifwp][bc],   t_I);
+
+              DECL_VLA_PTR_PT         (T,                    filter,    [Cb][R][S][bc][bk],     t_grad_weight);
+
+              //DType *scratch_libxsmm = (DType*)libxsmm_aligned_malloc( nThreads*C*K*R*S*sizeof(DType), 2097152);
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, scratch,       [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+              DECL_VLA_PTR_PT_EXT_CAST(float, unsigned char, scratch_float, [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, scratch_float_as_bf16, [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
+
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, output_mylinearized_pixels, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, input_mylinearized_pixels,  [Cb][bc][input_pixels],  t_scratch_experimental, input_mylinearized_pixels_offset);
+
             int my_col_id;
             unsigned long long brcount = _n_step;
-            libxsmm_gemm_param gemm_param;
-            libxsmm_meltw_unary_param unary_param;
+            //libxsmm_gemm_param gemm_param;
+            //libxsmm_meltw_unary_param unary_param;
             
             if (compute_full_wt_output_block == 0) {
+              //printf("Case compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
               my_col_id = ind[9];
-              if (use_f32_wt_reduction_and_external_wt_vnni > 0) { 
-                gemm_param.op.tertiary = (void*)&brcount;        
-                gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
-                gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
-                gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, my_col_id, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);     
+              //printf("my_col_id = %d\n", my_col_id);
+              if (use_f32_wt_reduction_and_external_wt_vnni > 0) {
+                printf("Case use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid is not tested \n"); exit(-1);
+                //gemm_param.op.tertiary = (void*)&brcount;        
+                //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
+                //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
+                //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(float), (float*)scratch_libxsmm, my_col_id, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);     
                 if (pix == 0) {
-                  libxsmm_meltw_unary_param zero_param;
-                  zero_param.out.primary = (void*)gemm_param.c.primary;
-                  zero_kernel( &zero_param );
+                  //libxsmm_meltw_unary_param zero_param;
+                  //zero_param.out.primary = (void*)gemm_param.c.primary;
+                  //zero_kernel( &zero_param );
+                  zero_float_tpp(scratch_float[my_col_id][i_k][i_c][i_r][i_s][0]);
                 }
-                brgemm_kernel_hybrid.gemm( &gemm_param );
+                //brgemm_kernel_hybrid.gemm( &gemm_param );
+                brgemm_kernel_hybrid_tpp(&input_mylinearized_pixels[i_n][i_c][0][pix + i_r * ifwp + i_s],
+                                          output_mylinearized_pixels[i_n][i_k][pix],
+                                          scratch_float[my_col_id][i_k][i_c][i_r][i_s][0],
+                                          brcount /* brcount */,
+                                          true);
               } else {
+#if 0
+                //printf("Case else for use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid is not tested \n"); exit(-1);
                 gemm_param.op.tertiary = (void*)&brcount;        
-                gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
-                gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
+                //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
+                //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
+                gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels_alt, i_n, i_k, pix, 0, Kb, output_pixels, bk);
+                gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels_alt, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
                 gemm_param.c.primary = LIBXSMM_ACCESS_RAW(7, sizeof(DType), (DType*)scratch_libxsmm, my_col_id, i_k, i_c, i_r, i_s, 0, 0, Kb, Cb, R, S, bc, bk);     
                 brgemm_kernel_hybrid_zerobeta_cvnni.gemm( &gemm_param );       
+                
+                //for (int i = 0; i < 2; i++) {
+                //    printf("output_linearized_pixels[%d] = %lld
+                //}
+                /*
+              if (i_n == 0 && i_c == 0 && i_k == 0 && pix == 0 && i_r == 0 && i_s == 0) {
+                DType tmpzero = 0;
+                printf("tmpzero as int = %d scratch_libxsmm %p brcount %d \n", (int)tmpzero, scratch_libxsmm, brcount);
+                for (int i = 0; i < 10; i++)
+                  printf("input_lin(%p)[... + %d] = %u\n", i, LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s + i, Cb, bc, input_pixels),
+                                                            (*(unsigned short*)(LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s + i, Cb, bc, input_pixels))));
+                for (int i = 0; i < 10; i++)
+                  printf("output_lin(%p)[... + %d] = %u\n", i, LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, i, Kb, output_pixels, bk),
+                                                            (*(unsigned short*)(LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, i, Kb, output_pixels, bk))));
+                for (int i = 0; i < 10; i++)
+                  printf("scratch_libxsmm[... + %d] = %u\n", i, (*(unsigned short*)(LIBXSMM_ACCESS_RAW(7, sizeof(DType), (DType*)scratch_libxsmm, my_col_id, i_k, i_c, i_r, i_s, 0, i, Kb, Cb, R, S, bc, bk))));
+              }
+              */
+#endif
+//#if 0
+                brgemm_kernel_hybrid_zerobeta_cvnni_tpp(&input_mylinearized_pixels[i_n][i_c][0][pix + i_r * ifwp + i_s],
+                                                         output_mylinearized_pixels[i_n][i_k][pix],
+                                                         scratch[my_col_id][i_k][i_c][i_r][i_s][0],
+                                                         brcount /* brcount */,
+                                                         true);
+//#endif
               }
             } else {
-              gemm_param.op.tertiary = (void*)&brcount;        
-              gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
-              gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
-              gemm_param.c.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), (DType*)filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);     
-              brgemm_kernel_hybrid_zerobeta_cvnni.gemm( &gemm_param );  
+              printf("Case else for compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
+              //gemm_param.op.tertiary = (void*)&brcount;        
+              //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
+              //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
+              //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), (DType*)filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);     
+              //brgemm_kernel_hybrid_zerobeta_cvnni.gemm( &gemm_param );  
+              brgemm_kernel_hybrid_zerobeta_cvnni_tpp(&input_mylinearized_pixels[i_n][i_c][0][pix + i_r * ifwp + i_s],
+                                                       output_mylinearized_pixels[i_n][i_k][pix],
+                                                       filter[i_k][i_c][i_r][i_s][0],
+                                                       brcount /* brcount */,
+                                                       true);
             }
           },
-          [&]() {if (sizeof(DType) == 2) tileconfig_kernel.gemm(NULL);},
-          [&]() {if (sizeof(DType) == 2) tilerelease_kernel.gemm(NULL);});
-
-        if (use_f32_wt_reduction_and_external_wt_vnni > 0) { 
+          [&]() {if (sizeof(T) == 2) brgemm_kernel_hybrid_zerobeta_cvnni_tpp.config();},
+          [&]() {if (sizeof(T) == 2) brgemm_kernel_hybrid_zerobeta_cvnni_tpp.release();});
+//#if 0
+        if (use_f32_wt_reduction_and_external_wt_vnni > 0) {
+          printf("Case use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid is not tested \n"); exit(-1);
           reduce_wt_loop(
             [&](int* ind) {
               int i_n = ind[0];
-              libxsmm_meltw_unary_param reduce_param;
-              reduce_param.in.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(float), (float*)scratch_libxsmm, i_n, 0, chunk0);
-              reduce_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)scratch_libxsmm_bf16_weights, i_n, 0, chunk0);
+              DECL_VLA_PTR_PT_EXT_CAST    (float, unsigned char, scratch_float_2d,        [chunk0], t_scratch_experimental,              scratch_float_offset);
+              DECL_VLA_PTR_PT_EXT_CAST    (T,     unsigned char, scratch_bf16_weight_2d,  [chunk0], t_scratch_experimental,              scratch_bf16_weight_offset);
+              //libxsmm_meltw_unary_param reduce_param;
+              //reduce_param.in.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(float), (float*)scratch_libxsmm, i_n, 0, chunk0);
+              //reduce_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)scratch_libxsmm_bf16_weights, i_n, 0, chunk0);
               if (i_n < reduce_work_tripcount - 1) {
-                wt_reduce_kernel0_f32bf16( &reduce_param );
+                //wt_reduce_kernel0_f32bf16( &reduce_param );
+                wt_reduce0_f32bf16_tpp(scratch_float_2d[i_n], scratch_bf16_weight_2d[i_n]);
               } else {
-                wt_reduce_kernel1_f32bf16( &reduce_param );  
-              } 
+                //wt_reduce_kernel1_f32bf16( &reduce_param );
+                wt_reduce1_f32bf16_tpp(scratch_float_2d[i_n], scratch_bf16_weight_2d[i_n]);
+              }
             },
             [&]() {},
             [&]() {});
@@ -1266,31 +1449,52 @@ printf("Set the libxsmm kernels\n");
           vnni_wt_loop(
             [&](int* ind) {
               int i_k = ind[0], i_c = ind[1], i_r = ind[2], i_s = ind[3];
-              libxsmm_meltw_unary_param xform_param;
-              xform_param.in.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), scratch_libxsmm_bf16_weights, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
-              xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
-              wt_vnni_kernel( &xform_param );
+              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, scratch_bf16_weight, [Cb][R][S][bc][bk], t_scratch_experimental, scratch_bf16_weight_offset);
+              DECL_VLA_PTR_PT         (T,                    filter,              [Cb][R][S][bc][bk], t_grad_weight);
+              //libxsmm_meltw_unary_param xform_param;
+              //xform_param.in.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), scratch_libxsmm_bf16_weights, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
+              //xform_param.out.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
+              //wt_vnni_kernel( &xform_param );
+              wt_vnni_xform_tpp(scratch_bf16_weight[i_k][i_c][i_r][i_s][0], filter[i_k][i_c][i_r][i_s][0] );
             },
             [&]() {},
             [&]() {});
         } else if (compute_full_wt_output_block == 0) {
+          //printf("Case compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
           reduce_wt_loop(
             [&](int* ind) {
               int i_n = ind[0];
-              libxsmm_meltw_unary_param reduce_param;
-              reduce_param.in.primary   = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)scratch_libxsmm, i_n, 0, chunk0);
-              reduce_param.out.primary  = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)filter_libxsmm, i_n, 0, chunk0);
+              //float *scratch_libxsmm = reinterpret_cast<float*>(t_scratch_experimental.data_ptr<unsigned char>() + scratch_float_offset);
+              //T *filter_libxsmm = t_grad_weight.data_ptr<T>();
+              DECL_VLA_PTR_PT         (T,                   weight2d,  [chunk0], t_grad_weight);
+              DECL_VLA_PTR_PT_EXT_CAST(T,    unsigned char, scratch2d, [chunk0], t_scratch_experimental, 0);
+              //libxsmm_meltw_unary_param reduce_param;
+              //reduce_param.in.primary   = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)scratch_libxsmm, i_n, 0, chunk0);
+              //reduce_param.out.primary  = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), (DType*)filter_libxsmm, i_n, 0, chunk0);
               if (i_n < reduce_work_tripcount - 1) {
-                wt_reduce_kernel0_bf16bf16( &reduce_param );
+                //wt_reduce_kernel0_bf16bf16( &reduce_param );
+                wt_reduce0_bf16bf16_tpp( scratch2d[i_n], weight2d[i_n] );
               } else {
-                wt_reduce_kernel1_bf16bf16( &reduce_param );  
-              } 
+                //wt_reduce_kernel1_bf16bf16( &reduce_param );  
+                wt_reduce1_bf16bf16_tpp( scratch2d[i_n], weight2d[i_n] );
+              }
+/*
+              if (i_n == 0) {
+                DType tmpone = 1;
+                printf("tmpone as int = %d scratch_libxsmm %p \n", (int)tmpone, scratch_libxsmm);
+                for (int i = 0; i < 10; i++)
+                  printf("scratch_libxsmm[i_n*chunk0 + %d] = %u\n", i, (unsigned short)scratch_libxsmm[i_n*chunk0 + i]);
+                for (int i = 0; i < 10; i++)
+                  printf("filter_libxsmm[i_n*chunk0 + %d] = %u\n", i, (unsigned short)filter_libxsmm[i_n*chunk0 + i]);
+              }
+              */
             },
             [&]() {},
             [&]() {});
         }
+//#endif
 //      }
-            #endif
+//            #endif
           } /* if-else for use_hybrid_imgfm_parallelization */
         } else if (bf16_use_chwn_format > 0) { /* for if bf16_use_nchw_format > 0 */
           //printf("Case bf16_use_chwn_format > 0 is untested so far!\n");
