@@ -94,8 +94,8 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long weight_copies = 0;
   long multiple_target = 2;
   long max_compute_offset_input = 0;
-  long use_f32_wt_reduction_and_external_wt_vnni = 1; //0; FIXME back
-  long compute_full_wt_output_block = 0;
+  long use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
+  long compute_full_wt_output_block = 1; // 0; FIXME back
 
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
   use_private_trans = bf16_fuse_upd_transposes;
@@ -1409,7 +1409,7 @@ printf("Set the libxsmm kernels\n");
 //#endif
               } /* if-else for use_f32_wt_reduction_and_external_wt_vnni > 0 */
             } else {
-              printf("Case else for compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
+              //printf("Case else for compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
               //gemm_param.op.tertiary = (void*)&brcount;        
               //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
               //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
