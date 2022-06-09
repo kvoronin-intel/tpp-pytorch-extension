@@ -318,7 +318,11 @@ void emit_loop_body(loop_code* i_code, char* body_func_name) {
   char tmp_buf[512];
   int i;
   align_line(i_code);
-  sprintf(tmp_buf, "int idx[%d];\n", i_code->n_logical_loops);
+  if (i_code->use_2d_par > 0) {
+    sprintf(tmp_buf, "int idx[%d];\n", i_code->n_logical_loops + 4);
+  } else {
+    sprintf(tmp_buf, "int idx[%d];\n", i_code->n_logical_loops);
+  }
   add_buf_to_code(i_code, tmp_buf);
   /* Here we set the idx array to be used by function called */
   for (i = 0; i < i_code->n_logical_loops; i++) {
@@ -327,6 +331,24 @@ void emit_loop_body(loop_code* i_code, char* body_func_name) {
     align_line(i_code);
     sprintf(tmp_buf, "idx[%d] = %s;\n", i, str_idx);
     add_buf_to_code(i_code, tmp_buf);
+  }
+  if (i_code->use_2d_par > 0) {
+    i = i_code->n_logical_loops;
+    align_line(i_code);
+    sprintf(tmp_buf, "idx[%d] = row_teams;\n", i);
+    add_buf_to_code(i_code, tmp_buf);
+    i++;
+    align_line(i_code);
+    sprintf(tmp_buf, "idx[%d] = col_teams;\n", i);
+    add_buf_to_code(i_code, tmp_buf);
+    i++;
+    align_line(i_code);
+    sprintf(tmp_buf, "idx[%d] = row_id;\n", i);
+    add_buf_to_code(i_code, tmp_buf);  
+    i++;
+    align_line(i_code);
+    sprintf(tmp_buf, "idx[%d] = col_id;\n", i);
+    add_buf_to_code(i_code, tmp_buf);  
   }
   align_line(i_code);
   sprintf(tmp_buf, "%s(idx);\n", body_func_name);
@@ -587,6 +609,10 @@ std::string loop_generator(const char* __loop_nest_desc_extended) {
   char _loop_nest_desc_extended[strlen(__loop_nest_desc_extended)];
   char loop_nest_desc_extended[strlen(_loop_nest_desc_extended)];
 
+  memset(loop_params,     0, 256 * sizeof(loop_param_t));
+  memset(loop_params_map, 0, 256 * sizeof(loop_param_t));
+  memset(&l_code,         0, sizeof(loop_code));
+
   /* Extract explicit 2D parallelization info */
   for (i = 0; i < strlen(__loop_nest_desc_extended); i++) {
     if (__loop_nest_desc_extended[i] == '{') {
@@ -616,9 +642,6 @@ std::string loop_generator(const char* __loop_nest_desc_extended) {
   }
   l_code.jit_loop_spec = jit_loop_spec;
 
-  memset(loop_params,     0, 256 * sizeof(loop_param_t));
-
-  memset(loop_params_map, 0, 256 * sizeof(loop_param_t));
   if (jit_loop_spec > 0) {
     extract_jit_info(
         _loop_nest_desc_extended, loop_nest_desc_extended, loop_params_map);
