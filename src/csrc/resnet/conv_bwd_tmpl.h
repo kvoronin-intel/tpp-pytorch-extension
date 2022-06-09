@@ -94,7 +94,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long weight_copies = 0;
   long multiple_target = 2;
   long max_compute_offset_input = 0;
-  long use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
+  long use_f32_wt_reduction_and_external_wt_vnni = 1; //0; FIXME back
   long compute_full_wt_output_block = 0;
 
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
@@ -1339,7 +1339,7 @@ printf("Set the libxsmm kernels\n");
               //DType *scratch_libxsmm = (DType*)libxsmm_aligned_malloc( nThreads*C*K*R*S*sizeof(DType), 2097152);
               DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, scratch,       [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
               DECL_VLA_PTR_PT_EXT_CAST(float, unsigned char, scratch_float, [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
-              DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, scratch_float_as_bf16, [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
+              //DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, scratch_float_as_bf16, [Kb][Cb][R][S][bc][bk], t_scratch_experimental, scratch_float_offset);
 
               DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, output_mylinearized_pixels, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
               DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, input_mylinearized_pixels,  [Cb][bc][input_pixels],  t_scratch_experimental, input_mylinearized_pixels_offset);
@@ -1354,7 +1354,7 @@ printf("Set the libxsmm kernels\n");
               my_col_id = ind[9];
               //printf("my_col_id = %d\n", my_col_id);
               if (use_f32_wt_reduction_and_external_wt_vnni > 0) {
-                printf("Case use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid is not tested \n"); exit(-1);
+                //printf("Case use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid (and inside compute_full_wt_output_block == 0) is not tested \n"); exit(-1);
                 //gemm_param.op.tertiary = (void*)&brcount;        
                 //gemm_param.a.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), output_linearized_pixels, i_n, i_k, pix, 0, Kb, output_pixels, bk);
                 //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, pix + i_r * ifwp + i_s, Cb, bc, input_pixels);
@@ -1407,7 +1407,7 @@ printf("Set the libxsmm kernels\n");
                                                          brcount /* brcount */,
                                                          true);
 //#endif
-              }
+              } /* if-else for use_f32_wt_reduction_and_external_wt_vnni > 0 */
             } else {
               printf("Case else for compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
               //gemm_param.op.tertiary = (void*)&brcount;        
@@ -1426,7 +1426,7 @@ printf("Set the libxsmm kernels\n");
           [&]() {if (sizeof(T) == 2) brgemm_kernel_hybrid_zerobeta_cvnni_tpp.release();});
 //#if 0
         if (use_f32_wt_reduction_and_external_wt_vnni > 0) {
-          printf("Case use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid is not tested \n"); exit(-1);
+          //printf("Case use_f32_wt_reduction_and_external_wt_vnni > 0 for hybrid is not tested \n"); exit(-1);
           reduce_wt_loop(
             [&](int* ind) {
               int i_n = ind[0];
