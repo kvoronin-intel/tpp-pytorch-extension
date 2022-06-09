@@ -88,14 +88,14 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long pixel_blocking = 0;
   long n_used_pixels = 0;
   long use_intermediate_f32_wt_tensor = 0;
-  long use_hybrid_imgfm_parallelization = 1; //0; FIXME back
+  long use_hybrid_imgfm_parallelization = 0; //0; FIXME back
   long n_img_teams = 7;
   long n_ofm_teams = 4;
   long weight_copies = 0;
   long multiple_target = 2;
   long max_compute_offset_input = 0;
   long use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
-  long compute_full_wt_output_block = 1; // 0; FIXME back
+  long compute_full_wt_output_block = 0; // 0; FIXME back
 
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
   use_private_trans = bf16_fuse_upd_transposes;
@@ -243,8 +243,9 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
   char fp32_conv_spec_string[256];
 
   sprintf(fp32_conv_spec_string, "Abcdefg");
-  //sprintf(bf16_conv_spec_string, "Abcdef");
-  sprintf(bf16_conv_spec_string, "A{C:7}bC{R:4}def");//specifically to test the code path with col_id = ind[9]
+  sprintf(bf16_conv_spec_string, "Abcdef");
+  //sprintf(bf16_conv_spec_string, "A{C:7}bC{R:4}def");//specifically to test the code path with col_id = ind[9]
+
 /*
   if (sizeof(DType) == 4) {
     sprintf(fp32_conv_spec_string, "%s", loop_specs_str);
