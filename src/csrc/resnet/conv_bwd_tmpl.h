@@ -43,6 +43,7 @@ std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
 
 std::vector<long> weight_tr_size{Cb, Kb, R, S, bk, bc};
 
+/*
 std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 std::cout << "R = " << R << " S = " << S << std::endl;
@@ -50,6 +51,7 @@ std::cout << "stride_h = " << stride_h << " stride_w = " << stride_w << std::end
 std::cout << "pad_h_in = " << pad_h_in << " pad_w_in = " << pad_w_in << std::endl;
 std::cout << "Cb Kb bc Kb bk = " << Cb << " " << Kb << " " << bc << " " << Kb << " " << bk << std::endl;
 //std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
+*/
 
 auto t_grad_input  = at::empty(t_I.sizes(), torch::TensorOptions().dtype(t_I.dtype()));
 auto t_grad_weight = at::empty(t_W.sizes(), torch::TensorOptions().dtype(t_W.dtype()));
@@ -446,6 +448,7 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
   long _r_step = 1;
   long _s_step = 1;
 
+/*
   printf("bf16_use_nchw_format     = %d \n", bf16_use_nchw_format);
   printf("bf16_fuse_upd_transposes = %d \n", bf16_fuse_upd_transposes);
   printf("    bf16_acc_nw          = %d \n", bf16_acc_nw);
@@ -457,7 +460,7 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
   printf("      n_ofm_teams                     = %d \n", n_ofm_teams);
   printf("      use_f32_wt_reduction_and_external_wt_vnni = %d \n", use_f32_wt_reduction_and_external_wt_vnni);
   printf("      compute_full_wt_output_block    = %d \n", compute_full_wt_output_block);
-
+*/
   //std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
 
   //std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "

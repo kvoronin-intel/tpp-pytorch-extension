@@ -31,10 +31,13 @@ const long N  = sizes[0];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
 
-//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
-//std::cout << "size of T = " << sizeof(T) << std::endl;
-//std::cout << "output_size = " << output_size << std::endl;
-//std::cout << "CP Cb bc Kb bk = " << CP << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
+/*
+std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+std::cout << "size of T = " << sizeof(T) << std::endl;
+std::cout << "output_size = " << output_size << std::endl;
+std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
+std::cout << "stride_h stride_w = " << cfg.u << " " << cfg.v << std::endl;
+*/
 
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 //return std::vector<at::Tensor>({t_O});
@@ -64,7 +67,10 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
     //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
     //l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n-1, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
     //brgemm_kernel2.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+    //printf("brgemm_kernel(tpp), stride_w = %d \n", stride_w);
+    //printf("bc*stride_w = %d \n", bc*stride_w);
     brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    //printf("brgemm_kernel2(tpp) \n");
     brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
 
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
@@ -76,6 +82,7 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
     //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_OFFSET, 0, 0, 0 );
     //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
 
+    //printf("brgemm_kernel(tpp) else\n");
     brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
 
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
@@ -116,17 +123,20 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
     s_step = 1;
   }
 
-  //std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
-  //                                                                                              << Kb << " " << k_step << " " << ofh << " " << h_step << " "
-  //                                                                                              << ofw << " " << w_step << " " << R << " " << r_step << " "
-  //                                                                                              << S << " " << s_step << " " << std::endl;
+/*
+  std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
+                                                                                                << Kb << " " << k_step << " " << ofh << " " << h_step << " "
+                                                                                                << ofw << " " << w_step << " " << R << " " << r_step << " "
+                                                                                                << S << " " << s_step << " " << std::endl;
 
-  //std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
-  //std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
+  std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
+*/
 
   /* FIXME: Fix this! */
   char loop_specs_str[256] = "Abcdefg";
   //char loop_specs_str[256] = "ABc";
+  //char loop_specs_str[256] = "aBC";
 
   auto conv_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},//, true},
