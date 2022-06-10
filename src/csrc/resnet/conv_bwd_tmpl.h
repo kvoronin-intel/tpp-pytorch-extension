@@ -63,7 +63,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 
   /* Some algorithmic knobs  */
   /* Uses parallelism in the MB dimension for f32 precision */
-  long use_mb_par_f32 = 1;
+  long use_mb_par_f32 = 1; //1; FIXME back
 
   /* Fuse bf16 necessary transposes */
   long bf16_use_nchw_format = 1;//1; // FIXME back!
@@ -242,7 +242,11 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
   char bf16_conv_spec_string[256];
   char fp32_conv_spec_string[256];
 
-  sprintf(fp32_conv_spec_string, "Abcdefg");
+  //sprintf(fp32_conv_spec_string, "Abcdefg");
+  if (use_mb_par_f32 == 0)
+    sprintf(fp32_conv_spec_string, "abcdefg"); // specifically for checking the case use_mb_par_f32 = 0
+  else
+    sprintf(fp32_conv_spec_string, "Abcdefg");
   sprintf(bf16_conv_spec_string, "Abcdef");
   //sprintf(bf16_conv_spec_string, "A{C:7}bC{R:4}def");//specifically to test the code path with col_id = ind[9]
 
@@ -854,8 +858,7 @@ printf("Set the libxsmm kernels\n");
       if (sizeof(T) == 4) {
 //#if 0
         if (use_mb_par_f32 == 0) {
-          printf("Case use_mb_par_f32 == 0 is untested so far!\n");
-          exit(-1);
+          //printf("Case use_mb_par_f32 == 0 is untested so far!\n"); exit(-1);
 
           conv_bwd_upd_loop(
             [&](int* ind) {
@@ -876,7 +879,7 @@ printf("Set the libxsmm kernels\n");
                 //libxsmm_meltw_unary_param zero_param;
                 //zero_param.out.primary = (void*)gemm_param.c.primary;
                 //zero_kernel( &zero_param );
-                zero_bf16_tpp(weight[i_k][i_c][i_r][i_s][0]);
+                zero_tpp(weight[i_k][i_c][i_r][i_s][0]);
               }
               //gemm_kernel.gemm( &gemm_param );
               gemm_as_brgemm_tpp(inp    [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
@@ -890,8 +893,7 @@ printf("Set the libxsmm kernels\n");
 
         } else { /* else for if (use_mb_par == 0) */
 
-          printf("Case else for use_mb_par_f32 == 0 is untested so far!\n");
-          exit(-1);
+          //printf("Case else for use_mb_par_f32 == 0 is untested so far!\n"); exit(-1);
 
           zero_wt_loop(
             [&](int* ind) {
