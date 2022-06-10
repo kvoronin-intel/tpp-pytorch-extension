@@ -1288,7 +1288,6 @@ class XformExtTPP {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
       }
     }
-    printf("in_rows = %d in_cols = %d in_rows_p = %d in_cols_p = %d out_rows = %d out_cols = %d ldi = %d \n", in_rows, in_cols, in_rows_p, in_cols_p, out_rows, out_cols, ldi);
     PCL_ASSERT(
         (in_rows_p >= in_rows && in_cols_p >= in_cols),
         "Invalid output rows or cols value\n");
@@ -1545,9 +1544,9 @@ class BrgemmTPP {
             K,
             str_a,
             str_b,
-            (a_trans == 0 ? K : M),
-            N,
-            N,
+            lda,
+            ldb,
+            ldc,
             beta,
             a_trans,
             false,
@@ -1663,7 +1662,6 @@ class BrgemmTPP {
       unsigned long long *B_offsets,
       unsigned long long count,
       bool no_tile_cfg = false) {
-    //printf("Calling brgemm, btw reduce_offset = %d M = %d N = %d K = %d lda = %d ldb = %d ldc = %d a_trans = %d \n", reduce_offset, M, N, K, lda, ldb, ldc, a_trans);
     libxsmm_gemm_param gemm_param;
     memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
     gemm_param.op.tertiary = &count;
@@ -1673,30 +1671,11 @@ class BrgemmTPP {
     gemm_param.b.primary = (void*)A;
     gemm_param.b.secondary = (void*)A_offsets;
 
-/*
-    for (int i = 0; i < 10; i++)
-      printf("A[%d] = %f \n", i, ((float*)A)[i]);
-    for (int i = 0; i < 10; i++)
-      printf("B[%d] = %f \n", i, ((float*)B)[i]);
-    for (int i = 0; i < 10; i++)
-      printf("C before[%d] = %f \n", i, ((float*)C)[i]);
-
-    if (count > 1 && A_offsets != nullptr && B_offsets != nullptr)
-    {
-      printf("count = %d \n", count);
-      for (int i = 0; i < count; i++)
-        printf("A_offsets[%d] = %llu B_offsets[%d] = %llu\n", i, A_offsets[i], i, B_offsets[i]);
-    }
-*/
     if (!no_tile_cfg) {
       k_gemm_with_tc(&gemm_param);
     } else {
       k_gemm_no_tc(&gemm_param);
     }
-/*
-    for (int i = 0; i < 10; i++)
-      printf("C after[%d] = %f \n", i, ((float*)C)[i]);
-*/
   }
   void ref(
       Tin* A,
@@ -1861,9 +1840,6 @@ class BrgemmTPP {
         l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
       }
       l_brconfig.br_unroll_hint = p->unroll_hint;
-
-      printf("l_shape: %d %d %d %d %d %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
-      printf("l_flags: %d \n", l_flags);
 
       l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
           l_shape, l_flags, l_prefetch_flags, l_brconfig);
@@ -6117,8 +6093,8 @@ class GemmTPP {
       l_shape.out_type = XsmmDtype<Tout>();
       l_shape.comp_type = LIBXSMM_DATATYPE_F32;
 
-      printf("l_shape: %d %d %d %d %d %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
-      printf("l_flags: %d \n", l_flags);
+      //printf("l_shape: %d %d %d %d %d %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc);
+      //printf("l_flags: %d \n", l_flags);
 
       l_test_jit.gemm = libxsmm_dispatch_gemm_v2(
           l_shape, l_flags, l_prefetch_flags);
