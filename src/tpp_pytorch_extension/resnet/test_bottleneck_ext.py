@@ -20,6 +20,9 @@ from pcl_cgbp import Bottleneck_base, BottleneckTPP, XsmmBatchNormTPP, XsmmGroup
 import blocked_layout
 from blocked_layout import BlockedTensor, BlockedParameter
 
+import test_utils
+from test_utils import compare_weight_grads, compare_padded_tensors
+
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 parser.add_argument('--test-module', default='tpp_bottleneck', type=str,
@@ -107,8 +110,6 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
             else:
                 #opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
                 opt_downsample2 = batchnorm_py.DummyBatchNormTPP(outc * expansion, padding=[0, 0, 0, 0],eps=eps, dtype=opt_dtype)
-        #print("has_downsample = True has not been implemented")
-        #exit()
     else:
         torch_downsample1 = None
         torch_downsample2 = None
@@ -196,9 +197,6 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     print("z1", z1)
     print("z2", z2)
 
-    print("type(y1) = ", type(y1))
-    print("type(y1.unblocked_tensor()) = ", type(y1.unblocked_tensor()))
-
     #if hasattr(y1,'to'): #type(y1) is BlockedTensor:
     #    opt_y_fp32 = y1.unblocked_tensor().to(torch.float)
     #else:
@@ -212,30 +210,12 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     ref_y_fp32 = y2.to(torch.float)
 
     print("Y Allclose: ", opt_y_fp32.allclose(ref_y_fp32, rtol=1e-5, atol=1e-6))
-
-    """
-    if y1.dim() == 5: # for opt conv
-      print("y1 size", y1.size())
-      size = [y1.size(0), y1.size(1)*y1.size(4), y1.size(2), y1.size(3)]
-      print("size", size)
-      y1p = y1.permute([0,1,4,2,3]).contiguous().view(size)
-      print("y1p size",y1p.size())
-    print("(y1.permuted - y2).abs().norm(inf)             = ", (y1p - y2).abs().norm(p=float('inf')))
-    """
     print("(y1 - y2).abs().norm(inf)              = ", (opt_y_fp32 - ref_y_fp32).abs().norm(p=float('inf')))
     print("(y1 - y2).abs().norm(2)   / y2.norm(2) = ", (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2))
 
-    #return
-    #exit()
-
     z1.backward(retain_graph=True)
     z2.backward(retain_graph=True)
-
-
     #exit()
-
-    #for i in range(10):
-    #    print("i opt_conv.weight.grad = ", i, opt_conv.weight.grad.view(-1)[i].item())
 
     opt_x_grad = x1.grad.to(torch.float)
     ref_x_grad = x2.grad.to(torch.float)
@@ -255,69 +235,21 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     #exit()
 
-    opt_bn3_weight_grad = opt_bottleneck.bn3.weight.grad.to(torch.float)
-    ref_bn3_weight_grad = torch_bottleneck.bn3.weight.grad.to(torch.float)
+    # Weight gradients for batchnorms
 
-    if opt_bn3_weight_grad.dim() == 6:
-        size = [opt_bn3_weight_grad.size(0)*opt_bn3_weight_grad.size(5), opt_bn3_weight_grad.size(1)*opt_bn3_weight_grad.size(4), opt_bn3_weight_grad.size(2), opt_bn3_weight_grad.size(3)]
-        opt_bn3_weight_gradp = opt_bn3_weight_grad.permute([0,5,1,4,2,3]).contiguous().view(size)
-        #print("opt_bn3_weight_gradp shape = ", opt_bn3_weight_gradp.shape)
-        opt_bn3_weight_grad_unblocked = opt_bn3_weight_gradp
-    elif opt_bn3_weight_grad.dim() == 7:
-        size = [opt_bn3_weight_grad.size(0)*opt_bn3_weight_grad.size(5), opt_bn3_weight_grad.size(1)*opt_bn3_weight_grad.size(4)*opt_bn3_weight_grad.size(6), opt_bn3_weight_grad.size(2), opt_bn3_weight_grad.size(3)]
-        opt_bn3_weight_gradp = opt_bn3_weight_grad.permute([0,5,1,4,6,2,3]).contiguous().view(size)
-        #print("opt_bn3_weight_gradp shape = ", opt_bn3_weight_gradp.shape)
-        opt_bn3_weight_grad_unblocked = opt_bn3_weight_gradp
-    else:
-        opt_bn3_weight_grad_unblocked = opt_bn3_weight_grad
-    #print("opt_bn3_weight_grad_unblocked shape = ", opt_bn3_weight_grad_unblocked.shape)
+    compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3")
+    compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2")
+    compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1")
+    if has_downsample:
+        compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4")
 
-    print("BN3 Wt Allclose: ", ref_bn3_weight_grad.allclose(opt_bn3_weight_grad_unblocked, rtol=1e-5, atol=1e-6))
+    # Weight gradients for convs
 
-    #print("opt_bn3_weight_grad_unblocked shape = ", opt_bn3_weight_grad_unblocked.shape)
-    wgrad_rel_norm_diff = (opt_bn3_weight_grad_unblocked - ref_bn3_weight_grad).norm(2) / ref_bn3_weight_grad.norm(2)
-    if wgrad_rel_norm_diff > 1.0e-5:
-        print("warning, wgrad_rel_norm diff is too large, ", wgrad_rel_norm_diff)
-    #for i in range(10):
-    #    print("i opt_bn3_weight_grad_unblocked ref_bn3_weight_grad = ", i, opt_bn3_weight_grad_unblocked.view(-1)[i].item(), ref_bn3_weight_grad.view(-1)[i].item())
-
-    print("(opt_bn3_weight_grad.permuted - ref_bn3_weight_grad).abs().norm(inf)               = ", (opt_bn3_weight_grad_unblocked - ref_bn3_weight_grad).norm(p=float('inf')))
-    print("(opt_bn3_weight_grad.permuted - ref_bn3_weight_grad).norm(2) / torch.w.grad        = ", (opt_bn3_weight_grad_unblocked - ref_bn3_weight_grad).norm(2) / ref_bn3_weight_grad.norm(2))
-
-    for i in range(10):
-        print("i opt_bn3_weight_grad ref_bn3_weight_grad = ", i, opt_bn3_weight_grad_unblocked.view(-1)[i].item(), ref_bn3_weight_grad.view(-1)[i].item())
-
-    opt_conv3_weight_grad = opt_bottleneck.conv3.weight.grad.to(torch.float)
-    ref_conv3_weight_grad = torch_bottleneck.conv3.weight.grad.to(torch.float)
-
-    if opt_conv3_weight_grad.dim() == 6:
-        size = [opt_conv3_weight_grad.size(0)*opt_conv3_weight_grad.size(5), opt_conv3_weight_grad.size(1)*opt_conv3_weight_grad.size(4), opt_conv3_weight_grad.size(2), opt_conv3_weight_grad.size(3)]
-        opt_conv3_weight_gradp = opt_conv3_weight_grad.permute([0,5,1,4,2,3]).contiguous().view(size)
-        #print("opt_conv3_weight_gradp shape = ", opt_conv3_weight_gradp.shape)
-        opt_conv3_weight_grad_unblocked = opt_conv3_weight_gradp
-    elif opt_conv3_weight_grad.dim() == 7:
-        size = [opt_conv3_weight_grad.size(0)*opt_conv3_weight_grad.size(5), opt_conv3_weight_grad.size(1)*opt_conv3_weight_grad.size(4)*opt_conv3_weight_grad.size(6), opt_conv3_weight_grad.size(2), opt_conv3_weight_grad.size(3)]
-        opt_conv3_weight_gradp = opt_conv3_weight_grad.permute([0,5,1,4,6,2,3]).contiguous().view(size)
-        #print("opt_conv3_weight_gradp shape = ", opt_conv3_weight_gradp.shape)
-        opt_conv3_weight_grad_unblocked = opt_conv3_weight_gradp
-    else:
-        opt_conv3_weight_grad_unblocked = opt_conv3_weight_grad
-    #print("opt_conv3_weight_grad_unblocked shape = ", opt_conv3_weight_grad_unblocked.shape)
-
-    print("conv3 Wt Allclose: ", ref_conv3_weight_grad.allclose(opt_conv3_weight_grad_unblocked, rtol=1e-5, atol=1e-6))
-
-    #print("opt_conv3_weight_grad_unblocked shape = ", opt_conv3_weight_grad_unblocked.shape)
-    wgrad_rel_norm_diff = (opt_conv3_weight_grad_unblocked - ref_conv3_weight_grad).norm(2) / ref_conv3_weight_grad.norm(2)
-    if wgrad_rel_norm_diff > 1.0e-5:
-        print("warning, wgrad_rel_norm diff is too large, ", wgrad_rel_norm_diff)
-    #for i in range(10):
-    #    print("i opt_conv3_weight_grad_unblocked ref_conv3_weight_grad = ", i, opt_conv3_weight_grad_unblocked.view(-1)[i].item(), ref_conv3_weight_grad.view(-1)[i].item())
-
-    print("(opt_conv3_weight_grad.permuted - ref_conv3_weight_grad).abs().norm(inf)               = ", (opt_conv3_weight_grad_unblocked - ref_conv3_weight_grad).norm(p=float('inf')))
-    print("(opt_conv3_weight_grad.permuted - ref_conv3_weight_grad).norm(2) / torch.w.grad        = ", (opt_conv3_weight_grad_unblocked - ref_conv3_weight_grad).norm(2) / ref_conv3_weight_grad.norm(2))
-
-    for i in range(10):
-        print("i opt_conv3_weight_grad ref_conv3_weight_grad = ", i, opt_conv3_weight_grad_unblocked.view(-1)[i].item(), ref_conv3_weight_grad.view(-1)[i].item())
+    compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3")
+    compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2")
+    compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1")
+    if has_downsample:
+        compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4")
 
     return
     exit()
@@ -325,34 +257,9 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     if has_bias:
         opt_bias_grad = opt_conv.bias.grad
         ref_bias_grad = torch_conv.bias.grad
-
-
-    # X add gradient
-    #print("XAdd Allclose: ", x1_add.grad.allclose(x2_add.grad, rtol=1e-5, atol=1e-5))
-
     # Bias gradient
     if has_bias:
       print("X Bias Allclose: ", ref_bias_grad.allclose(opt_bias_grad, rtol=1e-5, atol=1e-6))
-
-    # Weight gradient
-    #print("opt_weight_grad shape = ", opt_weight_grad.shape )
-    #print("ref_weight_grad shape = ", ref_weight_grad.shape )
-
-    #opt_weight_grad_blocked = blocked_layout.BlockedTensor(opt_weight_grad.shape, opt.)
-    #print("type of opt_weight_grad = ", type(opt_weight_grad))
-    #if type(opt_weight_grad) is BlockedParameter:
-    #    opt_weight_grad_unblocked = opt_weight_grad.unblock()
-    #else:
-    #    opt_weight_grad_unblocked = opt_weight_grad
-
-
-
-    # Output (fwd)
-
-
-    #print(opt_x_grad - ref_x_grad)
-    #print(opt_weight_grad_unblocked)
-    #print(ref_weight_grad)
 
     # Does not work at the moment for bwd
     if with_perf:

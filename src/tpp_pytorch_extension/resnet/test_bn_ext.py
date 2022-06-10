@@ -11,6 +11,9 @@ import batchnorm as batchnorm_py
 import pcl_cgbp
 import pcl_cgbp_cpp
 
+import test_utils
+from test_utils import compare_weight_grads, compare_padded_tensors
+
 """
 import sys, inspect
 
@@ -244,12 +247,14 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
     #z2.backward(gradient=enhanced_gradient)
     """
 
+    """
     opt_x_grad = x1.grad.to(torch.float)
     if has_eltwise:
         opt_x_add_grad = x1_add.grad.to(torch.float)
     opt_weight_grad = opt_bn.weight.grad.to(torch.float)
     opt_bias_grad = opt_bn.bias.grad.to(torch.float)
     opt_y_fp32 = y1.unblocked_tensor().to(torch.float)
+    """
 
     """
     if opt_dtype == torch.bfloat16:
@@ -265,6 +270,8 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
             opt_x_add_grad = x1_add.grad
         opt_y_fp32 = y1.unblocked_tensor()
     """
+
+    """
     opt_weight_grad = opt_bn.weight.grad
     opt_bias_grad = opt_bn.bias.grad
 
@@ -273,17 +280,12 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
         ref_x_add_grad = x2_add.grad.to(torch.float)
     ref_y_fp32 = y2.to(torch.float)
 
-    print("opt_x_grad shape = ", opt_x_grad.shape)
-    print("ref_x_grad shape = ", ref_x_grad.shape)
-
     if opt_padding != None:
         ref_y_fp32 = torch.nn.functional.pad(ref_y_fp32,         output_hw_padding, mode='constant', value=0.0)
         ref_x_grad = torch.nn.functional.pad(ref_x_grad,         input_hw_padding,  mode='constant', value=0.0)
         if has_eltwise:
             ref_x_add_grad = torch.nn.functional.pad(ref_x_add_grad, input_hw_padding,  mode='constant', value=0.0)
-
-    print("opt_x_grad shape = ", opt_x_grad.shape)
-    print("ref_x_grad shape = ", ref_x_grad.shape)
+    """
 
     """
     if ref_dtype == torch.bfloat16:
@@ -299,47 +301,19 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
             ref_x_add_grad = x2_add.grad
         ref_y_fp32 = y2
     """
+    """
     ref_weight_grad = torch_bn.weight.grad
     ref_bias_grad = torch_bn.bias.grad
-
     """
-    print("x1 grad = ", x1.grad)
-    print("x1 grad shape = ", x1.grad.shape)
-    print("x2 grad shape = ", x2.grad.shape)
-    print("x2.grad norm2 = ", x2.grad.norm(2))
-    print("x1.grad norm2 = ", x1.grad.norm(2))
-    print("ref_x_grad shape = ", ref_x_grad.shape)
-    print("opt_x_grad shape = ", opt_x_grad.shape)
-    print("ref_x_grad norm2 = ", ref_x_grad.norm(2))
-    print("opt_x_grad norm2 = ", opt_x_grad.norm(2))
-    """
-
-    print("shift = ", input_hw_padding[0] * (W + input_hw_padding[2] + input_hw_padding[3]) + input_hw_padding[2])
-    for i in range(10):
-        ind = i + (input_hw_padding[0] * (W + input_hw_padding[2] + input_hw_padding[3]) + input_hw_padding[2]) - 5 if opt_padding != None else i
-        print("ind opt_x_grad ref_x_grad = ", ind, opt_x_grad.view(-1)[ind].item(), ref_x_grad.view(-1)[ind].item())
-
-    # X gradient
-    print("X Allclose: ", opt_x_grad.allclose(ref_x_grad, rtol=1e-5, atol=1e-5))
-    #print("(opt_x_grad - ref_x_grad).abs().sum()                                                      = ", (opt_x_grad - ref_x_grad).abs().sum())
-    print("(opt_x_grad - ref_x_grad).abs().norm(2)                                                    = ", (opt_x_grad - ref_x_grad).norm(2))
-    print("(opt_x_grad - ref_x_grad).abs().norm(2) / ref_x_grad.norm                                  = ", (opt_x_grad - ref_x_grad).norm(2) / (ref_x_grad.norm(2)))
-    print("(opt_x_grad - ref_x_grad).abs().norm(inf)                                                  = ", (opt_x_grad - ref_x_grad).norm(p=float('inf')))
-    print("opt_x_grad.norm(2)                                                                         = ", opt_x_grad.norm(2))
-    print("ref_x_grad.norm(2)                                                                         = ", ref_x_grad.norm(2))
-    xgrad_rel_norm_diff = (opt_x_grad - ref_x_grad).norm(2) / (opt_x_grad.norm(2))
-    if xgrad_rel_norm_diff > 3.0e-6:
-        print("warning, xgrad_rel_norm-diff is too large, ", xgrad_rel_norm_diff)
-    #print(opt_x_grad)
-    #print(ref_x_grad)
+    compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding)
 
     # X_ADD gradient
     if has_eltwise == True:
-        print("XAdd Allclose: ", opt_x_add_grad.allclose(ref_x_add_grad, rtol=1e-5, atol=1e-5))
-        print("(opt_x_add_grad - ref_x_add_grad).abs().norm(2)                                            = ", (opt_x_add_grad - ref_x_add_grad).norm(2))
-        print("(opt_x_add_grad - ref_x_add_grad).abs().norm(2) / ref_x_add_grad.norm                      = ", (opt_x_add_grad - ref_x_add_grad).norm(2) / (ref_x_add_grad.norm(2)))
-        print("(opt_x_add_grad - ref_x_add_grad).abs().norm(inf)                                          = ", (opt_x_add_grad - ref_x_add_grad).norm(p=float('inf')))
+        compare_padded_tensors(x1_add.grad, x2_add.grad, "X ADD Grad", W, input_hw_padding)
 
+    compare_weight_grads( opt_bn.weight.grad, torch_bn.weight.grad, "Weight Grad")
+
+    """
     # Weight gradient
     print("W Allclose: ", opt_weight_grad.allclose(ref_weight_grad, rtol=1e-5, atol=1e-5))
     #print("(opt_bn.weight.data - torch_bn.weight.data).abs().norm(inf)                          = ", (opt_bn.weight.data - torch_bn.weight.data).norm(p=float('inf')))
@@ -354,32 +328,13 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
     print("(opt_weight_grad - ref_weight_grad).abs().norm(inf)               = ", (opt_weight_grad - ref_weight_grad).norm(p=float('inf')))
     print("(opt_weight_grad - ref_weight_grad).abs().norm(2) / torch.w.grad  = ", (opt_weight_grad - ref_weight_grad).norm(2) / ref_weight_grad.norm(2))
     #print("(opt_x_grad - ref_x_grad).abs().sum() / 64*3*7*7 = ", (opt_x_grad - ref_x_grad).reshape(-1).abs().sum()/((opt_x_grad - ref_x_grad).reshape(-1).size()))
+    """
 
     # Bias
-    print("Y Bias Allclose: ", opt_bias_grad.allclose(ref_bias_grad, rtol=1e-5, atol=1e-6))
-    print("(opt_bias_grad - ref_bias_grad).abs().norm(inf)               = ", (opt_bias_grad - ref_bias_grad).norm(p=float('inf')))
-    print("(opt_bias_grad - ref_bias_grad).abs().norm(2) / torch.w.grad  = ", (opt_bias_grad - ref_bias_grad).norm(2) / ref_bias_grad.norm(2))
+    compare_padded_tensors(opt_bn.bias.grad, torch_bn.bias.grad, "Bias Grad")
 
-    print("Y Allclose: ", opt_y_fp32.allclose(ref_y_fp32, rtol=1e-5, atol=1e-6))
-    """
-    if y1.dim() == 5: # for opt bn
-      print("y1 size", y1.size())
-      size = [y1.size(0), y1.size(1)*y1.size(4), y1.size(2), y1.size(3)]
-      print("size", size)
-      y1p = y1.permute([0,1,4,2,3]).contiguous().view(size)
-      print("y1p size",y1p.size())
-    print("(y1.permuted - y2).abs().norm(inf)             = ", (y1p - y2).abs().norm(p=float('inf')))
-    print("y2.norm(inf)                                   = ", y2.norm(p=float('inf')))
-    """
-    print("y2.norm(inf)                           = ", y2.norm(p=float('inf')))
-    print("(y1 - y2).abs().norm(inf)              = ", (opt_y_fp32 - ref_y_fp32).abs().norm(p=float('inf')))
-    print("(y1 - y2).abs().norm(2)   / y2.norm(2) = ", (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2))
-
-    print("shift = ", output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2])
-    print("H W opt_padding opt_y_fp32_shape = ", H, W, opt_padding, opt_y_fp32.shape)
-    for i in range(10):
-        ind = i + (output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2]) - 5 if opt_padding != None else i
-        print("ind opt_y_fp32 ref_y_fp32 = ", ind, opt_y_fp32.view(-1)[ind].item(), ref_y_fp32.view(-1)[ind].item())
+    # Out (Y)
+    compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", W, output_hw_padding)
 
     if track_running_stats == True:
         print("(opt_bn.running_mean - torch_bn.running_mean).abs().norm(inf)                    = ", (opt_bn.running_mean - torch_bn.running_mean).norm(p=float('inf')))
@@ -390,19 +345,6 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
         #print("opt_bn.running_var    = ", opt_bn.running_var);
         #print("torch_bn.running_mean = ", torch_bn.running_mean);
         #print("torch_bn.running_var  = ", torch_bn.running_var);
-
-    """
-    if y1.dim() == 5: # for opt bn
-        print("y1  = ", y1)
-        print("y1p = ", y1p)
-        print("y2 = ", y2)
-        print("y1p - y2 = ", y1p - y2)
-    print("opt_x_grad = ", opt_x_grad)
-    print("ref_x_grad = ", ref_x_grad)
-    print("opt_x_grad - ref_x_grad = ", opt_x_grad - ref_x_grad)
-    """
-    #print(opt_weight_grad)
-    #print(ref_weight_grad)
 
     if with_perf:
         print("Performance part is not implemented for this test!")
