@@ -33,7 +33,6 @@ long CP = sizes[1];
 long H  = sizes[2] - 2 * pad_h_in;
 long W  = sizes[3] - 2 * pad_w_in;
 long bc = sizes[4];
-//long C  = CP * bc;
 
 const long hi_start      = pad_h_in;
 const long hi_end        = hi_start + H;
@@ -100,14 +99,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   DECL_VLA_PTR_PT_EXT(T,             dout,     [CP][ofhp][ofwp][bc],               t_GO, (ho_start * ofwp + wo_start) * bc);
   DECL_VLA_PTR_PT_EXT(unsigned char, relumask, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_R,  (ho_start * ofwp + wo_start) * bc/BITS_PER_CHAR);
 
-/*
-  printf("offset for GO = %d (ho_start = %d wo_start = %d ofwp = %d bc = %d)\n", (ho_start * ofwp + wo_start) * bc, ho_start, wo_start, ofwp, bc);
-  DECL_VLA_PTR_PT_EXT(T,             dout_dbg,     [CP][ofhp][ofwp][bc],               t_GO, (ho_start * ofwp + wo_start) * bc);
-            {
-                for (int i = 0; i < 10; i++)
-                  printf("first dout before[%d] = %f \n", i, *((float*)(&(dout_dbg[0][0][0][0][i]))) );
-            }
-*/
 #endif
 
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
@@ -174,47 +165,33 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           if (!use_hw_blocking) {
 
             if (pad_h_in != 0 && eltwise ) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din_add[n][cp][0][0]);
             }
             for (int ho = 0, hi = hi_start; ho < H; ho++, hi++) {
               /* zeroing out starting [0, wi_start) x bc block for fixed hi */
               if (pad_w_in != 0 && eltwise ) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din_add[n][cp][hi][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
-                //void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask)
                 grad_w_inpadd_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], dout[n][cp][ho][wb*(W/num_W_blocks)], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][wi_start + wb*(W/num_W_blocks)] : NULL,
                                 relu ? relumask[n][cp][ho][wb*(W/num_W_blocks)] : NULL);
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
               if (pad_w_in != 0 && eltwise ) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din_add[n][cp][hi][wi_end]);
               }
-
-            }
+            } /* loop over ho */
             /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
             if (pad_h_in != 0 && eltwise ) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din_add[n][cp][hi_end][0]);
             }
-
-            //printf("First parallel for is not implemented for w blocking in bwd\n");
-            //exit(-1);
-          } else {
+          } else { /* for if (!use_hw_blocking) */
             for(int hwb = 0; hwb < num_HW_blocks; hwb++){
               int ho = (hwb*(H*W/num_HW_blocks))/W;
               int hi = ho;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
-              //void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask)
               grad_w_inpadd_tpp(inp[n][cp][hi][w], &a[0], &b[0], dout[n][cp][ho][w], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][w] : NULL,
                                 relu ? relumask[n][cp][ho][w] : NULL);
@@ -246,54 +223,33 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           if (!use_hw_blocking) {
 
             if (pad_h_in != 0 && eltwise ) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din_add[n][cp][0][0]);
             }
             for (int ho = 0, hi = hi_start; ho < H; ho++, hi++) {
               /* zeroing out starting [0, wi_start) x bc block for fixed hi */
               if (pad_w_in != 0 && eltwise ) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din_add[n][cp][hi][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
-/*
-            if (n == 0 && cp ==  0 && ho == 0 && wb == 0)
-            {
-                for (int i = 0; i < 10; i++)
-                  printf("first dout before[%d] = %f \n", i, *((float*)(&(dout[n][cp][ho][wb*(W/num_W_blocks)][i]))) );
-            }
-*/
-                //void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask)
                 grad_w_inpadd_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], dout[n][cp][ho][wb*(W/num_W_blocks)], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][wi_start + wb*(W/num_W_blocks)] : NULL,
                                 relu ? relumask[n][cp][ho][wb*(W/num_W_blocks)] : NULL);
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
               if (pad_w_in != 0 && eltwise ) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din_add[n][cp][hi][wi_end]);
               }
-
-            }
+            } /* loop over ho */
             /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
             if (pad_h_in != 0 && eltwise ) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din_add, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din_add[n][cp][hi_end][0]);
             }
-
-            //printf("First parallel for is not implemented for w blocking in bwd\n");
-            //exit(-1);
           } else {
             for(int hwb = 0; hwb < num_HW_blocks; hwb++){
               int ho = (hwb*(H*W/num_HW_blocks))/W;
               int hi = ho;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
-              //void operator()(Tin* inp, float *a, float *b, Tout *dout, float *dgamma_local, float *dbeta_local, float* gamma, Tin* din_add, unsigned char* relumask)
               grad_w_inpadd_tpp(inp[n][cp][hi][w], &a[0], &b[0], dout[n][cp][ho][w], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][w] : NULL,
                                 relu ? relumask[n][cp][ho][w] : NULL);
@@ -370,50 +326,36 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           LIBXSMM_ALIGNED(float b[bc], 64);
           LIBXSMM_ALIGNED(float c[bc], 64);
 
-          //void operator()(Tin* gamma, Tin* dgamma, Tin* var, Tin* mean, Tin* dbeta, Tout* a, Tout* b, Tout* c)
           abc_coeffs_tpp(gamma[cp], dgamma[cp], var[cp], mean[cp], dbeta[cp], &a[0], &b[0], &c[0]);
 
           if (!use_hw_blocking) {
             if (pad_h_in != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][0][0]);
             }
             for (int ho = 0, hi = hi_start; ho < H; ho++, hi++) {
               /* zeroing out starting [0, wi_start) x bc block for fixed hi */
               if (pad_w_in != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
-                //void operator()(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din)
                 grad_d_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], &c[0], gamma[cp], dout[n][cp][ho][wb*(W/num_W_blocks)], din[n][cp][hi][wi_start + wb*(W/num_W_blocks)]);
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
               if (pad_w_in != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][wi_end]);
               }
 
             }
             /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
             if (pad_h_in != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][hi_end][0]);
             }
-
-            //printf("Third parallel for is not implemented for w blocking in bwd\n");
-            //exit(-1);
-          } else {
+          } else { /* for if (!use_hw_blocking) */
             for(int hwb = 0; hwb < num_HW_blocks; hwb++){
               int ho = (hwb*(H*W/num_HW_blocks))/W;
               int hi = ho;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
-              //void operator()(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din)
               grad_d_tpp(inp[n][cp][hi][w], &a[0], &b[0], &c[0], gamma[cp], dout[n][cp][ho][w], din[n][cp][hi][w]);
             }
           } /* if-else for the presence of input padding */
@@ -430,115 +372,36 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           LIBXSMM_ALIGNED(float b[bc], 64);
           LIBXSMM_ALIGNED(float c[bc], 64);
 
-          //void operator()(Tin* gamma, Tin* dgamma, Tin* var, Tin* mean, Tin* dbeta, Tout* a, Tout* b, Tout* c)
           abc_coeffs_tpp(gamma[cp], dgamma[cp], var[cp], mean[cp], dbeta[cp], &a[0], &b[0], &c[0]);
 
-/*
-          if (n == 0 && cp == 0) {
-              for (int i = 0; i < 10; i++) {
-                float ftmp = a[i];//*(((float*)&(weight_tr[i_c][i_k][i_r][i_s][0])));
-                printf("i = %d a = %f \n", i, ftmp);
-              }
-              for (int i = 0; i < 10; i++) {
-                float ftmp = b[i];//*(((float*)&(weight_tr[i_c][i_k][i_r][i_s][0])));
-                printf("i = %d b = %f \n", i, ftmp);
-              }
-              for (int i = 0; i < 10; i++) {
-                float ftmp = c[i];//*(((float*)&(weight_tr[i_c][i_k][i_r][i_s][0])));
-                printf("i = %d c = %f \n", i, ftmp);
-              }
-          }
-*/
           if (!use_hw_blocking) {
             if (pad_h_in != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, 0, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][0][0]);
             }
             for (int ho = 0, hi = hi_start; ho < H; ho++, hi++) {
               /* zeroing out starting [0, wi_start) x bc block for fixed hi */
               if (pad_w_in != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, 0, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
-/*
-
-          if (n == 0 && cp == 0 && ho == 0 && wb == 0) {
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(gamma[cp][i])));
-                printf("i = %d gamma = %f \n", i, ftmp);
-              }
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(dout[n][cp][ho][wb*(W/num_W_blocks)][i])));
-                printf("i = %d dout = %f \n", i, ftmp);
-              }
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i])));
-                printf("i = %d inp = %f \n", i, ftmp);
-              }
-          }
-*/
-                //void operator()(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din)
                 grad_d_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], &c[0], gamma[cp], dout[n][cp][ho][wb*(W/num_W_blocks)], din[n][cp][hi][wi_start + wb*(W/num_W_blocks)]);
-/*
-          if (n == 0 && cp == 0 && ho == 0 && wb == 0) {
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(din[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i])));
-                printf("i = %d din = %f \n", i, ftmp);
-              }
-          }
-*/
-              }
+              } /* loop over wb */
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
               if (pad_w_in != 0 ) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi, wi_end, 0, CP, ifhp, ifwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(din[n][cp][hi][wi_end]);
               }
 
             }
             /* zeroing out strip [hi_end, ifhp) x ifwp x bc */
             if (pad_h_in != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, din, n, cp, hi_end, 0, 0, CP, ifhp, ifwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(din[n][cp][hi_end][0]);
             }
-
-            //printf("Third parallel for is not implemented for w blocking in bwd\n");
-            //exit(-1);
-          } else {
-            for(int hwb = 0; hwb < num_HW_blocks; hwb++){
+          } else { /* for if (!use_hw_blocking) */
+            for(int hwb = 0; hwb < num_HW_blocks; hwb++) {
               int ho = (hwb*(H*W/num_HW_blocks))/W;
               int hi = ho;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
-/*
-          if (n == 0 && cp == 0 && hwb == 0) {
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(gamma[cp][i])));
-                printf("i = %d gamma = %f \n", i, ftmp);
-              }
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(dout[n][cp][ho][w][i])));
-                printf("i = %d dout = %f \n", i, ftmp);
-              }
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(inp[n][cp][hi][w][i])));
-                printf("i = %d inp = %f \n", i, ftmp);
-              }
-          }
-*/
-              //void operator()(Tin* inp, float* a, float* b, float *c, float *gamma, Tout* dout, Tout* din)
               grad_d_tpp(inp[n][cp][hi][w], &a[0], &b[0], &c[0], gamma[cp], dout[n][cp][ho][w], din[n][cp][hi][w]);
-/*
-          if (n == 0 && cp == 0 && hwb == 0) {
-              for (int i = 0; i < 10; i++) {
-                float ftmp = *(((float*)&(din[n][cp][hi][w][i])));
-                printf("i = %d din = %f \n", i, ftmp);
-              }
-          }
-*/
             }
           } /* if-else for the presence of input padding */
         } /* end of cp loop */

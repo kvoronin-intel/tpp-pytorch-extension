@@ -52,7 +52,6 @@ const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + CP * N * bc, 64);
 
 const long dbeta_N_offset        = LIBXSMM_UP2(CP * N * bc, 64);
 
-//printf("Allocating t_scratch inside fwd\n");
 const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
 const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64);
 const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
@@ -161,8 +160,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                   helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
                 }
               }
-              //printf("First part of parallel for is not implemented for w blocking\n");
-              //exit(-1);
             } else {
               for(int hwb=0; hwb < num_HW_blocks; hwb++){
                 int hi = (hwb*(H*W/num_HW_blocks))/W;
@@ -194,8 +191,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                   helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
                 }
               }
-              //printf("First part of parallel for is not implemented for w blocking\n");
-              //exit(-1);
             } else {
               for(int hwb=0; hwb < num_HW_blocks; hwb++){
                 int hi = (hwb*(H*W/num_HW_blocks))/W;
@@ -282,21 +277,16 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           if (!use_hw_blocking) {
 
             if (pad_h_out != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, 0, 0, 0, CP, ofhp, ofwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(out[n][cp][0][0]);
             }
 
             for (int hi = 0, ho = ho_start; hi < H; hi++, ho++) {
               /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
               if (pad_w_out != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, 0, 0, CP, ofhp, ofwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(out[n][cp][ho][0]);
               }
 
               for (int wb = 0; wb < num_W_blocks; wb++) {
-                //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
                 normalize_tpp(inp[n][cp][hi][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[cp], beta[cp],
                                 eltwise ? inp_add[n][cp][hi][wb*(W/num_W_blocks)] : NULL,
                                 out[n][cp][ho][wo_start + wb*(W/num_W_blocks)],
@@ -304,15 +294,11 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
               }
               /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
               if (pad_w_out != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_end, 0, CP, ofhp, ofwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(out[n][cp][ho][wo_end]);
               }
             }
             /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
             if (pad_h_out != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(out[n][cp][ho_end][0]);
             }
 
@@ -323,7 +309,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
               /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
-              //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
               normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
                               eltwise ? inp_add[n][cp][hi][w] : NULL,
                               out[n][cp][ho][w],
@@ -342,34 +327,18 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           LIBXSMM_ALIGNED(float s[bc], 64);
           LIBXSMM_ALIGNED(float b[bc], 64);
 
-          //printf("n = %d cp = %d \n", n, cp);
-
           coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
-
-          //printf("coeffs_tpp called\n");
-          /*
-          //if (n == 1 && cp == 0)
-          {
-            for (int j = 0; j < 10; j++)
-              printf("j = %d: s[%d] = %f b[%d] = %f\n", j, j, s[j], j, b[j]);
-          }
-          */
 
           if (!use_hw_blocking) {
             if (pad_h_out != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, 0, 0, 0, CP, ofhp, ofwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(out[n][cp][0][0]);
             }
             for (int hi = 0, ho = ho_start; hi < H; hi++, ho++) {
               /* zeroing out starting [0, wo_start) x bc and [wo_end, ofwp] x bc blocks for fixed ho */
               if (pad_w_out != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, 0, 0, CP, ofhp, ofwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(out[n][cp][ho][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
-                //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
                 normalize_tpp(inp[n][cp][hi][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[cp], beta[cp],
                                 eltwise ? inp_add[n][cp][hi][wb*(W/num_W_blocks)] : NULL,
                                 out[n][cp][ho][wo_start + wb*(W/num_W_blocks)],
@@ -377,43 +346,25 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
               }
               /* zeroing out ending [wo_end, ofwp] x bc block for fixed ho */
               if (pad_w_out != 0) {
-                //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho, wo_end, 0, CP, ofhp, ofwp, bc);
-                //cfg.all_zero_wp_kernel(&all_zero_param);
                 zero_wp_tpp(out[n][cp][ho][wo_end]);
               }
             }
-            //printf("Third part of parallel for is not implemented for w blocking\n");
-            //exit(-1);
             /* zeroing out strip [ho_end, ofhp) x ofwp x bc */
             if (pad_h_out != 0) {
-              //all_zero_param.out.primary = &LIBXSMM_VLA_ACCESS(5, out, n, cp, ho_end, 0, 0, CP, ofhp, ofwp, bc);
-              //cfg.all_zero_hp_kernel(&all_zero_param);
               zero_hp_tpp(out[n][cp][ho_end][0]);
             }
 
           } else {
-            for(int hwb = 0; hwb < num_HW_blocks; hwb++){
+            for(int hwb = 0; hwb < num_HW_blocks; hwb++) {
               int hi = (hwb*(H*W/num_HW_blocks))/W;
               int ho = hi;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
-              //printf("hwb = %d \n", hwb);
-
-              /*
-              if (hwb == 0)
-              {
-                  printf("eltwise = %d relu = %d \n", eltwise, relu);
-                  for (int i = 0; i < 10; i++)
-              }
-              */
-
               /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
-              //void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask)
               normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
                               eltwise ? inp_add[n][cp][hi][w] : NULL,
                               out[n][cp][ho][w],
                               relu ? relumask[n][cp][ho][w] : NULL);
-              //printf("hwb = %d succeeded \n", hwb);
             }
           } /* if-else for the presence of padding */
         } /* end of cp loop */
@@ -423,9 +374,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   } /* end of the bn_fwd_scale scope */
 
 } /* end of the dummy scope */
-
-//printf("t_scratch       data = %p numel = %d \n", t_scratch.data_ptr<float>(), (int)t_scratch.numel());
-//printf("inputs[6]       data = %p numel = %d \n", inputs[6].data_ptr<float>(), (int)(inputs[6].numel()));
 
 //return std::vector<at::Tensor>({t_O, t_relu_mask, inputs[6]});
 return std::vector<at::Tensor>({t_O, t_relu_mask, t_scratch});
