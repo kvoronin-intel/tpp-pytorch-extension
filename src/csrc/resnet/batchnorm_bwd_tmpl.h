@@ -4,6 +4,8 @@ RECORD_FUNCTION("batchnorm_bwd", std::vector<c10::IValue>());
 //   ctx.save_for_backward(input, input_add, weight, mean, var, invstd, relu_mask, relu, eltwise, paddings, output)
 //   inputs += ctx.saved_tensors
 
+#define VERBOSE
+
 auto t_GO = inputs[0]; /* grad_output */
 auto t_I  = inputs[1]; /* input */
 auto t_IA = inputs[2]; /* input_add */
@@ -12,9 +14,6 @@ auto t_M  = inputs[4]; /* mean */
 auto t_V  = inputs[5]; /* var  */
 auto t_R  = inputs[6]; /* relumask */
 auto t_scratch  = inputs[7]; /* pre-allocated scratch */
-
-//std::cout << "padding = " << padding << std::endl;
-//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 
 auto t_grad_input     = at::empty(t_I.sizes(),  torch::TensorOptions().dtype(t_I.dtype()));
 auto t_grad_input_add = at::empty(t_IA.sizes(), torch::TensorOptions().dtype(t_I.dtype()));
@@ -81,7 +80,12 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   spatial_block_size = H * W / num_HW_blocks;
 }
 
-//std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+#ifdef VERBOSE
+  std::cout << "padding = " << padding << std::endl;
+  std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+  std::cout << "use_hw_blocking spatial_block_size = " << use_hw_blocking << " " << spatial_block_size << std::endl;
+  std::cout << "relu eltwise = " << relu << " " << eltwise << std::endl;
+#endif
 
 {
 #ifndef THREADED_LOOPS
@@ -133,6 +137,17 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
       cp_loop_specs_str);
 #endif
 
+/*
+  T* inp_dbg = t_I.data_ptr<T>();
+  for (int i = 0; i < 20; i++) {
+    if (sizeof(T) == 2) {
+      float tmp = 0.0;
+      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(inp_dbg[i])), &tmp, 1);
+      printf("for bn3 inp_dbg[%d] = %u = %f\n", i, *(unsigned short*)(&inp_dbg[i]), tmp);
+    } else
+      printf("for bn3 inp_dbg[%d] = %f\n", i, inp_dbg[i]);
+  }
+*/
   {
     RECORD_SCOPE(bn_bwd_w_inpadd, {});
     {
@@ -161,6 +176,12 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           zero_tpp(&lcl_dbeta_ptr [0]);
 
           coeffs_tpp(mean[cp], var[cp], &a[0], &b[0]);
+          /*
+          if (n == 0 && cp == 0) {
+            for (int i = 0; i < 10; i++)
+              printf("mean[... + %d] = %f var[...+%d] = %f a[%d] = %f b[%d] = %f \n", i, mean[cp][i], i, var[cp][i], i, a[i], i, b[i]);
+          }
+          */
 
           if (!use_hw_blocking) {
 
@@ -191,7 +212,12 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
               int ho = (hwb*(H*W/num_HW_blocks))/W;
               int hi = ho;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
-
+/*
+                if (n == 0 && cp == 0 && hwb == 0) {
+                  for (int i = 0; i < 10; i++)
+                    printf("inpmean[... + %d] = %f var[...+%d] = %f a[%d] = %f b[%d] = %f \n", i, mean[cp][i], i, var[cp][i], i, a[i], i, b[i]);
+                }
+*/
               grad_w_inpadd_tpp(inp[n][cp][hi][w], &a[0], &b[0], dout[n][cp][ho][w], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][w] : NULL,
                                 relu ? relumask[n][cp][ho][w] : NULL);
@@ -282,6 +308,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
           zero_tpp(dbeta [cp]);
 
           for(int ni = 0; ni < N; ni++) {
+            //for (int i = 0; i < 10; i++)
+            //  printf("cp = %d dgamma_N[i] = %f \n", cp, (float)dgamma_N[cp][ni][bc]);
             helper_add_tpp(dgamma[cp], dgamma_N[cp][ni], dgamma[cp]);
             helper_add_tpp(dbeta [cp], dbeta_N [cp][ni], dbeta [cp]);
           } /* end of ni loop */
