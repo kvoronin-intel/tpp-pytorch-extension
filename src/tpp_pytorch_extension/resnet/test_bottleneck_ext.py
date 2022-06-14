@@ -171,14 +171,6 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     x1.retain_grad()
     x2 = ref_x_init.clone().detach().requires_grad_()
 
-    #for i in range(10):
-    #    print("i opt_x_init ref_x_init = ", i, opt_x_init.view(-1)[i].item(), ref_x_init.view(-1)[i].item())
-    #for i in range(10):
-    #    print("i opt_weight_init ref_weight_init = ", i, opt_weight_init.view(-1)[i].item(), ref_weight_init.view(-1)[i].item())
-    #if has_bias:
-    #    for i in range(10):
-    #          print("i opt_bias_init ref_bias_init = ", i, opt_bias_init.view(-1)[i].item(), ref_bias_init.view(-1)[i].item())
-
     print("running ref bottleneck forward")
     y2 = torch_bottleneck(x2)
     print("running opt bottleneck forward")
@@ -187,53 +179,25 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     print("y1 shape = ", y1.shape)
     print("y2 shape = ", y2.shape)
 
-    for i in range(10):
-        print("i y1 y2 = ", i, y1.view(-1)[i].item(), y2.view(-1)[i].item())
-    for i in range(10):
-        print("i y1 y2 = ", -i-1, y1.view(-1)[-i-1].item(), y2.view(-1)[-i-1].item())
-
     z1 = y1.mean()
     z2 = y2.mean()
     print("z1", z1)
     print("z2", z2)
 
-    #if hasattr(y1,'to'): #type(y1) is BlockedTensor:
-    #    opt_y_fp32 = y1.unblocked_tensor().to(torch.float)
-    #else:
-    #    opt_y_fp32 = y1.to(torch.float)
-    #opt_y_fp32 = y1.unblocked_tensor().to(torch.float) if type(y1) is BlockedTensor else y1.to(torch.float)
-    if test_module == 'tpp_bottleneck' or test_module == 'ext_bottleneck':
-        opt_y_fp32 = y1.unblocked_tensor().to(torch.float)
-    else:
-        opt_y_fp32 = y1.to(torch.float)
+    print("x2 shape = ", x2.shape)
+    print("y2 shape = ", y2.shape)
 
-    ref_y_fp32 = y2.to(torch.float)
+    # Y (Out)
 
-    print("Y Allclose: ", opt_y_fp32.allclose(ref_y_fp32, rtol=1e-5, atol=1e-6))
-    print("(y1 - y2).abs().norm(inf)              = ", (opt_y_fp32 - ref_y_fp32).abs().norm(p=float('inf')))
-    print("(y1 - y2).abs().norm(2)   / y2.norm(2) = ", (opt_y_fp32 - ref_y_fp32).norm(2) / ref_y_fp32.norm(2))
+    compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)")
 
     z1.backward(retain_graph=True)
     z2.backward(retain_graph=True)
     #exit()
 
-    opt_x_grad = x1.grad.to(torch.float)
-    ref_x_grad = x2.grad.to(torch.float)
-
     # X gradient
-    print("X Allclose: ", opt_x_grad.allclose(ref_x_grad, rtol=1e-5, atol=1e-5))
-    #print("(opt_x_grad - ref_x_grad).abs().sum()                                                      = ", (opt_x_grad - ref_x_grad).abs().sum())
-    print("(opt_x_grad - ref_x_grad).norm(2)                                                          = ", (opt_x_grad - ref_x_grad).norm(2))
-    xgrad_rel_norm_diff = (opt_x_grad - ref_x_grad).norm(2) / (opt_x_grad.norm(2))
-    if xgrad_rel_norm_diff > 3.0e-6:
-        print("warning, xgrad_rel_norm diff is too large, ", xgrad_rel_norm_diff)
-    print("(opt_x_grad - ref_x_grad).norm(2) / opt_x_grad.norm                                         = ", (opt_x_grad - ref_x_grad).norm(2) / (opt_x_grad.norm(2)))
-    print("(opt_x_grad - ref_x_grad).abs().norm(inf)                                                   = ", (opt_x_grad - ref_x_grad).norm(p=float('inf')))
 
-    for i in range(10):
-        print("i opt_x_grad ref_x_grad = ", i, opt_x_grad.view(-1)[i].item(), ref_x_grad.view(-1)[i].item())
-
-    #exit()
+    compare_padded_tensors(x1.grad, x2.grad, "X Grad")
 
     # Weight gradients for batchnorms
 
@@ -252,14 +216,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
         compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4")
 
     return
-    exit()
-
-    if has_bias:
-        opt_bias_grad = opt_conv.bias.grad
-        ref_bias_grad = torch_conv.bias.grad
-    # Bias gradient
-    if has_bias:
-      print("X Bias Allclose: ", ref_bias_grad.allclose(opt_bias_grad, rtol=1e-5, atol=1e-6))
+    #exit()
 
     # Does not work at the moment for bwd
     if with_perf:

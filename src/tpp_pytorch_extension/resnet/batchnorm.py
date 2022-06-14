@@ -14,43 +14,24 @@ from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
 import time
 from contextlib import contextmanager
 
-class DummyLinear(BlockedModule):
-    def __init__(self, in_features, out_features, bias=True):
-        super(DummyLinear, self).__init__()
-        self.weight = BlockedParameter(torch.Tensor(out_features, in_features))
-        if bias:
-            self.bias = BlockedParameter(torch.Tensor(out_features))
-        else:
-            self.register_parameter("bias", None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in)
-            init.uniform_(self.bias, -bound, bound)
-
-    def forward(self, input):
-        raise NotImplemented
-        return input
-
 class DummyBatchNormFunction(torch.autograd.Function):
     @staticmethod
-    #def forward(ctx, p, training, need_attention_output, *inputs):
     def forward(ctx, training, relu, eltwise, eps, padding, *inputs):
         # print("DummyBatchNormFunction FWD Called")
 
-        #print("type of inputs = ", type(inputs))
         #( input, input_add, weight, bias, mean, var, scratch ) = inputs
-        ( input, input_add, weight, bias, mean, var ) = inputs
-        #print("debug: scratch numel before = ", scratch.numel())
+        if eltwise:
+            ( input, input_add, weight, bias, mean, var ) = inputs
+        else:
+            ( input,            weight, bias, mean, var ) = inputs
+
         ( output, relu_mask, scratch ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
-        #inputs[6] = scratch
-        #( input, input_add, weight, bias, mean, var, scratch ) = inputs
-        #print("debug: inputs[6] after = ", inputs[6].numel())
+
         if training:
-            ctx.save_for_backward(input, input_add, weight, mean, var, relu_mask, output, scratch)
+            if eltwise:
+                ctx.save_for_backward(input, input_add, weight, mean, var, relu_mask, scratch)
+            else:
+                ctx.save_for_backward(input,            weight, mean, var, relu_mask, scratch)
         ctx.relu    = relu
         ctx.eltwise = eltwise
         ctx.eps     = eps
@@ -95,11 +76,15 @@ class DummyBatchNormFunction(torch.autograd.Function):
 
         inputs += ctx.saved_tensors
 
-        (input, input_add, weight, mean, var, relu_mask, output, scratch) = ctx.saved_tensors
-        #print("debug: scratch numel in bwd = ", scratch.numel())
+        if ctx.eltwise:
+            (input, input_add, weight, mean, var, relu_mask, scratch) = ctx.saved_tensors
+        else:
+            (input,            weight, mean, var, relu_mask, scratch) = ctx.saved_tensors
 
-        (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
-
+        if ctx.eltwise:
+            (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
+        else:
+            (grad_input, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
 
         """
         padding = ctx.padding
@@ -126,6 +111,10 @@ class DummyBatchNormFunction(torch.autograd.Function):
         for i in range(10):
             ind = i + shift_input
             print("debug: ind bwd grad_input       = ", ind, grad_input.view(-1)[ind].item())
+        if ctx.eltwise:
+            for i in range(10):
+                ind = i + shift_input
+                print("debug: ind bwd grad_input_add   = ", ind, grad_input_add.view(-1)[ind].item())
         for i in range(10):
             ind = i + 0
             print("debug: ind bwd grad_weight      = ", ind, grad_weight.view(-1)[ind].item())
@@ -133,8 +122,12 @@ class DummyBatchNormFunction(torch.autograd.Function):
             ind = i + 0
             print("debug: ind bwd grad_bias        = ", ind, grad_bias.view(-1)[ind].item())
         """
+
         # print("Returning from DummyBatchNormFunction BWD")
-        return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None, None) #, None)
+        if ctx.eltwise:
+            return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None) #, None)
+        else:
+            return (None, None, None, None, None, grad_input,                 grad_weight, grad_bias, None, None) #, None)
 
 class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
@@ -209,12 +202,9 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         self.H = input.size(2)
         self.W = input.size(3)
 
-        if input_add == None:
-          input_add = torch.Tensor()
-
-        #input = input.contiguous()
-        #if self.eltwise:
-        #  input_add = input_add.contiguous()
+        if input_add == None and self.eltwise:
+            print("Error: input_add = None bu self.eltwise is True")
+            exit()
 
         if N != self.N:
           self.N = N
@@ -231,38 +221,23 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
                 self.blocked_input_signature,
                 [None, self.Cblock, None, None],
             )
-        else:
-            blocked_input_add = input_add
-
-        #output_size = [self.N, self.C // self.Cblock, self.H, self.W, self.Cblock]
 
         if not self.training and self.track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
-            #inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.scratch ]
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var ]
-            #inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
-            #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)
+            if self.eltwise:
+                #inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.scratch ]
+                inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var ]
+                #inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
+                #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)
+            else:
+                inputs = [ blocked_input, self.weight, self.bias, self.running_mean, self.running_var ]
         else:
-            inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
+            if self.eltwise:
+                inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
+            else:
+                inputs = [ blocked_input,                    self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
-        #print("type of inputs = ", type(inputs))
-
         output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, *inputs) #output_size, *inputs)
-
-        #print("dbg: self.scratch   numel after apply = ", self.scratch.numel())
-
-
-        """
-        for i in range(10):
-            print("debug: i fwd running mean pre update     = ", i, self.running_mean.view(-1)[i].item())
-        for i in range(10):
-            print("debug: i bwd running var  pre update     = ", i, self.running_var.view(-1)[i].item())
-
-        for i in range(10):
-            print("debug: i fwd mean at update              = ", i, self.mean.view(-1)[i].item())
-        for i in range(10):
-            print("debug: i bwd var  at update              = ", i, self.var.view(-1)[i].item())
-        """
 
         if self.training and self.track_running_stats:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.mean

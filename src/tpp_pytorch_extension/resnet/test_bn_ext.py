@@ -236,7 +236,7 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
         print("z1", z1)
     print("z2", z2)
     #z1.backward(retain_graph=True)
-    z1.backward(retain_graph=True,gradient=torch.tensor(1.*y1_numel / y2.numel(), dtype=torch.float))
+    z1.backward(retain_graph=True,gradient=torch.tensor(1.*y1_numel / y2.numel(), dtype=y1.dtype))
     z2.backward(retain_graph=True)
     """
     grad_scale=1000.0
@@ -375,7 +375,7 @@ def main():
             integer_map = map(int, string_list[:4])
             #print(integer_map)
             [N, C, H, W] = list(integer_map)
-            opt_padding = [4, 4, 6, 6] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
+            opt_padding = [0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
             run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
     

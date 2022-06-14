@@ -7,7 +7,6 @@ RECORD_FUNCTION("conv_bwd", std::vector<c10::IValue>());
 auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
 auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
 auto t_W  = inputs[2];
-//auto t_scratch = inputs[3];
 
 auto sizes = t_I.sizes();
 
@@ -108,6 +107,8 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 #endif
     bf16_use_nchw_format = 0;
     compute_full_wt_output_block = 0;
+    n_img_teams = 1;
+    n_ofm_teams = 1;
   }
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
   use_private_trans = bf16_fuse_upd_transposes;
@@ -208,6 +209,10 @@ if (sizeof(T) == 2) {
 auto max_scratch_size_in_bytes = running_scratch_size_in_bytes;
 
 auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::TensorOptions().dtype(at::kByte));
+
+#ifdef VERBOSE
+std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " = in GB " << max_scratch_size_in_bytes/1024.0/1024.0/1024.0 << std::endl;
+#endif
 
 //return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
 
@@ -1369,11 +1374,7 @@ auto t_scratch_experimental = at::empty({max_scratch_size_in_bytes}, torch::Tens
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_bwd_d scope */
 
-//#endif
-
 } /* end of the dummy scope */
 
-
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
-//return std::vector<at::Tensor>({t_dummy, t_grad_weight});
 return std::vector<at::Tensor>({t_grad_input, t_grad_weight});

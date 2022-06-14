@@ -5629,18 +5629,6 @@ class BatchNormBwdWTPP {
     arg_array[5].primary = (void*)dbeta_local;
     arg_array[6].primary = (void*)gamma;
 
-/*
-    printf("fuse_type = %d \n", fuse_type);
-
-    for (int i = 0; i < 10; i++)
-      printf("dgamma_local before[%d] = %f \n", i, ((float*)dgamma_local)[i]);
-    for (int i = 0; i < 10; i++)
-      printf("dbeta_local before[%d] = %f \n", i, ((float*)dbeta_local)[i]);
-*/
-/*
-    for (int i = 0; i < 10; i++)
-      printf("dout before relu[%d] = %f \n", i, ((float*)dout)[i]);
-*/
     if (fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE ||
       fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
       if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
@@ -5662,28 +5650,7 @@ class BatchNormBwdWTPP {
 
     eqn_param.output.primary = dgamma_local;
     eqn_dgamma(&eqn_param);
-/*
-    for (int i = 0; i < 10; i++)
-      printf("inp[%d] = %f \n", i, ((float*)inp)[i]);
-*/
-/*
-    for (int i = 0; i < 10; i++)
-      printf("dout after relu[%d] = %f \n", i, ((float*)dout)[i]);
-*/
-/*
-    for (int i = 0; i < 10; i++)
-      printf("a[%d] = %f \n", i, ((float*)a)[i]);
-    for (int i = 0; i < 10; i++)
-      printf("b[%d] = %f \n", i, ((float*)b)[i]);
-    for (int i = 0; i < 10; i++)
-      printf("gamma[%d] = %f \n", i, ((float*)gamma)[i]);
-*/
-/*
-    for (int i = 0; i < 10; i++)
-      printf("dgamma_local after[%d] = %f \n", i, ((float*)dgamma_local)[i]);
-    for (int i = 0; i < 10; i++)
-      printf("dbeta_local after[%d] = %f \n", i, ((float*)dbeta_local)[i]);
-*/
+
     eqn_param.output.primary = dbeta_local;
     eqn_dbeta(&eqn_param);
 

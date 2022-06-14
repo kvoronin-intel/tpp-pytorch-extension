@@ -2,13 +2,23 @@ RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 
 /*        ( input, input_add, weight, bias, mean, var ) = inputs */
 
+#define VERBOSE
+
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
-auto t_IA = inputs[1];
-auto t_W  = inputs[2];
-auto t_B  = inputs[3];
-auto t_M  = inputs[4];
-auto t_V  = inputs[5];
-//auto t_scratch = inputs[6];
+at::Tensor t_IA, t_W, t_B, t_M, t_V;
+if (eltwise) {
+  t_IA = inputs[1];
+  t_W  = inputs[2];
+  t_B  = inputs[3];
+  t_M  = inputs[4];
+  t_V  = inputs[5];
+} else {
+  t_IA = at::empty({0},  torch::TensorOptions().dtype(t_I.dtype()));
+  t_W  = inputs[1];
+  t_B  = inputs[2];
+  t_M  = inputs[3];
+  t_V  = inputs[4];
+}
 
 const long pad_h_in  = padding[0];
 const long pad_w_in  = padding[1];
@@ -38,11 +48,6 @@ const float scale = 1.0f /((float)N * H * W);
 
 std::vector<long> output_size{N, CP, ofhp, ofwp, bc};
 
-//std::cout << "padding = " << padding << std::endl;
-//std::cout << "size of T = " << sizeof(T) << std::endl;
-//std::cout << "output_size = " << output_size << std::endl;
-//std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
-
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
 auto t_relu_mask = at::empty(t_O.sizes(), torch::TensorOptions().dtype(at::kByte));
@@ -57,17 +62,6 @@ const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64)
 const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
 std::vector<long> scratch_size{full_scratch_size};
 auto t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
-
-/*
-if (t_scratch.numel() <= 1) {
-  const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)CP * (size_t)N * (size_t)bc, 64);
-  const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(CP * N * bc, 64);
-  const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
-  std::vector<long> scratch_size{full_scratch_size};
-  t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
-  inputs[6] = t_scratch;
-}
-*/
 
 bool use_hw_blocking = true;
 
@@ -84,7 +78,13 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   spatial_block_size = H * W / num_HW_blocks;
 }
 
-//std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+#ifdef VERBOSE
+std::cout << "padding = " << padding << std::endl;
+std::cout << "size of T = " << sizeof(T) << std::endl;
+std::cout << "output_size = " << output_size << std::endl;
+std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+#endif
 
 {
 
