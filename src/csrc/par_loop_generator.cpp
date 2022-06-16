@@ -606,8 +606,8 @@ std::string loop_generator(const char* __loop_nest_desc_extended) {
   char barrier_positions[256];
   int jit_loop_spec = 0;
   int use_2d_par = 0;
-  char _loop_nest_desc_extended[strlen(__loop_nest_desc_extended)];
-  char loop_nest_desc_extended[strlen(_loop_nest_desc_extended)];
+  char _loop_nest_desc_extended[strlen(__loop_nest_desc_extended) + 1];
+  char loop_nest_desc_extended[strlen(_loop_nest_desc_extended) + 1];
 
   memset(loop_params,     0, 256 * sizeof(loop_param_t));
   memset(loop_params_map, 0, 256 * sizeof(loop_param_t));
