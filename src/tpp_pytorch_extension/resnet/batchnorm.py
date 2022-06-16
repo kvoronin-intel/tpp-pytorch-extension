@@ -21,17 +21,18 @@ class DummyBatchNormFunction(torch.autograd.Function):
 
         #( input, input_add, weight, bias, mean, var, scratch ) = inputs
         if eltwise:
+            #print("dbg: eltwise is on in PT bn fwd")
             ( input, input_add, weight, bias, mean, var ) = inputs
         else:
             ( input,            weight, bias, mean, var ) = inputs
 
+        #for t in inputs:
+        #    print("shape dtype of t = ", t.shape, t.dtype)
+
         ( output, relu_mask, scratch ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
 
         if training:
-            if eltwise:
-                ctx.save_for_backward(input, input_add, weight, mean, var, relu_mask, scratch)
-            else:
-                ctx.save_for_backward(input,            weight, mean, var, relu_mask, scratch)
+            ctx.save_for_backward(input, weight, mean, var, relu_mask, scratch)
         ctx.relu    = relu
         ctx.eltwise = eltwise
         ctx.eps     = eps
@@ -76,10 +77,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
 
         inputs += ctx.saved_tensors
 
-        if ctx.eltwise:
-            (input, input_add, weight, mean, var, relu_mask, scratch) = ctx.saved_tensors
-        else:
-            (input,            weight, mean, var, relu_mask, scratch) = ctx.saved_tensors
+        (input, weight, mean, var, relu_mask, scratch) = ctx.saved_tensors
 
         if ctx.eltwise:
             (grad_input, grad_input_add, grad_weight, grad_bias) = batchnorm_cpp.batchnorm_bwd( ctx.relu, ctx.eltwise, ctx.eps, ctx.padding, inputs )
@@ -229,7 +227,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
                 #inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]
                 #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)
             else:
-                inputs = [ blocked_input, self.weight, self.bias, self.running_mean, self.running_var ]
+                inputs = [ blocked_input,                    self.weight, self.bias, self.running_mean, self.running_var ]
         else:
             if self.eltwise:
                 inputs = [ blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var ]

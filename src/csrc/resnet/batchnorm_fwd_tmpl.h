@@ -2,7 +2,7 @@ RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 
 /*        ( input, input_add, weight, bias, mean, var ) = inputs */
 
-#define VERBOSE
+//#define VERBOSE
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 at::Tensor t_IA, t_W, t_B, t_M, t_V;
@@ -46,11 +46,12 @@ const long ofwp          = W + 2 * pad_w_out;
 
 const float scale = 1.0f /((float)N * H * W);
 
-std::vector<long> output_size{N, CP, ofhp, ofwp, bc};
+std::vector<long> output_size  {N, CP, ofhp, ofwp, bc};
+std::vector<long> relumask_size{N, CP, ofhp, ofwp, bc/BITS_PER_CHAR};
 
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
-auto t_relu_mask = at::empty(t_O.sizes(), torch::TensorOptions().dtype(at::kByte));
+auto t_relu_mask = at::empty(relumask_size, torch::TensorOptions().dtype(at::kByte));
 
 const long sum_N_offset          = LIBXSMM_UP2(CP * 2 * bc, 64);
 const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + CP * N * bc, 64);

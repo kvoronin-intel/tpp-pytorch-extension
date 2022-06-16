@@ -1,5 +1,7 @@
 RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
 
+#define VERBOSE
+
   auto input        = inputs[0];
   auto conv1_weight = inputs[1];
   auto conv2_weight = inputs[2];
@@ -26,12 +28,16 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto dummy_add = at::zeros(dummy_size, input.options());
   auto dummy_return = at::zeros(dummy_size, input.options());
 
-  //printf("running conv1\n");
+#ifdef VERBOSE
+  printf("running conv1\n");
+#endif
 
   //auto conv1_out = conv_forward_new(cfg.conv1, input, conv1_weight, conv1_output_size);
   auto conv1_out = conv_fwd(cfg.conv1, {input, conv1_weight});//conv1_inputs);
 
-  //printf("running bn1\n");
+#ifdef VERBOSE
+  printf("running bn1\n");
+#endif
 
   bool bn1_relu = true, bn1_eltwise = false;
   std::vector<long> bn1_padding{0, 0, cfg.pad_size, cfg.pad_size};
@@ -40,10 +46,14 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto bn1_relu_out = bn1_ret[1];
   auto bn1_scratch_out = bn1_ret[2];
 
-  //printf("running conv2\n");
+#ifdef VERBOSE
+  printf("running conv2\n");
+#endif
   auto conv2_out = conv_fwd(cfg.conv2, {bn1_out, conv2_weight});//conv2_inputs);//bn1_out, conv2_weight, conv2_output_size);
 
-  //printf("running bn2\n");
+#ifdef VERBOSE
+  printf("running bn2\n");
+#endif
 
   bool bn2_relu = true, bn2_eltwise = false;
   std::vector<long> bn2_padding{cfg.pad_size, cfg.pad_size, 0, 0};
@@ -52,15 +62,22 @@ RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto bn2_relu_out = bn2_ret[1];
   auto bn2_scratch_out = bn2_ret[2];
 
-  //printf("running conv3\n");
+#ifdef VERBOSE
+  printf("running conv3\n");
+#endif
   auto conv3_out = conv_fwd(cfg.conv3, {bn2_out, conv3_weight});//conv3_inputs);//bn2_out, conv3_weight, conv3_output_size);
 
   at::Tensor conv4_out, residual, bn4_relu_out, bn4_scratch_out;
   if (cfg.has_residual_conv) {
-    //printf("running conv4\n");
+#ifdef VERBOSE
+    printf("running conv4\n");
+#endif
+
     conv4_out = conv_fwd(cfg.conv4, {input, conv4_weight});//conv4_inputs);
 
-    //printf("running bn4\n");
+#ifdef VERBOSE
+    printf("running bn4\n");
+#endif
     bool bn4_relu = false, bn4_eltwise = false;
     auto bn4_ret  = batchnorm_fwd(training, bn4_relu, bn4_eltwise, cfg.bn_eps, {0, 0, 0, 0}/*bn4_padding*/, std::vector<at::Tensor>{conv4_out, bn4_weight, bn4_bias, bn4_mean, bn4_var});
     residual = bn4_ret[0];

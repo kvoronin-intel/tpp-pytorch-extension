@@ -4,26 +4,17 @@ RECORD_FUNCTION("batchnorm_bwd", std::vector<c10::IValue>());
 //   ctx.save_for_backward(input, input_add, weight, mean, var, invstd, relu_mask, relu, eltwise, paddings, output)
 //   inputs += ctx.saved_tensors
 
-#define VERBOSE
+//#define VERBOSE
 
 auto t_GO = inputs[0]; /* grad_output */
 auto t_I  = inputs[1]; /* input */
-at::Tensor t_IA, t_W, t_M, t_V, t_R, t_scratch;
-if (eltwise) {
-  t_IA = inputs[2]; /* input_add */
-  t_W  = inputs[3]; /* weight */
-  t_M  = inputs[4]; /* mean */
-  t_V  = inputs[5]; /* var  */
-  t_R  = inputs[6]; /* relumask */
-  t_scratch  = inputs[7]; /* pre-allocated scratch */
-} else {
-  t_IA = at::empty({0},  torch::TensorOptions().dtype(t_I.dtype()));//inputs[2]; /* input_add */
-  t_W  = inputs[2]; /* weight */
-  t_M  = inputs[3]; /* mean */
-  t_V  = inputs[4]; /* var  */
-  t_R  = inputs[5]; /* relumask */
-  t_scratch  = inputs[6]; /* pre-allocated scratch */
-}
+//t_W, t_M, t_V, t_R, t_scratch;
+auto t_W  = inputs[2]; /* weight */
+auto t_M  = inputs[3]; /* mean */
+auto t_V  = inputs[4]; /* var  */
+auto t_R  = inputs[5]; /* relumask */
+auto t_scratch  = inputs[6]; /* pre-allocated scratch */
+
 #if 0
 auto t_W  = inputs[3]; /* weight */
 auto t_M  = inputs[4]; /* mean */
@@ -35,7 +26,7 @@ auto t_scratch  = inputs[7]; /* pre-allocated scratch */
 auto t_grad_input     = at::empty(t_I.sizes(),  torch::TensorOptions().dtype(t_I.dtype()));
 at::Tensor t_grad_input_add;
 if (eltwise)
-  t_grad_input_add = at::empty(t_IA.sizes(),  torch::TensorOptions().dtype(t_I.dtype()));
+  t_grad_input_add = at::empty(t_I.sizes(),  torch::TensorOptions().dtype(t_I.dtype()));
 else
   t_grad_input_add = at::empty({0}, torch::TensorOptions().dtype(t_I.dtype()));//inputs[2]; /* input_add */
 
@@ -104,7 +95,6 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 #ifdef VERBOSE
   std::cout << "padding = " << padding << std::endl;
   std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
-  std::cout << "t_IA sizes = " << t_IA.sizes() << std::endl;
   std::cout << "use_hw_blocking spatial_block_size = " << use_hw_blocking << " " << spatial_block_size << std::endl;
   std::cout << "relu eltwise = " << relu << " " << eltwise << std::endl;
 #endif
@@ -128,11 +118,16 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
 #endif
 
+  SCOPEIT_DECL(SetZeroTPP<T>)            zero_hp_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)            zero_wp_tpp;
+
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
 
-  auto zero_hp_tpp = SCOPEIT(SetZeroTPP<T>((pad_h_in * ifwp), bc, bc), EW_ZERO); /* (pad_h_in * ifwp), bc because of row-major for unary */
+  if (pad_h_in > 0)
+    zero_hp_tpp = SCOPEIT(SetZeroTPP<T>((pad_h_in * ifwp), bc, bc), EW_ZERO); /* (pad_h_in * ifwp), bc because of row-major for unary */
 
-  auto zero_wp_tpp = SCOPEIT(SetZeroTPP<T>(pad_w_in, bc, bc), EW_ZERO);          /* pad_w_in, bc because of row-major for unary */
+  if (pad_w_in > 0)
+    zero_wp_tpp = SCOPEIT(SetZeroTPP<T>(pad_w_in, bc, bc), EW_ZERO);          /* pad_w_in, bc because of row-major for unary */
 
   auto coeffs_tpp = SCOPEIT(BatchNormStatCoeffsTPP<float>(bc, eps), NORMALIZE);
 
@@ -200,9 +195,59 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                 zero_wp_tpp(din_add[n][cp][hi][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
+/*
+                if (wb == 0 && ho == 0 && n == 0 && cp == 0) {
+                  for (int i = 0; i < W*bc; i++) {
+                    if (sizeof(T) == 2) {
+                      float tmp = 0.0;
+                      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i])), &tmp, 1);
+                      printf("n = %d, inp[%d] = %u = %f\n", n, i, *(unsigned short*)(&inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i]), tmp);
+                    } else
+                      printf("n = %d,inp[%d] = %f\n", n, i, inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i]);
+                  }
+                  for (int i = 0; i < W*bc; i++) {
+                    if (sizeof(T) == 2) {
+                      float tmp = 0.0;
+                      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(dout[n][cp][ho][wb*(W/num_W_blocks)][i])), &tmp, 1);
+                      printf("n = %d,dout before[%d] = %u = %f\n", n, i, *(unsigned short*)(&dout[n][cp][ho][wb*(W/num_W_blocks)][i]), tmp);
+                    } else
+                      printf("n = %d,dout before[%d] = %f\n", n, i, dout[n][cp][ho][wb*(W/num_W_blocks)][i]);
+                  }
+                  for (int i = 0; i < bc; i++) {
+                    printf("n = %d,gamma[%d] = %f\n", n, i, gamma[cp][i]);
+                  }
+                  for (int i = 0; i < bc; i++) {
+                    printf("n = %d,a[%d] = %f\n", n, i, a[i]);
+                  }
+                  for (int i = 0; i < bc; i++) {
+                    printf("n = %d,b[%d] = %f\n", n, i, b[i]);
+                  }
+                  for (int i = 0; i < 10; i++) {
+                    printf("n = %d before lcl_dgamma_ptr[%d] = %f\n", n, i, lcl_dgamma_ptr[i]);
+                  }
+                }
+*/
                 grad_w_inpadd_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], dout[n][cp][ho][wb*(W/num_W_blocks)], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][wi_start + wb*(W/num_W_blocks)] : NULL,
                                 relu ? relumask[n][cp][ho][wb*(W/num_W_blocks)] : NULL);
+/*
+                if (wb == 0 && ho == 0 && n == 0 && cp == 0) {
+                  for (int i = 0; i < W*bc; i++) {
+                    if (sizeof(T) == 2) {
+                      float tmp = 0.0;
+                      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(dout[n][cp][ho][wb*(W/num_W_blocks)][i])), &tmp, 1);
+                      printf("n = %d,dout after[%d] = %u = %f\n", n, i, *(unsigned short*)(&dout[n][cp][ho][wb*(W/num_W_blocks)][i]), tmp);
+                    } else
+                      printf("n = %d,dout after[%d] = %f\n", n, i, dout[n][cp][ho][wb*(W/num_W_blocks)][i]);
+                  }
+                  for (int i = 0; i < 10; i++) {
+                    printf("n = %d lcl_dgamma_ptr[%d] = %f\n", n, i, lcl_dgamma_ptr[i]);
+                  }
+                  //for (int i = 0; i < 10; i++) {
+                  //  printf("lcl_dbeta_ptr[%d] = %f\n", i, lcl_dbeta_ptr[i]);
+                  //}
+                }
+*/
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
               if (pad_w_in != 0 && eltwise ) {
@@ -257,9 +302,59 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
                 zero_wp_tpp(din_add[n][cp][hi][0]);
               }
               for (int wb = 0; wb < num_W_blocks; wb++) {
+/*
+                if (wb == 0 && ho == 0 && n == 0 && cp == 0) {
+                  for (int i = 0; i < W*bc; i++) {
+                    if (sizeof(T) == 2) {
+                      float tmp = 0.0;
+                      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i])), &tmp, 1);
+                      printf("n = %d, inp[%d] = %u = %f\n", n, i, *(unsigned short*)(&inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i]), tmp);
+                    } else
+                      printf("n = %d,inp[%d] = %f\n", n, i, inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)][i]);
+                  }
+                  for (int i = 0; i < W*bc; i++) {
+                    if (sizeof(T) == 2) {
+                      float tmp = 0.0;
+                      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(dout[n][cp][ho][wb*(W/num_W_blocks)][i])), &tmp, 1);
+                      printf("n = %d,dout before[%d] = %u = %f\n", n, i, *(unsigned short*)(&dout[n][cp][ho][wb*(W/num_W_blocks)][i]), tmp);
+                    } else
+                      printf("n = %d,dout before[%d] = %f\n", n, i, dout[n][cp][ho][wb*(W/num_W_blocks)][i]);
+                  }
+                  for (int i = 0; i < bc; i++) {
+                    printf("n = %d,gamma[%d] = %f\n", n, i, gamma[cp][i]);
+                  }
+                  for (int i = 0; i < bc; i++) {
+                    printf("n = %d,a[%d] = %f\n", n, i, a[i]);
+                  }
+                  for (int i = 0; i < bc; i++) {
+                    printf("n = %d,b[%d] = %f\n", n, i, b[i]);
+                  }
+                  for (int i = 0; i < 10; i++) {
+                    printf("n = %d before lcl_dgamma_ptr[%d] = %f\n", n, i, lcl_dgamma_ptr[i]);
+                  }
+                }
+*/
                 grad_w_inpadd_tpp(inp[n][cp][hi][wi_start + wb*(W/num_W_blocks)], &a[0], &b[0], dout[n][cp][ho][wb*(W/num_W_blocks)], &lcl_dgamma_ptr[0], &lcl_dbeta_ptr[0], gamma[cp],
                                 eltwise ? din_add[n][cp][hi][wi_start + wb*(W/num_W_blocks)] : NULL,
                                 relu ? relumask[n][cp][ho][wb*(W/num_W_blocks)] : NULL);
+/*
+                if (wb == 0 && ho == 0 && n == 0 && cp == 0) {
+                  for (int i = 0; i < W*bc; i++) {
+                    if (sizeof(T) == 2) {
+                      float tmp = 0.0;
+                      libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(dout[n][cp][ho][wb*(W/num_W_blocks)][i])), &tmp, 1);
+                      printf("n = %d,dout after[%d] = %u = %f\n", n, i, *(unsigned short*)(&dout[n][cp][ho][wb*(W/num_W_blocks)][i]), tmp);
+                    } else
+                      printf("n = %d,dout after[%d] = %f\n", n, i, dout[n][cp][ho][wb*(W/num_W_blocks)][i]);
+                  }
+                  for (int i = 0; i < 10; i++) {
+                    printf("n = %d lcl_dgamma_ptr[%d] = %f\n", n, i, lcl_dgamma_ptr[i]);
+                  }
+                  //for (int i = 0; i < 10; i++) {
+                  //  printf("lcl_dbeta_ptr[%d] = %f\n", i, lcl_dbeta_ptr[i]);
+                  //}
+                }
+*/
               }
               /* zeroing out ending [wi_end, ifwp] x bc block for fixed hi */
               if (pad_w_in != 0 && eltwise ) {
@@ -289,6 +384,10 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 #endif /* THREADED_LOOPS */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_bwd_w_inpadd scope */
+
+#ifdef VERBOSE
+  printf("dbg: bn_bwd_w_inpadd scope completed\n"); fflush(0);
+#endif
 
   {
     RECORD_SCOPE(bn_bwd_w_add, {});
@@ -328,6 +427,10 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 #endif /* THREADED_LOOPS */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_bwd_w_add scope */
+
+#ifdef VERBOSE
+  printf("dbg: bn_bwd_w_add scope completed\n"); fflush(0);
+#endif
 
   {
     RECORD_SCOPE(bn_bwd_d, {});
