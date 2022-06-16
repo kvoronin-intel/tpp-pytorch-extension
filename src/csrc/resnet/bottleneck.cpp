@@ -15,10 +15,26 @@ using namespace pcl;
 
 static int my_rank = guess_mpi_rank();
 
+#define FUSED_BOTTLENECK
+
+#ifdef FUSED_BOTTLENECK
+  #warning "FUSED_BOTTLENECK is enabled"
+
+  #define BITS_PER_CHAR 8
+
+  //REGISTER_SCOPE(conv1_bn1_fwd,     "conv1_bn1_fwd");
+
+  REGISTER_SCOPE(fusedbtlnk_conv_fwd,     "fusedbtlnk_conv_fwd");
+
+  REGISTER_SCOPE(fusedbtlnk_bn_fwd_reduce,   "fusedbtlnk_bn_fwd_reduce");
+  REGISTER_SCOPE(fusedbtlnk_bn_fwd_stats,    "fusedbtlnk_bn_fwd_stats");
+  REGISTER_SCOPE(fusedbtlnk_bn_fwd_scale,    "fusedbtlnk_bn_fwd_scale");
+#endif
+
 #define THREADED_LOOPS
 
 #ifdef THREADED_LOOPS
-#   warning "Building conv with threaded loops instead of OpenMP pragmas"
+#   warning "Building bottleneck with threaded loops instead of OpenMP pragmas"
 //#   error   "Building conv with threaded loops instead of OpenMP pragmas is not supported yet"
 #   include "threaded_loops.h"
 #endif
@@ -84,10 +100,18 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-#include "bottleneck_fwd_tmpl.h"
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_fwd_tmpl.h"
+#else
+#   include "bottleneck_fwd_tmpl.h"
+#endif
   } else {
     typedef bfloat16 T;
-#include "bottleneck_fwd_tmpl.h"
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_fwd_tmpl.h"
+#else
+#   include "bottleneck_fwd_tmpl.h"
+#endif
   }
 }
 
@@ -97,10 +121,18 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
   GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-#include "bottleneck_bwd_tmpl.h"
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_bwd_tmpl.h"
+#else
+#   include "bottleneck_bwd_tmpl.h"
+#endif
   } else {
     typedef bfloat16 T;
-#include "bottleneck_bwd_tmpl.h"
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_bwd_tmpl.h"
+#else
+#   include "bottleneck_bwd_tmpl.h"
+#endif
   }
 }
 
