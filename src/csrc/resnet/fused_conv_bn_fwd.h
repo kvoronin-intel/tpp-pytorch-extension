@@ -283,7 +283,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
 
               LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bk], 64);
 
-              if (!use_hw_blocking && i_w % spatial_block_size == 0) {
+              if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
                 //for (int hi = 0; hi < H; hi++) {
                 //  for (int w = 0; w < W; w += spatial_block_size) {
                     //reduce_tpp(inp[n][kb][hi][w], &lcl_sum_X_X2[0]);
@@ -292,7 +292,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                     helper_add_tpp(sumsq_N[i_k][i_n], &lcl_sum_X_X2[bk], sumsq_N[i_k][i_n] );
                 //  }
                 //}
-              } else if ( (i_h * ofwp + i_w) % spatial_block_size == 0) {
+              } else if ( (i_h * h_step * ofwp + (i_w * w_step)) % spatial_block_size == 0) {
                 //for(int hwb=0; hwb < num_HW_blocks; hwb++){
                 //  int hi = (hwb*(H*W/num_HW_blocks))/W;
                 //  int w  = (hwb*(H*W/num_HW_blocks))%W;
@@ -304,6 +304,12 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
               }
             } /* for computing local stats */
           } else { /* for if conv_cfg.avoid_fmas_in_rim == 0 */
+
+            if (fuse_scaling || fuse_stats) {
+              printf("No fusion has been implemented for the case conv_cfg.avoid_fmas_in_rim != 0\n");
+              exit(-1);
+            }
+
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
