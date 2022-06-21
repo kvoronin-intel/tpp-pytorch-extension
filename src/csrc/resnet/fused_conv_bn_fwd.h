@@ -5,12 +5,13 @@
 
 // t_CI and t_CW should be defined outside
 // t_BW, t_BB, t_BM, t_BV, t_BIA should be defined outside
+// t_BW_prev, t_BB_prev, t_BM_prev, t_BV_prev, t_relu_mask_prev, eltwise_prev must be defined outside if fuse_scaling = 1
 
 auto sizes = t_CI.sizes();
 
 const int fuse_stats = 1;//(conv_cfg.avoid_fmas_in_rim == 0 ? 1 : 0);
 const int separate_stats_reduction = 1; /* only value currently supported is 1 */
-//const int fuse_scaling = 0; /* must be defined i n the calling code */
+//const int fuse_scaling = 0; /* must be defined in the calling code */
 
 #ifdef VERBOSE
 std::cout << "CONV+BN meta setup info" << std::endl;
@@ -259,10 +260,138 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
 
-            if (fuse_scaling) {
+            if (fuse_scaling && i_k == 0 && i_r == 0 && i_s == 0) {
               printf("fuse_scaling = 1 has not been implemented yet\n");
               exit(-1);
-            }
+
+#if 0
+              if (eltwise_prev) {
+                printf("fuse_scaling = 1 should not be used when previous bn had eltwise\n");
+                exit(-1);
+              }
+
+#if 0
+          DECL_VLA_PTR_PT_EXT(T,             inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
+          DECL_VLA_PTR_PT_EXT(T,             inp_add,  [Kb][bn_ifhp][bn_ifwp][bk], t_BIA, (hi_start * bn_ifwp + wi_start) * bk);
+          DECL_VLA_PTR_PT    (T,             out,      [Kb][bn_ofhp][bn_ofwp][bk], t_BO);
+          DECL_VLA_PTR_PT    (unsigned char, relumask, [Kb][bn_ofhp][bn_ofwp][bk/BITS_PER_CHAR], t_relu_mask);
+          DECL_VLA_PTR_PT    (float,         gamma,    [bk],                 t_BW);
+          DECL_VLA_PTR_PT    (float,         beta,     [bk],                 t_BB);
+          DECL_VLA_PTR_PT    (float,         mean,     [bk],     t_BM);
+          DECL_VLA_PTR_PT    (float,         var,      [bk],     t_BV);
+
+#endif
+
+              /* loop w.r.t channels blocks over brgemm's inp tensors from the batch */
+              for (int i_c_ = 0; i_c_ < c_step; i_c_++) {
+
+              //DECL_VLA_PTR_PT_EXT(T,             inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
+              //DECL_VLA_PTR_PT_EXT(T,             inp_add,  [Kb][bn_ifhp][bn_ifwp][bk], t_BIA, (hi_start * bn_ifwp + wi_start) * bk);
+
+              DECL_VLA_PTR_PT_EXT(T,             inp_prev, [Cb][bn_ifhp_prev][bn_ifwp_prev][bc], t_CI, (hi_start_prev * bn_ifwp_prev + wi_start_prev) * bc);
+
+              DECL_VLA_PTR_PT    (T,             out,      [Cb][ifhp][ifwp][bc], t_CI);
+              DECL_VLA_PTR_PT    (unsigned char, relumask, [Cb][ifhp][ifwp][bc/BITS_PER_CHAR], t_relu_mask_prev);
+
+              DECL_VLA_PTR_PT    (float,         gamma,    [bc],                 t_BW_prev);
+              DECL_VLA_PTR_PT    (float,         beta,     [bc],                 t_BB_prev);
+
+              DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_BM_prev);
+              DECL_VLA_PTR_PT    (float,         var,      [bc],     t_BV_prev);
+
+              LIBXSMM_ALIGNED(float s[bc], 64);
+              LIBXSMM_ALIGNED(float b[bc], 64);
+
+              auto cb = i_c + i_c_;
+
+              if (i_h == 0 && i_w == 0)
+                coeffs_tpp(mean[cb], var[cb], &s[0], &b[0]);
+    /*
+              if (n == 0 && kb == 0) {
+                for (int i = 0; i < 10; i++)
+                  printf("s[%d] = %f b[%d] = %f \n", i, s[i], i, b[i]);
+              }
+    */
+
+// FIXME: i_w -> i_w * w_step!
+              if (!use_hw_blocking && i_w % spatial_block_size == 0) {
+
+                if (bn_pad_h_in != 0 && i_h == 0 && i_w == 0) {
+                  zero_hp_tpp(out[n][cb][0][0]);
+                }
+
+                if (bn_pad_w_in != 0 && i_h) {
+                  zero_wp_tpp(out[n][cb][ho_prev][0]);
+                }
+
+                //if (!use_hw_blocking && i_w % spatial_block_size == 0) {
+
+                for (int hi_prev = 0, ho_prev = ho_start_prev; hi_prev < H; hi_prev++, ho_prev++) {
+                  /* zeroing out starting [0, wo_start) x bk and [wo_end, bn_ofwp] x bk blocks for fixed ho */
+                  if (bn_pad_w_in != 0) {
+                    zero_wp_tpp(out[n][cb][ho_prev][0]);
+                  }
+
+                  for (int wb = 0; wb < num_W_blocks; wb++) {
+    /*
+              if (n == 0 && kb == 0 && hi == 0 && wb == 0) {
+                for (int i = 0; i < 10; i++) {
+                        if (sizeof(T) == 2) {
+                          float tmp = 0.0;
+                          libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(inp[n][kb][hi][wb*(W/num_W_blocks)][i])), &tmp, 1);
+                          printf("bn inp[%d] = %u = %f\n", i, *(unsigned short*)(&inp[n][kb][hi][wb*(W/num_W_blocks)][i]), tmp);
+                        } else
+                          printf("bn inp[%d] = %f\n", i, inp[n][kb][hi][wb*(W/num_W_blocks)][i]);
+                }
+                for (int i = 0; i < 10; i++)
+                  printf("gamma[%d] = %f beta[%d] = %f \n", i, gamma[kb][i], i, beta[kb][i]);
+              }
+    */
+                    normalize_tpp(inp_prev[n][cb][hi_prev][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[cb], beta[cb],
+                                    eltwise_prev ? NULL /* inp_add[n][kb][hi][wb*(W/num_W_blocks)] */ : NULL,
+                                    out[n][cb][ho_prev][wo_start_prev + wb*(W/num_W_blocks)],
+                                    relu ? relumask[n][cb][ho_prev][wo_start_prev + wb*(W/num_W_blocks)] : NULL);
+    /*
+              if (n == 0 && kb == 0 && hi == 0 && wb == 0) {
+                for (int i = 0; i < 10; i++) {
+                        if (sizeof(T) == 2) {
+                          float tmp = 0.0;
+                          libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&(out[n][kb][ho][wo_start + wb*(W/num_W_blocks)][i])), &tmp, 1);
+                          printf("bn out[%d] = %u = %f\n", i, *(unsigned short*)(&out[n][kb][ho][wo_start + wb*(W/num_W_blocks)][i]), tmp);
+                        } else
+                          printf("bn out[%d] = %f\n", i, out[n][kb][ho][wo_start + wb*(W/num_W_blocks)][i]);
+                }
+              }
+    */
+                  }
+                  /* zeroing out ending [wo_end, bn_ofwp] x bk block for fixed ho */
+                  if (bn_pad_w_in != 0) {
+                    zero_wp_tpp(out[n][cb][ho_prev][wo_end_prev]);
+                  }
+                }
+                /* zeroing out strip [ho_end, bn_ofhp) x bn_ofwp x bk */
+                if (bn_pad_h_in != 0) {
+                  zero_hp_tpp(out[n][cb][ho_end_prev][0]);
+                }
+
+              } else {
+                for(int hwb = 0; hwb < num_HW_blocks; hwb++){
+                  int hi_prev = (hwb*(H*W/num_HW_blocks))/W;
+                  int ho_prev = hi_prev;
+                  int w  = (hwb*(H*W/num_HW_blocks))%W;
+
+                  /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
+                  normalize_tpp(inp_prev[n][cb][hi_prev][w], &s[0], &b[0], gamma[cb], beta[cb],
+                                  eltwise ? NULL /*inp_add[n][kb][hi][w]*/ : NULL,
+                                  out[n][cb][ho_prev][w],
+                                  relu ? relumask[n][cb][ho_prev][w] : NULL);
+                }
+              } /* if-else for the presence of padding */
+
+              } /* for loop over i_c_ */
+#endif
+
+            } /* if fuse_scaling + extra conditions */
 
             brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
                        weight    [i_k][i_c][i_r][i_s][0],
