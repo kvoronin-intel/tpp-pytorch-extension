@@ -23,13 +23,16 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto bn4_var      = inputs[20];
 
   std::vector<long> dummy_size{0};
-  auto dummy_add = at::zeros(dummy_size, input.options());
+  auto dummy_add    = at::zeros(dummy_size, input.options());
   auto dummy_return = at::zeros(dummy_size, input.options());
+  auto dummy_stat   = at::zeros(dummy_size, bn1_weight.options());
 
   auto activation_dtype = input.dtype();
 
   /* FIXME: Fix this! */
   char conv_fwd_loop_specs_str[256] = "Abcdefg";
+
+  auto global_fuse_scaling = 0; /* if set to 1, enables fusion of scaling for bn1 and bn2 in the subsequent convolutions conv2 and conv3 */
 
 #ifdef VERBOSE
   printf("running conv1 + bn1\n");
@@ -65,6 +68,10 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
   auto t_BB  = bn1_bias;
   auto t_BM  = bn1_mean;
   auto t_BV  = bn1_var;
+
+  auto fuse_scaling = 0; /* fusion of scaling for the previous batchnorm into the conv */
+  auto t_BM_prev  = dummy_stat;
+  auto t_BV_prev  = dummy_stat;
 
   #include "fused_conv_bn_fwd.h"
 }
@@ -136,6 +143,10 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   auto t_BM  = bn2_mean;
   auto t_BV  = bn2_var;
 
+  auto fuse_scaling = global_fuse_scaling;
+  auto t_BM_prev  = bn1_mean;
+  auto t_BV_prev  = bn1_var;
+
   #include "fused_conv_bn_fwd.h"
 }
 #else
@@ -184,6 +195,10 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   auto t_BB  = bn4_bias;
   auto t_BM  = bn4_mean;
   auto t_BV  = bn4_var;
+
+  auto fuse_scaling = 0;
+  auto t_BM_prev  = dummy_stat;
+  auto t_BV_prev  = dummy_stat;
 
   #include "fused_conv_bn_fwd.h"
 }
@@ -234,6 +249,10 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
   auto t_BB  = bn3_bias;
   auto t_BM  = bn3_mean;
   auto t_BV  = bn3_var;
+
+  auto fuse_scaling = global_fuse_scaling; /* fusion of scaling for the previous batchnorm into the conv */
+  auto t_BM_prev  = bn2_mean;
+  auto t_BV_prev  = bn2_var;
 
   #include "fused_conv_bn_fwd.h"
 }

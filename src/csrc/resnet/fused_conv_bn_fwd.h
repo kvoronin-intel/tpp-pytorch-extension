@@ -8,6 +8,16 @@
 
 auto sizes = t_CI.sizes();
 
+const int fuse_stats = 1;//(conv_cfg.avoid_fmas_in_rim == 0 ? 1 : 0);
+const int separate_stats_reduction = 1; /* only value currently supported is 1 */
+//const int fuse_scaling = 0; /* must be defined i n the calling code */
+
+#ifdef VERBOSE
+std::cout << "CONV+BN meta setup info" << std::endl;
+std::cout << "fuse_stats   = " << fuse_stats   << std::endl;
+std::cout << "fuse_scaling = " << fuse_scaling << std::endl;
+#endif
+
 int R = conv_cfg.R;
 int S = conv_cfg.S;
 int ofh = conv_cfg.ofh;
@@ -31,6 +41,7 @@ const long N  = sizes[0];
 std::vector<long> conv_output_size{N, Kb, ofhp, ofwp, bk};
 
 #ifdef VERBOSE
+std::cout << "CONV setup info" << std::endl;
 std::cout << "t_CI sizes = " << t_CI.sizes() << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "conv_output_size = " << conv_output_size << std::endl;
@@ -38,17 +49,13 @@ std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << b
 std::cout << "stride_h stride_w = " << conv_cfg.u << " " << conv_cfg.v << std::endl;
 #endif
 
-std::cout << "Got here 0" << std::endl;
 CONV_OUT = at::empty(conv_output_size, torch::TensorOptions().dtype(t_CI.dtype()));
 auto t_CO = CONV_OUT;
-std::cout << "Got here 1" << std::endl;
 
 const long bn_pad_h_in  = bn_padding[0];
 const long bn_pad_w_in  = bn_padding[1];
 const long bn_pad_h_out = bn_padding[2];
 const long bn_pad_w_out = bn_padding[3];
-
-std::cout << "Got here 2" << std::endl;
 
 auto t_BI = BN_IN;
 
@@ -58,10 +65,6 @@ auto bn_sizes = t_BI.sizes();
 const long H  = bn_sizes[2] - 2 * bn_pad_h_in;
 const long W  = bn_sizes[3] - 2 * bn_pad_w_in;
 //const long bk = sizes[4];
-std::cout << "bn_sizes = " << bn_sizes << std::endl;
-std::cout << "bn_padding = " << bn_padding << std::endl;
-
-std::cout << "Got here 3" << std::endl;
 
 const long hi_start      = bn_pad_h_in;
 const long wi_start      = bn_pad_w_in;
@@ -77,20 +80,14 @@ const long bn_ofwp          = W + 2 * bn_pad_w_out;
 
 const float scale = 1.0f /((float)N * H * W);
 
-std::cout << "Got here 4" << std::endl;
-
 std::vector<long> bn_output_size  {N, Kb, bn_ofhp, bn_ofwp, bk};
 std::vector<long> bn_relumask_size{N, Kb, bn_ofhp, bn_ofwp, bk/BITS_PER_CHAR};
-
-std::cout << "Got here 5" << std::endl;
 
 BN_OUT = at::empty(bn_output_size, torch::TensorOptions().dtype(t_BI.dtype()));
 auto t_BO = BN_OUT;
 
 BN_RELU_OUT = at::empty(bn_relumask_size, torch::TensorOptions().dtype(at::kByte));
 auto t_relu_mask = BN_RELU_OUT;
-
-std::cout << "Got here 6" << std::endl;
 
 const long sum_N_offset          = LIBXSMM_UP2(Kb * 2 * bk, 64);
 const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + Kb * N * bk, 64);
@@ -104,39 +101,29 @@ std::vector<long> scratch_size{full_scratch_size};
 BN_SCRATCH_OUT = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
 auto t_scratch = BN_SCRATCH_OUT;
 
-std::cout << "Got here 7" << std::endl;
-
 bool use_hw_blocking = true;
 
 const long num_HW_blocks = (H > W ? H : W);
 const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
 
-std::cout << "Got here 8" << std::endl;
-
 long spatial_block_size = 0;
 
 if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out != 0 ) {
-  std::cout << "W = " << W << " num_W_blocks = " << num_W_blocks << std::endl;
   use_hw_blocking    = false; /* alternative is w blocking ([w, bc] blocks) */
   spatial_block_size = W / num_W_blocks;
 } else {
-  std::cout << "H = " << H << " W = " << W << " num_HW_blocks = " << num_HW_blocks << std::endl;
   use_hw_blocking    = true; /* using [hw, bc] blocks */
   spatial_block_size = H * W / num_HW_blocks;
 }
 
-std::cout << "Got here 9" << std::endl;
-
 #ifdef VERBOSE
+std::cout << "BN setup info" << std::endl;
 std::cout << "bn_padding = " << bn_padding << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "bn_output_size = " << bn_output_size << std::endl;
 std::cout << "t_BI sizes = " << t_BI.sizes() << std::endl;
 std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 #endif
-
-std::cout << "Got here 10" << std::endl;
-
 
 #ifdef VERBOSE
 std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
@@ -239,7 +226,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bk, spatial_block_size, relu, eltwise)), NORMALIZE);
 
-  char nkb_loop_specs_str[256] = "ab"; // "AB";
+  char nkb_loop_specs_str[256] = "AB";
   const long bn_n_step = 1, bn_kb_step = 1;
   auto nkb_loop = ThreadedLoop<2>({
       LoopSpecs{0, N,  bn_n_step,  {/*l1_n_step, l0_n_step*/}},   // Logical N  loop specs
@@ -272,15 +259,50 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
 
+            if (fuse_scaling) {
+              printf("fuse_scaling = 1 has not been implemented yet\n");
+              exit(-1);
+            }
+
             brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
                        weight    [i_k][i_c][i_r][i_s][0],
                        output_off[i_n][i_k][i_h]                 [i_w],
                        B_offsets.get(), A_offsets.get(),
                        Cb_step * r_step * s_step,
                        true);
-            if (i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
+
+            if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               //!!! place to compute partial stats
-            }
+              DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bk],              t_scratch, sum_N_offset);
+              DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bk],              t_scratch, sumsq_N_offset);
+
+              if (i_h == 0 && i_w == 0) {
+                zero_bk_tpp(sum_N  [i_k][i_n]);
+                zero_bk_tpp(sumsq_N[i_k][i_n]);
+              }
+
+              LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bk], 64);
+
+              if (!use_hw_blocking && i_w % spatial_block_size == 0) {
+                //for (int hi = 0; hi < H; hi++) {
+                //  for (int w = 0; w < W; w += spatial_block_size) {
+                    //reduce_tpp(inp[n][kb][hi][w], &lcl_sum_X_X2[0]);
+                    reduce_tpp(output_off[i_n][i_k][i_h][i_w], &lcl_sum_X_X2[0]);
+                    helper_add_tpp(sum_N  [i_k][i_n], &lcl_sum_X_X2[0],  sum_N  [i_k][i_n] );
+                    helper_add_tpp(sumsq_N[i_k][i_n], &lcl_sum_X_X2[bk], sumsq_N[i_k][i_n] );
+                //  }
+                //}
+              } else if ( (i_h * ofwp + i_w) % spatial_block_size == 0) {
+                //for(int hwb=0; hwb < num_HW_blocks; hwb++){
+                //  int hi = (hwb*(H*W/num_HW_blocks))/W;
+                //  int w  = (hwb*(H*W/num_HW_blocks))%W;
+                  //reduce_tpp(inp[n][kb][hi][w], &lcl_sum_X_X2[0]);
+                  reduce_tpp(output_off[i_n][i_k][i_h][i_w], &lcl_sum_X_X2[0]);
+                  helper_add_tpp(sum_N  [i_k][i_n], &lcl_sum_X_X2[0],  sum_N  [i_k][i_n] );
+                  helper_add_tpp(sumsq_N[i_k][i_n], &lcl_sum_X_X2[bk], sumsq_N[i_k][i_n] );
+                //}
+              }
+            } /* for computing local stats */
           } else { /* for if conv_cfg.avoid_fmas_in_rim == 0 */
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
@@ -312,8 +334,8 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
         [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
-    } /* end of the scope with recorded parallel for */
-  } /* end of the conv_fwd scope */
+    } /* end of the fusedbtlnk_conv_fwd scope with recorded parallel for */
+  } /* end of the dummy scope */
 
 //#if 0
 /*
@@ -349,7 +371,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
 #endif
 
   if (training) {
-    {
+    if (!fuse_stats) {
       RECORD_SCOPE(fusedbtlnk_bn_fwd_reduce, {});
       {
         nkb_loop(
@@ -385,10 +407,19 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
           },
           [&]() {},
           [&]() {});
-      } /* end of the scope with recorded parallel for */
-    } /* end of the bn_fwd_reduce scope */
+      } /* end of the fusedbtlnk_bn_fwd_reduce scope with recorded parallel for */
+    } /* for if (!fuse_stats) */
 
-    {
+#if 0
+    DECL_VLA_PTR_PT_EXT(float, sum_N_dbg,    [N][bk],              t_scratch, sum_N_offset);
+    DECL_VLA_PTR_PT_EXT(float, sumsq_N_dbg,  [N][bk],              t_scratch, sumsq_N_offset);
+
+    printf("debugging fuse_stats = %d \n", fuse_stats);
+    for (int i = 0; i < 1 /* Kb */ * N * bk; i++)
+      printf("sum_N_dbg[%d][%d][%d] = %e\n", i/N/bk, (i - N*bk*(i/N/bk))/bk, i%bk, sum_N_dbg[i/N/bk][(i - N*bk*(i/N/bk))/bk][i%bk]);
+#endif
+
+    if (separate_stats_reduction) {
       RECORD_SCOPE(fusedbtlnk_bn_fwd_stats, {});
       {
         kb_loop(
@@ -413,8 +444,8 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
           },
           [&]() {},
           [&]() {});
-      } /* end of the scope with recorded parallel for */
-    } /* end of the bn_fwd_stats scope */
+      } /* end of the fusedbtlnk_bn_fwd_stats scope with recorded parallel for */
+    } /* for if (separate_stats_reduction) */
   } /* end of if (training) for computing the stats */
 
 /*
@@ -430,6 +461,7 @@ for (int i = 0; i < 100; i++) {
 }
 */
 
+  if (!fuse_scaling)
   {
     RECORD_SCOPE(fusedbtlnk_bn_fwd_scale, {});
     {
@@ -526,8 +558,8 @@ for (int i = 0; i < 100; i++) {
         },
         [&]() {},
         [&]() {});
-    } /* end of the scope with recorded parallel for */
-  } /* end of the bn_fwd_scale scope */
+    } /* end of the fusedbtlnk_bn_fwd_scale scope with recorded parallel for */
+  } /* if (!fuse_scaling) */
 //#endif
 
 /*
