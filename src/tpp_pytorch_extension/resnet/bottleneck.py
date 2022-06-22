@@ -33,25 +33,32 @@ import pcl_cgbp_cpp
 class Bottleneck_base(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, eps, stride=1, downsample1=None, downsample2=None, use_groupnorm=False, dtype=torch.float):
-        print("dbg: Bottleneck_base constructor called with inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm dtype = ",
-                  inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm, dtype)
+    def __init__(self, inplanes, planes, eps, stride=1, downsample1=None, downsample2=None, use_groupnorm=False, dtype=torch.float, bc_conv1=None, bc_conv2=None, bc_conv3=None, bk_conv3=None, avoid_fmas_in_rim=None ):
+
+        #print("dbg: Bottleneck_base constructor called with inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm dtype = ",
+        #          inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm, dtype)
         super(Bottleneck_base, self).__init__()
 
         self.use_groupnorm = use_groupnorm
         self.dtype         = dtype
+
+        self.bc_conv1          = bc_conv1
+        self.bc_conv2          = bc_conv2
+        self.bc_conv3          = bc_conv3
+        self.bk_conv3          = bk_conv3
+        self.avoid_fmas_in_rim = avoid_fmas_in_rim
 
         # eltwise is accounted for in the forward()
         # but relu is created here for the PyTorch reference impl
         self.relu = nn.ReLU(inplace=False)
 
         #self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False, dtype=self.dtype)
-        self.conv1 = conv_py.DummyConv2dTPP(inplanes, planes, kernel_size=1, bias=False, dtype=self.dtype)
+        self.conv1 = conv_py.DummyConv2dTPP(inplanes, planes, bc=bc_conv1, bk=bc_conv2, kernel_size=1, bias=False, dtype=self.dtype)
 
         if self.use_groupnorm:
             self.bn1 = nn.GroupNorm(32, planes, eps)
         else:
-            self.bn1 = batchnorm_py.DummyBatchNormTPP(planes, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
+            self.bn1 = batchnorm_py.DummyBatchNormTPP(planes, bc=bc_conv2, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
             #self.bn1 = XsmmBatchNormTPP(planes, eps, relu=True, dtype=self.dtype)
             #self.bn1 = nn.BatchNorm2d(planes, eps)
             #self.bn1  = nn.BatchNorm2d(planes, eps, track_running_stats=False)
@@ -59,23 +66,24 @@ class Bottleneck_base(nn.Module):
         #self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
         #                       padding=1, bias=False, dtype=self.dtype)
         self.conv2 = conv_py.DummyConv2dTPP(planes, planes, kernel_size=3, stride=stride,
-                               padding=1, bias=False, dtype=self.dtype)
+                               padding=1, bias=False, dtype=self.dtype,
+                               bc=bc_conv2, bk=bc_conv3)
 
         if self.use_groupnorm:
             self.bn2 = nn.GroupNorm(32, planes, eps, dtype=self.dtype)
         else:
-            self.bn2 = batchnorm_py.DummyBatchNormTPP(planes, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
+            self.bn2 = batchnorm_py.DummyBatchNormTPP(planes, bc=bc_conv3, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
             #self.bn2 = XsmmBatchNormTPP(planes, eps, relu=True, dtype=self.dtype)
             #self.bn2 = nn.BatchNorm2d(planes, eps, dtype=self.dtype)
             #self.bn2  = nn.BatchNorm2d(planes, eps, track_running_stats=False)
 
         #self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False, dtype=self.dtype)
-        self.conv3 = conv_py.DummyConv2dTPP(planes, planes * 4, kernel_size=1, bias=False, dtype=self.dtype)
+        self.conv3 = conv_py.DummyConv2dTPP(planes, planes * 4, bc=bc_conv3, bk=bk_conv3, kernel_size=1, bias=False, dtype=self.dtype)
 
         if self.use_groupnorm:
             self.bn3 = nn.GroupNorm(32, planes * 4, eps, dtype=self.dtype)
         else:
-            self.bn3 = batchnorm_py.DummyBatchNormTPP(planes * 4, padding=[0, 0, 0, 0], eps=eps, relu=True, eltwise=True, dtype=self.dtype)
+            self.bn3 = batchnorm_py.DummyBatchNormTPP(planes * 4, bc=bk_conv3, padding=[0, 0, 0, 0], eps=eps, relu=True, eltwise=True, dtype=self.dtype)
             #self.bn3 = XsmmBatchNormTPP(planes * 4, eps, relu=True, eltwise=True, dtype=self.dtype)
             #self.bn3  = nn.BatchNorm2d(planes * 4, eps, dtype=self.dtype)
             #self.bn3  = nn.BatchNorm2d(planes * 4, eps, track_running_stats=False)
@@ -533,7 +541,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
 
         if self.config == None:
             if self.use_groupnorm:
-                print("use_groupnorm not implemeneted in the bottleneck in extensions")
+                print("use_groupnorm not implemented in the bottleneck in extensions")
                 exit()
                 """
                 if torch.distributed.is_initialized():
@@ -570,11 +578,13 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
             #print("dbg: created the handle in BottleneckBNTPP")
 
         [conv1_Cblock, conv1_Kblock, conv1_lpblock] = conv_cpp.conv_get_feature_map_blocks(self.conv1.in_channels, self.conv1.out_channels, 0 if self.dtype == torch.float else 1)
+        self.conv1_Cblock = conv1_Cblock # used in the early version of the fwd tuner test
         blocked_input = self.get_blocked_tensor(
             input,
             self.blocked_input_signature,
             [None, conv1_Cblock, None, None],
         )
+
 
         #if not self.training and self.track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
         #    output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.running_mean, self.running_var, self.invstd, self.xsmm_handle, output_size, self.training)

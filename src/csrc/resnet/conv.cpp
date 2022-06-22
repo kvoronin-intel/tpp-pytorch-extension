@@ -116,6 +116,22 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
   return res;
 }
 
+conv_config conv_setup_preset(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
+                              libxsmm_blasint pad_h, libxsmm_blasint pad_w, libxsmm_blasint pad_h_in, libxsmm_blasint pad_w_in, libxsmm_blasint pad_h_out, libxsmm_blasint pad_w_out,
+                              libxsmm_blasint stride, int dtype_int,
+                              libxsmm_blasint bc, libxsmm_blasint bk) //, libxsmm_blasint avoid_fmas_in_rim )
+{
+  conv_config res = conv_setup(N, C, H, W, K, R, S, pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, dtype_int );
+
+  res.bc = bc;
+  res.bk = bk;
+  res.blocksifm = res.C / res.bc;
+  res.blocksofm = res.K / res.bk;
+  //res.avoid_fmas_in_rim = avoid_fmas_in_rim_int;
+
+  return res;
+}
+
 #define HARDCODED_BC (64)
 #define HARDCODED_BK (64)
 
@@ -154,6 +170,7 @@ REGISTER_SUBMODULE(_conv, m) {
   .def(py::init<>())
   .def_readwrite("pad_h",   &conv_config::pad_h);
   //.def_readwrite("initialized", &conv_config::initialized);
-  m.def("conv_setup", &conv_setup, "Pcl CONV setup (params)");
+  m.def("conv_setup", &conv_setup, "Pcl CONV setup (with internally computed block sizes)");
+  m.def("conv_setup_preset", &conv_setup_preset, "Pcl CONV setup (with reset block sizes)");
 }
 

@@ -171,6 +171,8 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
     torch_bn.bias.data = ref_bias_init.clone()
 
      # should be available if setup script has been called (once implemented)
+    bc = opt_bn.Cblock
+    """
     if test_module == 'ext_tpp' and hasattr(batchnorm_cpp,'batchnorm_get_c_block'):
         bc = batchnorm_cpp.batchnorm_get_c_block(C)
     if test_module == 'cnn_tpp' and hasattr(pcl_cgbp_cpp,'bnorm_get_c_block'):
@@ -181,6 +183,7 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
           bc = hardcoded_bc
         else:
           bc = C
+    """
     print("Info: bc = ", bc)
 
     """

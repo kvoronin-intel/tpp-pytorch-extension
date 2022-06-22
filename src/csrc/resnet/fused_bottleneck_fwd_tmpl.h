@@ -1,5 +1,7 @@
 RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
 
+//#define VERBOSE
+
   auto input        = inputs[0];
   auto conv1_weight = inputs[1];
   auto conv2_weight = inputs[2];

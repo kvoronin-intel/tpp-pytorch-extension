@@ -145,6 +145,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
     #          print("i opt_bias_init ref_bias_init = ", i, opt_bias_init.view(-1)[i].item(), ref_bias_init.view(-1)[i].item())
 
      # should be available if setup script has been called
+
+    [bc, bk, lp_block] = [opt_conv.Cblock, opt_conv.Kblock, opt_conv.lp_block]
+
+    """
     if test_module == 'ext_tpp' and hasattr(conv_cpp,'conv_get_feature_map_blocks'):
         [bc, bk, lp_block] = conv_cpp.conv_get_feature_map_blocks(inc, outc, 0 if opt_dtype == torch.float else 1)
     if test_module == 'cnn_tpp' and hasattr(pcl_cgbp_cpp,'conv_get_feature_map_blocks'):
@@ -160,6 +164,7 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
           bk = hardcoded_bc
         else:
           bk = 1
+    """
     print("Info: bc, bk = ", bc, bk)
 
     #y1 = opt_conv(x1, x1_add)

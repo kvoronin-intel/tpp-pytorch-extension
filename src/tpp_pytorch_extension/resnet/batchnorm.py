@@ -130,7 +130,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
 class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
 
-    def __init__(self, num_channels, padding, eps, momentum=0.1, affine=True, track_running_stats=True, relu=False, eltwise=False, dtype=torch.float32):
+    def __init__(self, num_channels, padding, eps, momentum=0.1, affine=True, track_running_stats=True, relu=False, eltwise=False, dtype=torch.float32, bc = None):
         #torch.nn.BatchNorm2d.__init__(self, num_channels, eps, momentum, affine, track_running_stats, device=None, dtype=dtype) # weirdly, device is reported as unknown keyword when resnet cnn code is run
         torch.nn.BatchNorm2d.__init__(self, num_channels, eps, momentum, affine, track_running_stats, dtype=dtype)
 
@@ -183,6 +183,11 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         #  self.register_parameter('num_batches_tracked', None)
         self.reset_parameters()
 
+        if bc != None:
+            self.Cblock = bc
+        else:
+            self.Cblock = batchnorm_cpp.batchnorm_get_c_block(self.C)
+
     def reset_running_stats(self):
         if self.track_running_stats:
           self.running_mean.zero_()
@@ -206,7 +211,6 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
 
         if N != self.N:
           self.N = N
-          self.Cblock = batchnorm_cpp.batchnorm_get_c_block(self.C)
 
         blocked_input = self.get_blocked_tensor(
             input,

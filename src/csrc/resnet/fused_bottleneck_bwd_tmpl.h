@@ -46,19 +46,17 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto bn4_scratch   = inputs[37];
 
   std::vector<long> dummy_size{0};
-  auto dummy_add = at::zeros(dummy_size, conv1_input.options());
+  auto dummy_add    = at::zeros(dummy_size, conv1_input.options());
   auto dummy_return = at::zeros(dummy_size, conv1_input.options());
 
   at::Tensor  conv1_grad_weight, conv2_grad_weight, conv3_grad_weight, conv4_grad_weight,
-      bn1_grad_gamma, bn2_grad_gamma, bn3_grad_gamma, bn4_grad_gamma,
-          bn1_grad_beta, bn2_grad_beta, bn3_grad_beta, bn4_grad_beta,
+              bn1_grad_gamma, bn2_grad_gamma, bn3_grad_gamma, bn4_grad_gamma,
+              bn1_grad_beta,  bn2_grad_beta,  bn3_grad_beta,  bn4_grad_beta,
               conv1_grad_input, conv4_grad_input;
 
-  std::cout << "conv1_input dtype = " << conv1_input.dtype() << " sizes = " << conv1_input.sizes() << std::endl;
-  std::cout << "bn1_weight dtype = " << bn1_weight.dtype() << " sizes = " << bn1_weight.sizes() << std::endl;
-  std::cout << "bn3_weight dtype = " << bn3_weight.dtype() << " sizes = " << bn3_weight.sizes() << std::endl;
-
-  //printf("running bn3 bwd\n");
+#ifdef VERBOSE
+  printf("running bn3 bwd\n");
+#endif
 
   bool bn3_relu = true, bn3_eltwise = true;
   auto residual           = bn4_out; // FIXME: Hopefully an alias and not a memory leak
@@ -69,7 +67,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   bn3_grad_gamma          = bn3_grad_ret[2];
   bn3_grad_beta           = bn3_grad_ret[3];
 
-  //printf("running conv3 bwd\n");
+#ifdef VERBOSE
+  printf("running conv3 bwd\n");
+#endif
 
   bn2_out.requires_grad_(true);
   auto conv3_grad_ret   = conv_bwd(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight});
@@ -77,7 +77,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto conv3_grad_input = conv3_grad_ret[0];
   conv3_grad_weight     = conv3_grad_ret[1];
 
-  //printf("running bn2 bwd\n");
+#ifdef VERBOSE
+  printf("running bn2 bwd\n");
+#endif
 
   bool bn2_relu = true, bn2_eltwise = false;
   auto bn2_grad_ret   = batchnorm_bwd(bn2_relu, bn2_eltwise, cfg.bn_eps, {cfg.pad_size, cfg.pad_size, 0, 0}, {conv3_grad_input, conv2_out, bn2_weight, bn2_mean, bn2_var, bn2_relu_out, bn2_scratch});
@@ -86,7 +88,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   bn2_grad_gamma      = bn2_grad_ret[1];
   bn2_grad_beta       = bn2_grad_ret[2];
 
-  //printf("running conv2 bwd\n");
+#ifdef VERBOSE
+  printf("running conv2 bwd\n");
+#endif
 
   bn1_out.requires_grad_(true);
   auto conv2_grad_ret   = conv_bwd(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight});
@@ -94,7 +98,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto conv2_grad_input = conv2_grad_ret[0];
   conv2_grad_weight     = conv2_grad_ret[1];
 
-  //printf("running bn1 bwd\n");
+#ifdef VERBOSE
+  printf("running bn1 bwd\n");
+#endif
 
   bool bn1_relu = true, bn1_eltwise = false;
   auto bn1_grad_ret   = batchnorm_bwd(bn1_relu, bn1_eltwise, cfg.bn_eps, {0, 0, cfg.pad_size, cfg.pad_size}, {conv2_grad_input, conv1_out, bn1_weight, bn1_mean, bn1_var, bn1_relu_out, bn1_scratch});
@@ -103,7 +109,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   bn1_grad_gamma      = bn1_grad_ret[1];
   bn1_grad_beta       = bn1_grad_ret[2];
 
-  //printf("running conv1 bwd\n");
+#ifdef VERBOSE
+  printf("running conv1 bwd\n");
+#endif
 
   conv1_input.requires_grad_(true);
   auto conv1_grad_ret = conv_bwd(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight});
@@ -113,7 +121,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
   if (cfg.has_residual_conv) {
 
-    //printf("running bn4 bwd\n");
+#ifdef VERBOSE
+    printf("running bn4 bwd\n");
+#endif
 
     bool bn4_relu = false, bn4_eltwise = false;
     auto bn4_grad_ret   = batchnorm_bwd(bn4_relu, bn4_eltwise, cfg.bn_eps, {0, 0, 0, 0}, {bn3_grad_input_add, conv4_out, bn4_weight, bn4_mean, bn4_var, bn4_relu_out, bn4_scratch});
@@ -122,7 +132,9 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     bn4_grad_gamma      = bn4_grad_ret[1];
     bn4_grad_beta       = bn4_grad_ret[2];
 
-    //printf("running conv4 bwd\n");
+#ifdef VERBOSE
+    printf("running conv4 bwd\n");
+#endif
 
     conv1_input.requires_grad_(true);
     auto conv4_grad_ret = conv_bwd(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight});
