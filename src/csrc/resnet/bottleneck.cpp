@@ -93,10 +93,12 @@ typedef struct bottleneck_bn_config {
   /* Note: batchnorms do not have configs in the extension code */
 } bottleneck_bn_config;
 
-std::vector<at::Tensor> bottleneck_bn_fwd(
+std::vector<at::Tensor> bottleneck_bn_fwd_ext(
     bottleneck_bn_config cfg,
     bool training,
-    std::vector<at::Tensor> inputs) {
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::vector<std::string> tuning_strings) {
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
@@ -113,6 +115,22 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
 #   include "bottleneck_fwd_tmpl.h"
 #endif
   }
+}
+
+std::vector<at::Tensor> bottleneck_bn_fwd(
+    bottleneck_bn_config cfg,
+    bool training,
+    std::vector<at::Tensor> inputs) {
+  /* -1 for avoid_fmas_in_rim means that this flag will be taken out of the conv_cfg passed into particular conv+bn fusion code */
+  int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
+  int c1_block = 1, k1_block, c2_block = 1, k2_block, c3_block = 1, k3_block, c4_block = 1, k4_block;
+  int avoid_fmas_in_rim = -1;
+  std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
+                                         c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
+                                         avoid_fmas_in_rim};
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+  return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings);
 }
 
 std::vector<at::Tensor> bottleneck_bn_bwd(
@@ -266,6 +284,28 @@ bottleneck_bn_config bottleneck_bn_setup_fused_fwd_tuner(libxsmm_blasint N, libx
   return res;
 }
 
+double bottleneck_bn_fwd_get_gflop(bottleneck_bn_config cfg)
+{
+  double gflop_convs = 0, gflop_bns = 0;
+  //double gflop = (2.0*(double)n_iters*(double)N*(double)C*(double)K*(double)R*(double)S*(double)ofh*(double)ofw)/(1000*1000*1000);
+
+  /* gflop count for convolutions */
+  gflop_convs += (2.0*(double)cfg.conv1.N*(double)cfg.conv1.C*(double)cfg.conv1.K*(double)cfg.conv1.R*(double)cfg.conv1.S*(double)cfg.conv1.ofh*(double)cfg.conv1.ofw)/(1000*1000*1000);
+  gflop_convs += (2.0*(double)cfg.conv2.N*(double)cfg.conv2.C*(double)cfg.conv2.K*(double)cfg.conv2.R*(double)cfg.conv2.S*(double)cfg.conv2.ofh*(double)cfg.conv2.ofw)/(1000*1000*1000);
+  gflop_convs += (2.0*(double)cfg.conv3.N*(double)cfg.conv3.C*(double)cfg.conv3.K*(double)cfg.conv3.R*(double)cfg.conv3.S*(double)cfg.conv3.ofh*(double)cfg.conv3.ofw)/(1000*1000*1000);
+  if (cfg.has_residual_conv)
+    gflop_convs += (2.0*(double)cfg.conv4.N*(double)cfg.conv4.C*(double)cfg.conv4.K*(double)cfg.conv4.R*(double)cfg.conv4.S*(double)cfg.conv4.ofh*(double)cfg.conv4.ofw)/(1000*1000*1000);
+
+  /* gflop count for batchnorms */
+  double coeff_batchnorm = 4.0;
+  gflop_bns += coeff_batchnorm * (double)cfg.conv1.N * (double)cfg.conv1.K * (double)cfg.conv1.ofh * (double)cfg.conv1.ofw / (1000*1000*1000);
+  gflop_bns += coeff_batchnorm * (double)cfg.conv2.N * (double)cfg.conv2.K * (double)cfg.conv2.ofh * (double)cfg.conv2.ofw / (1000*1000*1000);
+  gflop_bns += coeff_batchnorm * (double)cfg.conv3.N * (double)cfg.conv3.K * (double)cfg.conv3.ofh * (double)cfg.conv3.ofw / (1000*1000*1000);
+  if (cfg.has_residual_conv)
+    gflop_bns += coeff_batchnorm * (double)cfg.conv4.N * (double)cfg.conv4.K * (double)cfg.conv4.ofh * (double)cfg.conv4.ofw / (1000*1000*1000);
+
+  return gflop_convs + gflop_bns;
+}
 
 REGISTER_SUBMODULE(_bottleneck, m) {
   m.def(
@@ -281,5 +321,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   .def_readwrite("has_residual_conv", &bottleneck_bn_config::has_residual_conv);
   m.def("bottleneck_bn_setup", &bottleneck_bn_setup, "Pcl BOTTLENECK BN setup (simple version)");
   m.def("bottleneck_bn_setup_fused_fwd_tuner", &bottleneck_bn_setup_fused_fwd_tuner, "Pcl BOTTLENECK BN setup (custom version for tuning fwd of the fused bottleneck)");
+  m.def("bottleneck_bn_fwd_ext", &bottleneck_bn_fwd_ext, "Pcl BOTTLENECK BN forward with tuning params");
+  m.def("bottleneck_bn_fwd_get_gflop", &bottleneck_bn_fwd_get_gflop, "Pcl BOTTLENECK BN forward gflop count");
 }
 

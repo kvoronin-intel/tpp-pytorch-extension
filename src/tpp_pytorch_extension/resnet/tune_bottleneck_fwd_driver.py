@@ -45,7 +45,9 @@ parser.add_argument('--use-physical-3x3-padding', action="store_true", default=T
 
 parser.add_argument('--use-groupnorm', action="store_true", default=False, dest='use_groupnorm')
 
-parser.add_argument('--block-sizes', nargs="+", type=int)
+parser.add_argument('--block-sizes', nargs="+", type=int, help='block sizes: bc_conv1, bc_conv2, bc_conv3, bk_conv3')
+parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h1_block, w1_block, ... h4/w4 (8 numbers); c1_block, k1_block, ... (8 numbers); avoid_fmas_in_rim')
+parser.add_argument('--tuning-strings', nargs="+", default=None, type=str, help='conv1_string, conv2_string, conv3_string, conv4_string')
 #import pdb
 
 # When physical padding is on, rims can be nans
@@ -56,13 +58,45 @@ def gn_init(m, zero_init=False):
     m.weight.data.fill_(0. if zero_init else 1.)
     m.bias.data.zero_()
 
-def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module):
+def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, tuning_params, tuning_strings):
     #logging.info("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
     #        N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module)
     print("info: run_test_bottleneck called with N H W inc outc bc_conv1 bc_conv2 bc_conv3 bk_conv3 stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
             N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module)
 
-    avoid_fmas_in_rim = False
+    channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
+
+    if tuning_params is not None and len(tuning_params) != 17:
+        print("Wrong length of the tuning params (must be 17 if present) = ", tuning_params, len(tuning_params))
+        exit()
+
+    if tuning_params is not None:
+        if test_module != 'ext_bottleneck':
+            print("Custom tuning params can only be used for ext_bottleneck test_module")
+            exit()
+        [h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
+         c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
+         avoid_fmas_in_rim] = tuning_params
+        print("info: tuning params: h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block = ", h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block)
+        print("info: tuning params: c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block = ", c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block)
+        print("info: tuning params: avoid_fmas_in_rim = ", avoid_fmas_in_rim)
+    else:
+        tuning_params = None
+        print("info: tuning params are empty")
+
+    if tuning_strings is not None and len(tuning_strings) != 4:
+        print("Wrong length of the tuning strings (must be 4 if present) = ", tuning_strings, len(tuning_strings))
+        exit()
+
+    if tuning_strings is not None:
+        if test_module != 'ext_bottleneck':
+            print("Custom tuning strings can only be used for ext_bottleneck test_module")
+            exit()
+        [c1_loop_string, c2_loop_string, c3_loop_string, c4_loop_string] = tuning_strings
+        print("info: tuning strings: c1_string c2_string c3_string c4_string = ", c1_loop_string, c2_loop_string, c3_loop_string, c4_loop_string)
+    else:
+        tuning_strings = None
+        print("info: tuning strings are empty")
 
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         print("One of the modules is using bf16 hence padding input channels to an even number")
@@ -189,7 +223,11 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
     #logging.debug("running opt bottleneck forward")
     print("running opt bottleneck forward")
-    y1 = opt_bottleneck(x1)
+    if test_module == 'ext_bottleneck':
+        print("ext_bottleneck forward is called with tuning_params and tuning_strings")
+        y1 = opt_bottleneck(x1, tuning_params=tuning_params, tuning_strings=tuning_strings)
+    else:
+        y1 = opt_bottleneck(x1)
 
     z1 = y1.mean()
     #z1.backward(retain_graph=True)
@@ -237,6 +275,10 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     #exit()
 
     if with_perf:
+        #if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
+        #    print("Error: performance is only measured when tuning_params and tuning_strings are set")
+        #    exit()
+
         bottleneck_cfg = opt_bottleneck.config
         #self.config = bottleneck_cpp.bottleneck_bn_setup(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
         #                                                         1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1)
@@ -268,7 +310,10 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("warmup_niter = ", warmup_niter)
 
         for i in range(warmup_niter):
-            bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
+            if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
+                bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
+            else:
+                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings)
 
         timed_niter = 10
         #logging.info("timed_niter = ", timed_niter)
@@ -276,11 +321,16 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         time_start = time.time()
         for i in range(timed_niter):
-            bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
+            if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
+                bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
+            else:
+                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings)
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niter
 
         print("Final perf time: ", time_per_iter)
+        gflop = bottleneck_cpp.bottleneck_bn_fwd_get_gflop(bottleneck_cfg)
+        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))
 
         #print("Error: performance part is not implemented for this test!")
         #exit()
@@ -297,6 +347,9 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
 def main():
     xsmm_cpp.init_libxsmm()
     #pcl_cgbp.init_libxsmm()
+
+    #print("block_sizes = ", args.block_sizes, len(args.block_sizes))
+    #print("tuning_params = ", args.tuning_params, len(args.tuning_params))
 
     #logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
@@ -324,7 +377,7 @@ def main():
             [N, H, W, inc, outc, stride, expansion] = list(integer_map)
             eps = float(eps)
             run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module)
+                                opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings)
     exit()
 
     # Just a single size run
@@ -340,7 +393,8 @@ def main():
     expansion = 4 # Fixed
     has_downsample = True
 
-    run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module)
+    run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype,
+                        args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings)
 
 if __name__ == "__main__":
     args = parser.parse_args()

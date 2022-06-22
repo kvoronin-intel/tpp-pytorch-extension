@@ -5,17 +5,23 @@
 // t_CI and t_CW should be defined outside
 // t_BW, t_BB, t_BM, t_BV, t_BIA should be defined outside
 // t_BW_prev, t_BB_prev, t_BM_prev, t_BV_prev, t_relu_mask_prev, eltwise_prev must be defined outside if fuse_scaling = 1
+// h_block, w_block, c_block, k_block, avoid_fmas_in_rim must be defined outside
 
 auto sizes = t_CI.sizes();
 
-const int fuse_stats = 1;//(conv_cfg.avoid_fmas_in_rim == 0 ? 1 : 0);
+const int fuse_stats = (avoid_fmas_in_rim == 0 ? 1 : 0);
 const int separate_stats_reduction = 1; /* only value currently supported is 1 */
 //const int fuse_scaling = 0; /* must be defined in the calling code */
 
+char conv_fwd_loop_specs_str[256];
+std::strcpy(conv_fwd_loop_specs_str, conv_loop_string.c_str());
+
 #ifdef VERBOSE
-std::cout << "CONV+BN meta setup info" << std::endl;
-std::cout << "fuse_stats   = " << fuse_stats   << std::endl;
-std::cout << "fuse_scaling = " << fuse_scaling << std::endl;
+std::cout << "CONV+BN meta setup info"           << std::endl;
+std::cout << "fuse_stats    = " << fuse_stats    << std::endl;
+std::cout << "fuse_scaling  = " << fuse_scaling  << std::endl;
+std::cout << "tuning_params = " << tuning_params << std::endl;
+std::cout << "conv_fwd_loop_specs_str = " << conv_fwd_loop_specs_str << std::endl;
 #endif
 
 int R = conv_cfg.R;
@@ -46,7 +52,8 @@ std::cout << "t_CI sizes = " << t_CI.sizes() << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "conv_output_size = " << conv_output_size << std::endl;
 std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
-std::cout << "stride_h stride_w = " << conv_cfg.u << " " << conv_cfg.v << std::endl;
+std::cout << "stride_h stride_w = " << stride_h << " " << stride_w << std::endl;
+std::cout << "conv_pad_h_out conv_pad_w_out = " << conv_pad_h_out << " " << conv_pad_w_out << std::endl;
 #endif
 
 CONV_OUT = at::empty(conv_output_size, torch::TensorOptions().dtype(t_CI.dtype()));
@@ -130,11 +137,11 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 #endif
 //return std::vector<at::Tensor>({t_CO});
 
-  auto gemm_n = ofw;
+  auto gemm_n = ofw / w_block;
   auto gemm_m = bk;
   auto gemm_k = bc;
 
-  long Cb_step = Cb;
+  long Cb_step = Cb / c_block;
 
   //std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
 
@@ -145,7 +152,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 
   zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
-  if ((R == 1 && S == 1) || (conv_cfg.avoid_fmas_in_rim == 1)) {
+  if ((R == 1 && S == 1) || (avoid_fmas_in_rim == 1)) {
     brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
     brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
 
@@ -176,11 +183,11 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   long c_step = Cb_step;
   long k_step = 1;
   long h_step = 1;
-  long w_step = ofw;
+  long w_step = ofw / w_block;
   long r_step = R;
   long s_step = S;
 
-  if (conv_cfg.avoid_fmas_in_rim == 1) {
+  if (avoid_fmas_in_rim == 1) {
     r_step = 1;
     s_step = 1;
   }
@@ -190,16 +197,15 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
                                                                                                 << Kb << " " << k_step << " " << ofh << " " << h_step << " "
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
-
-  std::cout << "conv_pad_h_out conv_pad_w_out = " << conv_pad_h_out << " " << conv_pad_w_out << std::endl;
-  std::cout << "avoid fmas in rim = " <<  conv_cfg.avoid_fmas_in_rim << std::endl;
+  std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
+  std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},//, true},
       LoopSpecs{0, Cb, c_step},
-      LoopSpecs{0, Kb, k_step},
-      LoopSpecs{0, ofh, h_step},
+      LoopSpecs{0, Kb, k_step, {k_block}},
+      LoopSpecs{0, ofh, h_step, {h_block}},
       LoopSpecs{0, ofw, w_step},
       LoopSpecs{0, R, r_step},
       LoopSpecs{0, S, s_step}},
@@ -253,7 +259,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
           DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_CI);
           DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_CW);
 
-          if (conv_cfg.avoid_fmas_in_rim == 0) {
+          if (avoid_fmas_in_rim == 0) {
 
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
@@ -293,10 +299,10 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                 helper_add_tpp(sumsq_N[i_k][i_n], &lcl_sum_X_X2[bk], sumsq_N[i_k][i_n] );
               }
             } /* for computing local stats */
-          } else { /* for if conv_cfg.avoid_fmas_in_rim == 0 */
+          } else { /* for if avoid_fmas_in_rim == 0 */
 
             if (fuse_scaling || fuse_stats) {
-              printf("No fusion has been implemented for the case conv_cfg.avoid_fmas_in_rim != 0\n");
+              printf("No fusion has been implemented for the case avoid_fmas_in_rim != 0\n");
               exit(-1);
             }
 
@@ -326,7 +332,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                          Cb_step,
                          true);
             }
-          } /* for if-else conv_cfg.avoid_fmas_in_rim == 0 */
+          } /* for if-else avoid_fmas_in_rim == 0 */
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
         [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
