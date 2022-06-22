@@ -478,6 +478,7 @@ class BottleneckApplyBNTPP(Function):
 
 
         return (None, None, # for handle and training arguments in forward
+                None, None, # for tuning_params and tuning_scripts
                 grad_input,
                 grad_c1w, grad_c2w, grad_c3w, grad_c4w,
                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
