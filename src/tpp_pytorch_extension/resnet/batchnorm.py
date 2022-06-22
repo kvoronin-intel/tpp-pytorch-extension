@@ -187,6 +187,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
             self.Cblock = bc
         else:
             self.Cblock = batchnorm_cpp.batchnorm_get_c_block(self.C)
+        #print("dbg: self.Cblock = ", self.Cblock)
 
     def reset_running_stats(self):
         if self.track_running_stats:

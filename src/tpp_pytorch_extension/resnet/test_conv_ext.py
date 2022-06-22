@@ -22,15 +22,18 @@ parser.add_argument("--with-perf", action="store_true", default=False, help='if 
 parser.add_argument('--use-bf16-opt', action="store_true", default=False, dest='use_bf16_opt')
 parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='use_bf16_ref')
 
+parser.add_argument('--bc',  nargs='?', type=int)
+parser.add_argument('--bk',  nargs='?', type=int)
+
 #import pdb
 
 global_counter = 0
 
 #torch.autograd.set_detect_anomaly(True)
 
-def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, test_module):
-    print("debug: run_test_conv called with N H W inc outc K stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_perf test_module ",
-            N, H, W, inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, test_module)
+def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, test_module):
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_perf test_module ",
+            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, test_module)
 
     global global_counter
 
@@ -41,17 +44,21 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         if inc % 2 != 0:
             inc = inc + 1
 
+    if (bc != None or bk != None) and test_module != 'ext_tpp':
+        print("Custom block sizes can only be used for ext_tpp test_module")
+        exit()
+
     opt_has_physical_padding = False
 
     torch.manual_seed(0)
     if test_module == 'cnn_tpp':
         print("info: testing TPP module from CNN (pcl_cgbp)")
-        opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype)
+        opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype)
         hardcoded_bc=64
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
         print("caution: TPP module from extensions only works with physical padding")
-        opt_conv = conv_py.DummyConv2dTPP(inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype)
+        opt_conv = conv_py.DummyConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk)
         opt_has_physical_padding = True
         hardcoded_bc=64
     elif test_module == 'handlebased':
@@ -59,7 +66,7 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         if opt_dtype != torch.float:
             print("error: handlebased testing is only implemented for float")
             exit()
-        opt_conv = pcl_cgbp.XsmmConv2d(inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode)
+        opt_conv = pcl_cgbp.XsmmConv2d(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode)
         hardcoded_bc=64
     else:
         print("test_module not supported, test_module = ", test_module)
@@ -76,11 +83,11 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         input_hw_padding  = [0, 0, 0, 0]
         output_hw_padding = [0, 0, 0, 0]
 
-    torch_conv = torch.nn.Conv2d(inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, device=None, dtype=ref_dtype)
+    torch_conv = torch.nn.Conv2d(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, device=None, dtype=ref_dtype)
 
     torch.manual_seed(0)
 
-    weight = torch.randn([outc, inc//groups, K, K], requires_grad=True)
+    weight = torch.randn([outc, inc//groups, R, R], requires_grad=True)
     #weight = torch.ones_like(weight)
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         weight_bf16 = weight.to(torch.bfloat16)
@@ -275,7 +282,7 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
     """
     counter = 0
     counter_reldiff = 0
-    for i in range(inc*outc*K*K):
+    for i in range(inc*outc*R*R):
         ind = i
         val_ref = ref_weight_grad.view(-1)[ind].item()
         val_opt = opt_weight_grad_unblocked.view(-1)[ind].item()
@@ -288,10 +295,12 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
         if (reldiff > 1e-1):
             counter_reldiff = counter_reldiff + 1
             print("reldiff is too high for ind, val_ref val_opt ", ind, reldiff, val_ref, val_opt);
-    print("Stats: bad diffs     are X out of Y:", counter, inc*outc*K*K)
-    print("Stats: bad reldiffs  are X out of Y:", counter_reldiff, inc*outc*K*K)
+    print("Stats: bad diffs     are X out of Y:", counter, inc*outc*R*R)
+    print("Stats: bad reldiffs  are X out of Y:", counter_reldiff, inc*outc*R*R)
     """
 
+    return
+    #exit()
 
     # Does not work at the moment for bwd
     if with_perf:
@@ -376,6 +385,10 @@ def run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_
 def main():
     opt_dtype = torch.float if not args.use_bf16_opt else torch.bfloat16
     ref_dtype = torch.float if not args.use_bf16_ref else torch.bfloat16
+
+    bc = args.bc
+    bk = args.bk
+
     #with open("resnet50_conv_test_data.data") as f:
     #with open("resnet50_conv_test_data_extended.data") as f:
     #with open("resnet50_conv_test_data_extended_1thr.data") as f:
@@ -390,8 +403,8 @@ def main():
             #print("line")
             #print(type(line))
             #print(line)
-            [N, H, W, inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
-            #[inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
+            [N, H, W, inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
+            #[inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
             string_list = list(line.strip().split(" "))
             has_bias=False if has_bias.strip() == 'False' else True
             padding_mode=padding_mode.strip()
@@ -401,18 +414,20 @@ def main():
             #print(string_list[:10])
             integer_map = map(int, string_list[:10])
             #print(integer_map)
-            [N, H, W, inc, outc, K, stride, padding, dilation, groups] = list(integer_map)
-            #[inc, outc, K, stride, padding, dilation, groups] = list(integer_map)
+            [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
+            #[inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
             #print(type(inc))
             #print(type(groups))
             #print(type(has_bias))
-            run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+            run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
 
     # Just a single size run
     inc=3
     outc=64
-    K=7
+    bc=64
+    bk=64
+    R=7
     stride=2
     padding=3
     has_bias=False
@@ -425,7 +440,7 @@ def main():
     H=224
     W=224
 
-    run_test_conv(N, H, W, inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.test_module)
 
 if __name__ == "__main__":
     args = parser.parse_args()

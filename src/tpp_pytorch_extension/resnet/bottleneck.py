@@ -46,7 +46,11 @@ class Bottleneck_base(nn.Module):
         self.bc_conv2          = bc_conv2
         self.bc_conv3          = bc_conv3
         self.bk_conv3          = bk_conv3
-        self.avoid_fmas_in_rim = avoid_fmas_in_rim
+        self.avoid_fmas_in_rim = avoid_fmas_in_rim if avoid_fmas_in_rim != None else False
+        if self.bc_conv1 is not None or self.bc_conv2 is not None or self.bc_conv3 is not None or self.bk_conv3 is not None:
+            self.preset_blocksizes = True
+        else:
+            self.preset_blocksizes = False
 
         # eltwise is accounted for in the forward()
         # but relu is created here for the PyTorch reference impl
@@ -297,6 +301,20 @@ class BottleneckApplyBNTPP(Function):
          #b1s, b2s, b3s, b4s ) = inputs
 
         """
+        for i in range(64):
+            ind = i
+            print("ind c1w b1w c3w b3w", ind, c1w.view(-1)[ind].item(), b1w.view(-1)[ind].item(), c3w.view(-1)[ind].item(), b3w.view(-1)[ind].item())
+
+        for i in range(64):
+            ind = i
+            print("ind c1o b1o c2o b2o c3o b3o", ind, conv1_out.view(-1)[ind].item(), bn1_out.view(-1)[ind].item(), conv2_out.view(-1)[ind].item(), bn2_out.view(-1)[ind].item(), conv3_out.view(-1)[ind].item(), bn3_out.view(-1)[ind].item())
+
+        for i in range(64):
+            ind = i
+            print("ind out", ind, output.view(-1)[ind].item())
+        """
+
+        """
         #print("nan check in bottleneck for input after, nancount = ", torch.isnan(input.view(-1)).sum())
         print("nan check in bottleneck for conv1_out, nancount = ", torch.isnan(conv1_out.view(-1)).sum())
         print("nan check in bottleneck for bn1_out, nancount = ", torch.isnan(bn1_out.view(-1)).sum())
@@ -463,11 +481,13 @@ class BottleneckApplyBNTPP(Function):
 # Generic monolithic bottleneck class for batchnorm/groupnorm bottleneck (with a control flag for the norm in the constructor and if-switches)
 class BottleneckTPP(BlockedModule, Bottleneck_base):
 
-    def __init__(self, inplanes, planes, eps, stride=1, use_physical_3x3_padding=False, downsample1=None, downsample2=None, use_groupnorm=False, dtype=torch.float):
-        super(BottleneckTPP, self).__init__(inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm=use_groupnorm, dtype=dtype)
+    def __init__(self, inplanes, planes, eps, stride=1, use_physical_3x3_padding=False, downsample1=None, downsample2=None, use_groupnorm=False, dtype=torch.float,
+                 bc_conv1=None, bc_conv2=None, bc_conv3=None, bk_conv3=None, avoid_fmas_in_rim=None):
+        super(BottleneckTPP, self).__init__(inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm=use_groupnorm, dtype=dtype,
+                                            bc_conv1=bc_conv1, bc_conv2=bc_conv2, bc_conv3=bc_conv3, bk_conv3=bk_conv3, avoid_fmas_in_rim=avoid_fmas_in_rim)
 
-        print("debug: BottleneckTPP constructor called with inplanes, planes, eps, stride, downsample1, downsample2 use_groupnorm dtype = ",
-                  inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm, dtype)
+        print("debug: BottleneckTPP constructor called with inplanes, planes, eps, stride, downsample1, downsample2 use_groupnorm dtype bc_conv1 bc_conv2 bc_conv3 bk_conv3 avoid_fmas_in_rim = ",
+                  inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm, dtype, bc_conv1, bc_conv2, bc_conv3, bk_conv3, avoid_fmas_in_rim)
 
         #self.xsmm_handle = None
         self.config = None
@@ -568,8 +588,13 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 if torch.distributed.is_initialized():
                     if torch.distributed.get_rank() == 0:
                       print("BottleneckTPP Create BN-powered handle: ", N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.dtype)
-                self.config = bottleneck_cpp.bottleneck_bn_setup(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
-                                                             1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1)
+                if self.preset_blocksizes:
+                    self.config = bottleneck_cpp.bottleneck_bn_setup_fused_fwd_tuner(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
+                                                                 1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1,
+                                                                 self.bc_conv1, self.bc_conv2, self.bc_conv3, self.bk_conv3, 1 if self.avoid_fmas_in_rim else 0)
+                else:
+                    self.config = bottleneck_cpp.bottleneck_bn_setup(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
+                                                                 1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1)
                 #self.xsmm_handle = BottleneckBNHandleTPP(N, self.inplanes, self.H, self.W, self.planes, self.stride,
                 #                                         self.norm_eps, self.bn_momentum, 1 if self.bn_track_running_stats else 0,
                 #                                         self.expansion, self.use_physical_3x3_padding, self.dtype)
@@ -577,12 +602,19 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
             self.N = N
             #print("dbg: created the handle in BottleneckBNTPP")
 
+        """
         [conv1_Cblock, conv1_Kblock, conv1_lpblock] = conv_cpp.conv_get_feature_map_blocks(self.conv1.in_channels, self.conv1.out_channels, 0 if self.dtype == torch.float else 1)
         self.conv1_Cblock = conv1_Cblock # used in the early version of the fwd tuner test
         blocked_input = self.get_blocked_tensor(
             input,
             self.blocked_input_signature,
             [None, conv1_Cblock, None, None],
+        )
+        """
+        blocked_input = self.get_blocked_tensor(
+            input,
+            self.blocked_input_signature,
+            [None, self.conv1.Cblock, None, None],
         )
 
 

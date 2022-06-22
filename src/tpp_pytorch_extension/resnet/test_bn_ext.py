@@ -40,11 +40,13 @@ parser.add_argument("--with-perf", action="store_true", default=False, help='if 
 parser.add_argument('--use-bf16-opt', action="store_true", default=False, dest='use_bf16_opt')
 parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='use_bf16_ref')
 
+parser.add_argument('--bc',  nargs='?', type=int)
+
 torch.autograd.set_detect_anomaly(True)
 
-def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module):
-    print("debug: run_test_bn called with N H W C opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module ",
-            N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module)
+def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module):
+    print("debug: run_test_bn called with N H W C bc, opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module ",
+            N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module)
 
     eps=1.e-7
 
@@ -52,6 +54,10 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
 
     if opt_padding != None and len(opt_padding) != 4:
         print("Error: padding should have four elements [pad_h_in, pad_w_in, pad_h_out, pad_w_out]")
+        exit()
+
+    if bc != None and test_module != 'ext_tpp':
+        print("Custom block sizes can only be used for ext_tpp test_module")
         exit()
 
     if opt_padding != None:
@@ -70,7 +76,7 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
         hardcoded_bc=64
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
-        opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
+        opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
         hardcoded_bc=64
     else:
         print("test_module not supported, test_module = ", test_module)
@@ -353,11 +359,14 @@ def run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_st
         print("Performance part is not implemented for this test!")
 
     return
-    exit()
+    #exit()
 
 def main():
     opt_dtype = torch.float if not args.use_bf16_opt else torch.bfloat16
     ref_dtype = torch.float if not args.use_bf16_ref else torch.bfloat16
+
+    bc = args.bc
+
     
     with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
         contents = f.readlines()
@@ -379,7 +388,7 @@ def main():
             #print(integer_map)
             [N, C, H, W] = list(integer_map)
             opt_padding = [0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
-            run_test_bn(N, H, W, C, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+            run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
     
 
@@ -388,6 +397,7 @@ def main():
     H=2 #28
     W=2 #28
     C=64
+    bc=64
     opt_padding = [4, 4, 6, 6]
     has_relu=False
     has_eltwise=False

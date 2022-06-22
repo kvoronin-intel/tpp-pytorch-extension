@@ -137,8 +137,8 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
 }
 
 bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inplanes, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint planes, libxsmm_blasint stride,
-                                                float eps, float bn_momentum, libxsmm_blasint bn_track_running_stats_int, libxsmm_blasint expansion,
-                                                libxsmm_blasint padding_3x3_type, libxsmm_blasint dtype_int )
+                                         float eps, float bn_momentum, libxsmm_blasint bn_track_running_stats_int, libxsmm_blasint expansion,
+                                         libxsmm_blasint padding_3x3_type, libxsmm_blasint dtype_int )
 {
   bottleneck_bn_config res;
 
@@ -228,6 +228,44 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
   return res;
 }
 
+bottleneck_bn_config bottleneck_bn_setup_fused_fwd_tuner(libxsmm_blasint N, libxsmm_blasint inplanes, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint planes, libxsmm_blasint stride,
+                                                         float eps, float bn_momentum, libxsmm_blasint bn_track_running_stats_int, libxsmm_blasint expansion,
+                                                         libxsmm_blasint padding_3x3_type, libxsmm_blasint dtype_int,
+                                                         libxsmm_blasint bc_conv1, libxsmm_blasint bc_conv2, libxsmm_blasint bc_conv3, libxsmm_blasint bk_conv3,
+                                                         libxsmm_blasint avoid_fmas_in_rim_int  )
+{
+  bottleneck_bn_config res = bottleneck_bn_setup(N, inplanes, H, W, planes, stride, eps, bn_momentum, bn_track_running_stats_int, expansion,
+                                                 padding_3x3_type, dtype_int);
+
+  /* Manually overwriting fields which are needed for auto-tuning. This manipulation is only valid for the fused bottleneck */
+
+  res.conv1.bc = bc_conv1;
+  res.conv1.bk = bc_conv2;
+  res.conv1.blocksifm = res.conv1.C / res.conv1.bc;
+  res.conv1.blocksofm = res.conv1.K / res.conv1.bk;
+  res.conv1.avoid_fmas_in_rim = avoid_fmas_in_rim_int;
+
+  res.conv2.bc = bc_conv2;
+  res.conv2.bk = bc_conv3;
+  res.conv2.blocksifm = res.conv2.C / res.conv2.bc;
+  res.conv2.blocksofm = res.conv2.K / res.conv2.bk;
+  res.conv2.avoid_fmas_in_rim = avoid_fmas_in_rim_int;
+
+  res.conv3.bc = bc_conv3;
+  res.conv3.bk = bk_conv3;
+  res.conv3.blocksifm = res.conv3.C / res.conv3.bc;
+  res.conv3.blocksofm = res.conv3.K / res.conv3.bk;
+  res.conv3.avoid_fmas_in_rim = avoid_fmas_in_rim_int;
+
+  res.conv4.bc = bc_conv1;
+  res.conv4.bk = bk_conv3;
+  res.conv4.blocksifm = res.conv4.C / res.conv4.bc;
+  res.conv4.blocksofm = res.conv4.K / res.conv4.bk;
+  res.conv4.avoid_fmas_in_rim = avoid_fmas_in_rim_int;
+
+  return res;
+}
+
 
 REGISTER_SUBMODULE(_bottleneck, m) {
   m.def(
@@ -241,6 +279,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   py::class_<bottleneck_bn_config>(m, "bottleneck_bn_config")
   .def(py::init<>())
   .def_readwrite("has_residual_conv", &bottleneck_bn_config::has_residual_conv);
-  m.def("bottleneck_bn_setup", &bottleneck_bn_setup, "Pcl BOTTLENECK BN setup (params)");
+  m.def("bottleneck_bn_setup", &bottleneck_bn_setup, "Pcl BOTTLENECK BN setup (simple version)");
+  m.def("bottleneck_bn_setup_fused_fwd_tuner", &bottleneck_bn_setup_fused_fwd_tuner, "Pcl BOTTLENECK BN setup (custom version for tuning fwd of the fused bottleneck)");
 }
 
