@@ -125,9 +125,10 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
   int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
   int c1_block = 1, k1_block, c2_block = 1, k2_block, c3_block = 1, k3_block, c4_block = 1, k4_block;
   int avoid_fmas_in_rim = -1;
+  int fuse_stats        = 1;
   std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
                                          c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
-                                         avoid_fmas_in_rim};
+                                         avoid_fmas_in_rim, fuse_stats};
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
   return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings);
@@ -297,7 +298,7 @@ double bottleneck_bn_fwd_get_gflop(bottleneck_bn_config cfg)
     gflop_convs += (2.0*(double)cfg.conv4.N*(double)cfg.conv4.C*(double)cfg.conv4.K*(double)cfg.conv4.R*(double)cfg.conv4.S*(double)cfg.conv4.ofh*(double)cfg.conv4.ofw)/(1000*1000*1000);
 
   /* gflop count for batchnorms */
-  double coeff_batchnorm = 4.0;
+  double coeff_batchnorm = 7.0; /* 3 for stats + 4 for scaling */
   gflop_bns += coeff_batchnorm * (double)cfg.conv1.N * (double)cfg.conv1.K * (double)cfg.conv1.ofh * (double)cfg.conv1.ofw / (1000*1000*1000);
   gflop_bns += coeff_batchnorm * (double)cfg.conv2.N * (double)cfg.conv2.K * (double)cfg.conv2.ofh * (double)cfg.conv2.ofw / (1000*1000*1000);
   gflop_bns += coeff_batchnorm * (double)cfg.conv3.N * (double)cfg.conv3.K * (double)cfg.conv3.ofh * (double)cfg.conv3.ofw / (1000*1000*1000);

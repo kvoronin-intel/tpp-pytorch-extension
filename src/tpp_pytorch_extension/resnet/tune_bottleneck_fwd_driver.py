@@ -59,6 +59,7 @@ def gn_init(m, zero_init=False):
     m.bias.data.zero_()
 
 def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, tuning_params, tuning_strings):
+    time_start = time.time()
     #logging.info("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
     #        N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module)
     print("info: run_test_bottleneck called with N H W inc outc bc_conv1 bc_conv2 bc_conv3 bk_conv3 stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
@@ -66,8 +67,8 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
-    if tuning_params is not None and len(tuning_params) != 17:
-        print("Wrong length of the tuning params (must be 17 if present) = ", tuning_params, len(tuning_params))
+    if tuning_params is not None and len(tuning_params) != 18:
+        print("Wrong length of the tuning params (must be 18 if present) = ", tuning_params, len(tuning_params))
         exit()
 
     if tuning_params is not None:
@@ -76,10 +77,10 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             exit()
         [h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
          c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
-         avoid_fmas_in_rim] = tuning_params
+         avoid_fmas_in_rim, fuse_stats] = tuning_params
         print("info: tuning params: h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block = ", h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block)
         print("info: tuning params: c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block = ", c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block)
-        print("info: tuning params: avoid_fmas_in_rim = ", avoid_fmas_in_rim)
+        print("info: tuning params: avoid_fmas_in_rim fuse_stats ", avoid_fmas_in_rim, fuse_stats)
     else:
         tuning_params = None
         print("info: tuning params are empty")
@@ -176,9 +177,17 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("ref_module not supported, ref_module = ", ref_module)
         exit()
 
+    time_end = time.time()
+    print("Setting up downsample and ref modules took (s) ", time_end - time_start)
+    time_start = time.time()
+
     #logging.debug("Saving initialized PT-based bottleneck")
     print("Saving initialized PT-based bottleneck")
     torch.save(torch_bottleneck.state_dict(), 'checkpoint_ref_bottleneck.pth.tar')
+
+    time_end = time.time()
+    print("Saving ref module to the disc took (s) ", time_end - time_start)
+    time_start = time.time()
 
     if test_module == 'ext_bottleneck':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
@@ -194,10 +203,18 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("test_module not supported, test_module = ", test_module)
         exit()
 
+    time_end = time.time()
+    print("Creating test module to the disc took (s) ", time_end - time_start)
+    time_start = time.time()
+
     #logging.debug("Loading initialized bottleneck from a checkpoint checkpoint_ref_bottleneck.pth.tar")
     print("Loading initialized bottleneck from a checkpoint checkpoint_ref_bottleneck.pth.tar")
     checkpoint = torch.load('checkpoint_ref_bottleneck.pth.tar')
     opt_bottleneck.load_state_dict(checkpoint)
+
+    time_end = time.time()
+    print("Loading ref module into the test module to the disc took (s) ", time_end - time_start)
+    time_start = time.time()
 
     torch.manual_seed(0)
 
@@ -221,6 +238,10 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     x1.retain_grad()
     x2 = ref_x_init.clone().detach().requires_grad_()
 
+    time_end = time.time()
+    print("Setting up input vectors took (s) ", time_end - time_start)
+    time_start = time.time()
+
     #logging.debug("running opt bottleneck forward")
     print("running opt bottleneck forward")
     if test_module == 'ext_bottleneck':
@@ -232,6 +253,10 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     z1 = y1.mean()
     #z1.backward(retain_graph=True)
 
+    time_end = time.time()
+    print("First forward took (s) ", time_end - time_start)
+    time_start = time.time()
+
     if with_validation:
         #logging.debug("running ref bottleneck forward")
         print("running ref bottleneck forward")
@@ -239,6 +264,10 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         z2 = y2.mean()
         #z2.backward(retain_graph=True)
+
+        time_end = time.time()
+        print("Reference forward took (s) ", time_end - time_start)
+        time_start = time.time()
 
         print("z1=", z1)
         print("z2=", z2)
@@ -309,11 +338,18 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         #logging.info("warmup_niter = ", warmup_niter)
         print("warmup_niter = ", warmup_niter)
 
+        time_end = time.time()
+        print("Reference forward took (s) ", time_end - time_start)
+        time_start = time.time()
+
         for i in range(warmup_niter):
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
                 bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings)
+
+        time_end = time.time()
+        print("Warmup took (s) ", time_end - time_start)
 
         timed_niter = 10
         #logging.info("timed_niter = ", timed_niter)
@@ -328,6 +364,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niter
 
+        print("Timed loop took (s) ", time_end - time_start)
         print("Final perf time: ", time_per_iter)
         gflop = bottleneck_cpp.bottleneck_bn_fwd_get_gflop(bottleneck_cfg)
         print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))

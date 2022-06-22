@@ -41,6 +41,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   const long c4_block = tuning_params[14];
   const long k4_block = tuning_params[15];
   const long avoid_fmas_in_rim_from_params = tuning_params[16];
+  const long fuse_stats                    = tuning_params[17];
 
   const std::string c1_string = tuning_strings[0];
   const std::string c2_string = tuning_strings[1];

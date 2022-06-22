@@ -5,11 +5,11 @@
 // t_CI and t_CW should be defined outside
 // t_BW, t_BB, t_BM, t_BV, t_BIA should be defined outside
 // t_BW_prev, t_BB_prev, t_BM_prev, t_BV_prev, t_relu_mask_prev, eltwise_prev must be defined outside if fuse_scaling = 1
-// h_block, w_block, c_block, k_block, avoid_fmas_in_rim must be defined outside
+// h_block, w_block, c_block, k_block, avoid_fmas_in_rim and fuse_stats must be defined outside
 
 auto sizes = t_CI.sizes();
 
-const int fuse_stats = (avoid_fmas_in_rim == 0 ? 1 : 0);
+//const int fuse_stats = (avoid_fmas_in_rim == 0 ? 1 : 0);
 const int separate_stats_reduction = 1; /* only value currently supported is 1 */
 //const int fuse_scaling = 0; /* must be defined in the calling code */
 
