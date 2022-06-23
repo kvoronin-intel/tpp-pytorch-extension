@@ -124,11 +124,12 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
   /* -1 for avoid_fmas_in_rim means that this flag will be taken out of the conv_cfg passed into particular conv+bn fusion code */
   int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
   int c1_block = 1, k1_block, c2_block = 1, k2_block, c3_block = 1, k3_block, c4_block = 1, k4_block;
-  int avoid_fmas_in_rim = -1;
+  int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;
   int fuse_stats        = 1;
   std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
                                          c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
-                                         avoid_fmas_in_rim, fuse_stats};
+                                         h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm,
+                                         fuse_stats};
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
   return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings);

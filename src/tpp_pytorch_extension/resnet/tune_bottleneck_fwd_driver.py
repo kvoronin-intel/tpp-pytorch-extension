@@ -67,8 +67,9 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
-    if tuning_params is not None and len(tuning_params) != 18:
-        print("Wrong length of the tuning params (must be 18 if present) = ", tuning_params, len(tuning_params))
+    tuning_params_count = 21
+    if tuning_params is not None and len(tuning_params) != tuning_params_count:
+        print("Wrong length of the tuning params (must be " + str(tuning_params_count) + " if present) = " + str(tuning_params) + " " + str(len(tuning_params)))
         exit()
 
     if tuning_params is not None:
@@ -77,10 +78,12 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             exit()
         [h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
          c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
-         avoid_fmas_in_rim, fuse_stats] = tuning_params
+         h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm,
+         fuse_stats ] = tuning_params
         print("info: tuning params: h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block = ", h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block)
         print("info: tuning params: c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block = ", c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block)
-        print("info: tuning params: avoid_fmas_in_rim fuse_stats ", avoid_fmas_in_rim, fuse_stats)
+        print("info: tuning params: h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm                                 = ", h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm)
+        print("info: tuning params: fuse_stats ", fuse_stats)
     else:
         tuning_params = None
         print("info: tuning params are empty")

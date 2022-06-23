@@ -40,8 +40,11 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   const long k3_block = tuning_params[13];
   const long c4_block = tuning_params[14];
   const long k4_block = tuning_params[15];
-  const long avoid_fmas_in_rim_from_params = tuning_params[16];
-  const long fuse_stats                    = tuning_params[17];
+  const long h1_in_gemm = tuning_params[16];
+  const long h2_in_gemm = tuning_params[17];
+  const long h3_in_gemm = tuning_params[18];
+  const long h4_in_gemm = tuning_params[19];
+  const long fuse_stats = tuning_params[20];
 
   const std::string c1_string = tuning_strings[0];
   const std::string c2_string = tuning_strings[1];
@@ -98,7 +101,7 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 
   auto h_block = h1_block, w_block = w1_block;
   auto c_block = c1_block, k_block = k1_block;
-  auto avoid_fmas_in_rim = (avoid_fmas_in_rim_from_params == -1 ? conv_cfg.avoid_fmas_in_rim : avoid_fmas_in_rim_from_params);
+  auto h_in_gemm = h1_in_gemm;
   auto conv_loop_string = c1_string;
   #include "fused_conv_bn_fwd.h"
 }
@@ -138,7 +141,7 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
   auto h_block = h2_block, w_block = w2_block;
   auto c_block = c2_block, k_block = k2_block;
-  auto avoid_fmas_in_rim = (avoid_fmas_in_rim_from_params == -1 ? conv_cfg.avoid_fmas_in_rim : avoid_fmas_in_rim_from_params);
+  auto h_in_gemm = h2_in_gemm;
   auto conv_loop_string = c2_string;
   #include "fused_conv_bn_fwd.h"
 }
@@ -178,7 +181,7 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
   auto h_block = h4_block, w_block = w4_block;
   auto c_block = c4_block, k_block = k4_block;
-  auto avoid_fmas_in_rim = (avoid_fmas_in_rim_from_params == -1 ? conv_cfg.avoid_fmas_in_rim : avoid_fmas_in_rim_from_params);
+  auto h_in_gemm = h3_in_gemm;
   auto conv_loop_string = c4_string;
   #include "fused_conv_bn_fwd.h"
 }
@@ -224,7 +227,7 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
   auto h_block = h3_block, w_block = w3_block;
   auto c_block = c3_block, k_block = k3_block;
-  auto avoid_fmas_in_rim = (avoid_fmas_in_rim_from_params == -1 ? conv_cfg.avoid_fmas_in_rim : avoid_fmas_in_rim_from_params);
+  auto h_in_gemm = h4_in_gemm;
   auto conv_loop_string = c3_string;
   #include "fused_conv_bn_fwd.h"
 }

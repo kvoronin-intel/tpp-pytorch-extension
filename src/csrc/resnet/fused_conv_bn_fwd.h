@@ -5,11 +5,11 @@
 // t_CI and t_CW should be defined outside
 // t_BW, t_BB, t_BM, t_BV, t_BIA should be defined outside
 // t_BW_prev, t_BB_prev, t_BM_prev, t_BV_prev, t_relu_mask_prev, eltwise_prev must be defined outside if fuse_scaling = 1
-// h_block, w_block, c_block, k_block, avoid_fmas_in_rim and fuse_stats must be defined outside
+// h_block, w_block, c_block, k_block, h_in_gemm and fuse_stats must be defined outside
 
 auto sizes = t_CI.sizes();
 
-//const int fuse_stats = (avoid_fmas_in_rim == 0 ? 1 : 0);
+//const int fuse_stats = ?
 const int separate_stats_reduction = 1; /* only value currently supported is 1 */
 //const int fuse_scaling = 0; /* must be defined in the calling code */
 
@@ -41,6 +41,8 @@ int Kb = conv_cfg.blocksofm;
 
 int conv_pad_h_out = conv_cfg.pad_h_out;
 int conv_pad_w_out = conv_cfg.pad_w_out;
+int conv_pad_h = conv_cfg.pad_h;
+int conv_pad_w = conv_cfg.pad_w;
 
 const long N  = sizes[0];
 
@@ -137,7 +139,14 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 #endif
 //return std::vector<at::Tensor>({t_CO});
 
-  auto gemm_n = ofw / w_block;
+  long avoid_fmas_in_rim = 0;
+  if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
+    avoid_fmas_in_rim = 1;
+  }
+
+  //auto gemm_n = ofw / w_block;
+  auto w_gemm_pixels = ofw/w_block;
+  auto gemm_n = (w_gemm_pixels +  2 * conv_pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + conv_pad_w);
   auto gemm_m = bk;
   auto gemm_k = bc;
 
@@ -182,7 +191,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   long n_step = 1;
   long c_step = Cb_step;
   long k_step = 1;
-  long h_step = 1;
+  long h_step = h_in_gemm;
   long w_step = ofw / w_block;
   long r_step = R;
   long s_step = S;
@@ -192,12 +201,18 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
     s_step = 1;
   }
 
+  if ( (h_in_gemm > 1) && (w_block != 1) ) {
+    printf("Invalid input GEMM config: When multiple H pixels are handled in the gemm, then the full ofw should be also used as gemm_n...\n");
+    exit(-1);
+  }
+
 #ifdef VERBOSE
   std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
                                                                                                 << Kb << " " << k_step << " " << ofh << " " << h_step << " "
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
   std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
+  std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
   std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
 #endif
 

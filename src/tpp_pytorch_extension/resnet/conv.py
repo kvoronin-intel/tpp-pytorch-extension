@@ -156,7 +156,6 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
 
         if self.bc is not None or self.bk is not None:
             self.preset_blocksizes = True
-
             self.Cblock   = bc
             self.Kblock   = bk
             self.lp_block = 1 if self.dtype == torch.float else 2
@@ -164,7 +163,7 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
             self.preset_blocksizes = False
             [self.Cblock, self.Kblock, self.lp_block] = conv_cpp.conv_get_feature_map_blocks(self.C_pad, self.K, 0 if self.dtype == torch.float else 1)
 
-        print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
+        #print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
 
         if self.use_bf16:
             self.weight.set_blocking_param(
