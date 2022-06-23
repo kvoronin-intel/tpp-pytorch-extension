@@ -16,6 +16,9 @@
 /* to drop printing the generated schemes/code */
 #define NO_PRINT
 
+/* allows searching in the pre-defined loops */
+#define USE_PRE_DEFINED_LOOPS
+
 //#include "par_loop_cost_estimator.h"
 #include "par_loop_generator.h"
 
@@ -197,9 +200,12 @@ class LoopingScheme {
     }
 #endif
     auto search = pre_defined_loops.find(scheme);
-    if (search != pre_defined_loops.end() && 0) {
+#ifdef USE_PRE_DEFINED_LOOPS
+    if (search != pre_defined_loops.end()) {
       test_kernel = search->second;
-    } else {
+    } else
+#endif
+    {
       std::string gen_code = loop_generator(scheme.c_str());
       std::ofstream ofs("debug.cpp", std::ofstream::out);
       ofs << code_str + gen_code;
