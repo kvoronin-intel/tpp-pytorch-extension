@@ -101,15 +101,18 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
   DECL_VLA_PTR_PT    (unsigned char, relumask, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_relu_mask);
 
   DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],      t_scratch);
-  DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],       t_scratch, sum_N_offset);
-  DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],       t_scratch, sumsq_N_offset);
+  DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bc],     t_scratch, sum_N_offset);
+  //DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],       t_scratch, sum_N_offset);
+  //DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],       t_scratch, sumsq_N_offset);
 #endif
 
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
 
   auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bc, bc, bc), EW_ADD); /* 1, bc because of row-major for unary */
 
-  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bc, bc, bc)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+  auto reduce_beta0_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bc, bc, bc, 1)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+
+  auto reduce_beta1_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bc, bc, bc, 0)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
 
   auto mean_var_tpp = SCOPEIT(MeanVarTPP<float>(bc, scale), EW_MEAN_VAR);
 
@@ -144,30 +147,26 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
           [&](int *ind) {
             const int n = ind[0], cp = ind[1];
 
-            DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
-            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],              t_scratch, sum_N_offset);
-            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],              t_scratch, sumsq_N_offset);
-
-            zero_tpp(sum_N  [cp][n]);
-            zero_tpp(sumsq_N[cp][n]);
-
-            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
+            DECL_VLA_PTR_PT_EXT(T,     inp,      [CP][ifhp][ifwp][bc], t_I,      (hi_start * ifwp + wi_start) * bc);
+            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bc],            t_scratch, sum_N_offset);
 
             if (!use_hw_blocking) {
               for (int hi = 0; hi < H; hi++) {
                 for (int w = 0; w < W; w += spatial_block_size) {
-                  reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-                  helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-                  helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                  if (hi == 0 && w == 0)
+                    reduce_beta0_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
+                  else
+                    reduce_beta1_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
                 }
               }
             } else {
               for(int hwb=0; hwb < num_HW_blocks; hwb++){
                 int hi = (hwb*(H*W/num_HW_blocks))/W;
                 int w  = (hwb*(H*W/num_HW_blocks))%W;
-                reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-                helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-                helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                if (hwb == 0)
+                  reduce_beta0_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
+                else
+                  reduce_beta1_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
               }
             }
           },
@@ -179,26 +178,23 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
         for (int n = 0; n < N; n++) {
           for (int cp = 0; cp < CP; cp++) {
 
-            zero_tpp(sum_N  [cp][n]);
-            zero_tpp(sumsq_N[cp][n]);
-
-            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bc], 64);
-
             if (!use_hw_blocking) {
               for (int hi = 0; hi < H; hi++) {
                 for (int w = 0; w < W; w += spatial_block_size) {
-                  reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-                  helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-                  helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                  if (hi == 0 && w == 0)
+                    reduce_beta0_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
+                  else
+                    reduce_beta1_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
                 }
               }
             } else {
               for(int hwb=0; hwb < num_HW_blocks; hwb++){
                 int hi = (hwb*(H*W/num_HW_blocks))/W;
                 int w  = (hwb*(H*W/num_HW_blocks))%W;
-                reduce_tpp(inp[n][cp][hi][w], &lcl_sum_X_X2[0]);
-                helper_add_tpp(sum_N  [cp][n], &lcl_sum_X_X2[0],  sum_N  [cp][n] );
-                helper_add_tpp(sumsq_N[cp][n], &lcl_sum_X_X2[bc], sumsq_N[cp][n] );
+                if (hwb == 0)
+                  reduce_beta0_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
+                else
+                  reduce_beta1_tpp(inp[n][cp][hi][w], sums_N[cp][n]);
               }
             }
           } /* end of cp loop */
@@ -215,18 +211,17 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
           [&](int *ind) {
             const int cp = ind[0];
 
-            DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc], t_scratch);
-            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],  t_scratch, sum_N_offset);
-            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],  t_scratch, sumsq_N_offset);
-            DECL_VLA_PTR_PT    (float, mean,     [bc],     t_M);
-            DECL_VLA_PTR_PT    (float, var,      [bc],     t_V);
+            DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],  t_scratch);
+            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bc], t_scratch, sum_N_offset);
+            DECL_VLA_PTR_PT    (float, mean,     [bc],      t_M);
+            DECL_VLA_PTR_PT    (float, var,      [bc],      t_V);
 
             zero_tpp(sum_X_X2[0][cp]);
             zero_tpp(sum_X_X2[1][cp]);
 
             for(int ni = 0; ni < N; ni++){
-              helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
-              helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
+              helper_add_tpp(sum_X_X2[0][cp], &(sums_N[cp][ni][0]),  sum_X_X2[0][cp]);
+              helper_add_tpp(sum_X_X2[1][cp], &(sums_N[cp][ni][bc]), sum_X_X2[1][cp]);
             }
 
             mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);
@@ -241,8 +236,8 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
           zero_tpp(sum_X_X2[1][cp]);
 
           for(int ni = 0; ni < N; ni++){
-              helper_add_tpp(sum_X_X2[0][cp], sum_N  [cp][ni],  sum_X_X2[0][cp]);
-              helper_add_tpp(sum_X_X2[1][cp], sumsq_N[cp][ni],  sum_X_X2[1][cp]);
+              helper_add_tpp(sum_X_X2[0][cp], &(sums_N[cp][ni][0]),  sum_X_X2[0][cp]);
+              helper_add_tpp(sum_X_X2[1][cp], &(sums_N[cp][ni][bc]), sum_X_X2[1][cp]);
           }
 
           mean_var_tpp( sum_X_X2[0][cp], sum_X_X2[1][cp], mean[cp], var[cp]);

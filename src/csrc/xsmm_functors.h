@@ -5052,11 +5052,13 @@ class ReduceColsTPP {
  public:
   ReduceColsTPP() {}
   ReduceColsTPP(int rows, int cols) : ReduceColsTPP(rows, cols, cols, cols) {}
-  ReduceColsTPP(int rows, int cols, int ldi, int ldo)
+  ReduceColsTPP(int rows, int cols, int ldi, int ldo) : ReduceColsTPP(rows, cols, ldi, ldo, 1) {}
+  ReduceColsTPP(int rows, int cols, int ldi, int ldo, int reduce_on_output)
       : rows(rows),
         cols(cols),
         ldi(ldi),
         ldo(ldo),
+        reduce_on_output(reduce_on_output),
         kernel(
             rows,
             cols,
@@ -5065,7 +5067,7 @@ class ReduceColsTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS,
+            LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS | (reduce_on_output == 0 ? LIBXSMM_MELTW_FLAG_UNARY_REDUCE_INIT_ACC : 0),
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_X2_OP_ADD) {}
   void operator()(Tin* in, Tout* out) {
     kernel((void*)in, (void*)out);
@@ -5073,8 +5075,10 @@ class ReduceColsTPP {
   /* FIXME: To be checked */
   void ref(Tin* in, Tout* out) {
     for (int r = 0; r < rows; r++) {
-      out[r] = 0;
-      out[rows + r] = 0;
+      if (reduce_on_output == 0) { /* similar to beta = 0.0 gemm */
+        out[r] = 0;
+        out[rows + r] = 0;
+      }
       for (int c = 0; c < cols; c++) {
         out[       r] += (float)in[r * ldi + c];
         out[rows + r] += (float)in[r * ldi + c] * (float)in[r * ldi + c];
@@ -5087,6 +5091,7 @@ class ReduceColsTPP {
   int cols = 0;
   int ldi;
   int ldo;
+  int reduce_on_output = 0; /* 0: initialize output with zeros; 1: only do += (default in the past but changed now in LIBXSMM) */
   UnaryTPP kernel;
 };
 

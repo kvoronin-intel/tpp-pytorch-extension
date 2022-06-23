@@ -220,7 +220,9 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bk, bk, bk), EW_ADD); /* 1, bc because of row-major for unary */
 
-  auto reduce_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bk, bk, bk)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+  auto reduce_beta0_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bk, bk, bk, 1)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+
+  auto reduce_beta1_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bk, bk, bk, 0)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
 
   auto mean_var_tpp = SCOPEIT(MeanVarTPP<float>(bk, scale), EW_MEAN_VAR);
 
@@ -279,24 +281,18 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
 
             /* Computing local stats */
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
-              DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bk],              t_scratch, sum_N_offset);
-              DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bk],              t_scratch, sumsq_N_offset);
-
-              if (i_h == 0 && i_w == 0) {
-                zero_bk_tpp(sum_N  [i_k][i_n]);
-                zero_bk_tpp(sumsq_N[i_k][i_n]);
-              }
-
-              LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bk], 64);
+              DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch, sum_N_offset);
 
               if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
-                reduce_tpp(output_off[i_n][i_k][i_h][i_w], &lcl_sum_X_X2[0]);
-                helper_add_tpp(sum_N  [i_k][i_n], &lcl_sum_X_X2[0],  sum_N  [i_k][i_n] );
-                helper_add_tpp(sumsq_N[i_k][i_n], &lcl_sum_X_X2[bk], sumsq_N[i_k][i_n] );
+                if (i_h == 0 && i_w == 0)
+                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+                else
+                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
               } else if ( (i_h * h_step * ofwp + (i_w * w_step)) % spatial_block_size == 0) {
-                reduce_tpp(output_off[i_n][i_k][i_h][i_w], &lcl_sum_X_X2[0]);
-                helper_add_tpp(sum_N  [i_k][i_n], &lcl_sum_X_X2[0],  sum_N  [i_k][i_n] );
-                helper_add_tpp(sumsq_N[i_k][i_n], &lcl_sum_X_X2[bk], sumsq_N[i_k][i_n] );
+                if (i_h == 0 && i_w == 0)
+                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+                else
+                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
               }
             } /* for computing local stats */
           } else { /* for if avoid_fmas_in_rim == 0 */
@@ -352,29 +348,25 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
             const int n = ind[0], kb = ind[1];
 
             DECL_VLA_PTR_PT_EXT(T,     inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
-            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bk],              t_scratch, sum_N_offset);
-            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bk],              t_scratch, sumsq_N_offset);
-
-            zero_bk_tpp(sum_N  [kb][n]);
-            zero_bk_tpp(sumsq_N[kb][n]);
-
-            LIBXSMM_ALIGNED(float lcl_sum_X_X2[2*bk], 64);
+            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk],              t_scratch, sum_N_offset);
 
             if (!use_hw_blocking) {
               for (int hi = 0; hi < H; hi++) {
                 for (int w = 0; w < W; w += spatial_block_size) {
-                  reduce_tpp(inp[n][kb][hi][w], &lcl_sum_X_X2[0]);
-                  helper_add_tpp(sum_N  [kb][n], &lcl_sum_X_X2[0],  sum_N  [kb][n] );
-                  helper_add_tpp(sumsq_N[kb][n], &lcl_sum_X_X2[bk], sumsq_N[kb][n] );
+                  if (hi == 0 && w == 0)
+                    reduce_beta0_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
+                  else
+                    reduce_beta1_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
                 }
               }
             } else {
               for(int hwb=0; hwb < num_HW_blocks; hwb++){
                 int hi = (hwb*(H*W/num_HW_blocks))/W;
                 int w  = (hwb*(H*W/num_HW_blocks))%W;
-                reduce_tpp(inp[n][kb][hi][w], &lcl_sum_X_X2[0]);
-                helper_add_tpp(sum_N  [kb][n], &lcl_sum_X_X2[0],  sum_N  [kb][n] );
-                helper_add_tpp(sumsq_N[kb][n], &lcl_sum_X_X2[bk], sumsq_N[kb][n] );
+                if (hwb == 0)
+                  reduce_beta0_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
+                else
+                  reduce_beta1_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
               }
             }
           },
@@ -391,8 +383,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
             const int kb = ind[0];
 
             DECL_VLA_PTR_PT    (float, sum_X_X2, [Kb][bk], t_scratch);
-            DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bk],  t_scratch, sum_N_offset);
-            DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bk],  t_scratch, sumsq_N_offset);
+            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk],  t_scratch, sum_N_offset);
             DECL_VLA_PTR_PT    (float, mean,     [bk],     t_BM);
             DECL_VLA_PTR_PT    (float, var,      [bk],     t_BV);
 
@@ -400,8 +391,8 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
             zero_bk_tpp(sum_X_X2[1][kb]);
 
             for(int ni = 0; ni < N; ni++){
-              helper_add_tpp(sum_X_X2[0][kb], sum_N  [kb][ni],  sum_X_X2[0][kb]);
-              helper_add_tpp(sum_X_X2[1][kb], sumsq_N[kb][ni],  sum_X_X2[1][kb]);
+              helper_add_tpp(sum_X_X2[0][kb], &sums_N[kb][ni][0],  sum_X_X2[0][kb]);
+              helper_add_tpp(sum_X_X2[1][kb], &sums_N[kb][ni][bk], sum_X_X2[1][kb]);
             }
 
             mean_var_tpp( sum_X_X2[0][kb], sum_X_X2[1][kb], mean[kb], var[kb]);
