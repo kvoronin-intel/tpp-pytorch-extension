@@ -312,17 +312,17 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
             } /* for computing local stats */
           } else { /* for if avoid_fmas_in_rim == 0 */
 
-            if (fuse_scaling || fuse_stats) {
-              printf("No fusion has been implemented for the case avoid_fmas_in_rim != 0\n");
+            if (fuse_scaling && i_k == 0 && i_r == 0 && i_s == 0) {
+              printf("fuse_scaling = 1 has not been implemented yet for avoid_fmas_in_rim != 0\n");
               exit(-1);
-            }
+            } /* if fuse_scaling + extra conditions */
 
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
             if (i_r == 0 && i_h == 0) {
               /* Do no FLOPS  */
-            } else if (i_r == R-1 && i_h == ofh-1 ) {
+            } else if (i_r == R - r_step && i_h == ofh - h_step ) {
               /* Do no FLOPS  */
             } else if ( i_w == 0 && i_s == 0 ) {
               brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s + 1],
@@ -330,7 +330,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                           output_off[i_n][i_k][i_h]                 [i_w + 1],
                           Cb_step,
                           true);
-            } else if ( i_w + w_step == ofw  && i_s == S-1) {
+            } else if ( i_w + w_step == ofw  && i_s == S - s_step) {
               brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
                           weight    [i_k][i_c][i_r][i_s][0],
                           output_off[i_n][i_k][i_h]                 [i_w],
@@ -343,6 +343,23 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                          Cb_step,
                          true);
             }
+                        /* Computing local stats */
+            if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
+              DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch, sum_N_offset);
+
+              if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
+                if (i_h == 0 && i_w == 0)
+                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+                else
+                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+              } else if ( (i_h * h_step * ofwp + (i_w * w_step)) % spatial_block_size == 0) {
+                if (i_h == 0 && i_w == 0)
+                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+                else
+                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+              }
+            } /* for computing local stats */
+
           } /* for if-else avoid_fmas_in_rim == 0 */
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
