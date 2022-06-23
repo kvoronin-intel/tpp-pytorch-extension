@@ -16,7 +16,7 @@
 /* to drop printing the generated schemes/code */
 #define NO_PRINT
 
-#include "par_loop_cost_estimator.h"
+//#include "par_loop_cost_estimator.h"
 #include "par_loop_generator.h"
 
 typedef std::function<void()> init_func;
