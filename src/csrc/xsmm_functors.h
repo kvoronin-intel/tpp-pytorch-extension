@@ -1327,7 +1327,6 @@ class XformExtTPP {
       zero_offset = in_cols * BS;
     }
     if (std::is_same<T, bfloat16>::value)
-    if (std::is_same<T, bfloat16>::value)
       cvt = ConvertTPP<float, bfloat16>(in_rows, in_cols);
   }
   void operator()(T* in, T* out) {
@@ -5216,19 +5215,6 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       arg_array[5].primary = (void*)inp_add;
     }
 
-/*
-    printf("fuse_type = %d \n", fuse_type);
-    for (int i = 0; i < 10; i++)
-        printf("inp[%d] = %f \n", i, ((float*)inp)[i]);
-    for (int i = 0; i < 10; i++)
-        printf("gamma[%d] = %f \n", i, ((float*)gamma)[i]);
-    for (int i = 0; i < 10; i++)
-        printf("beta[%d] = %f \n", i, ((float*)beta)[i]);
-    for (int i = 0; i < 10; i++)
-        printf("s[%d] = %f \n", i, ((float*)s)[i]);
-    for (int i = 0; i < 10; i++)
-        printf("b[%d] = %f \n", i, ((float*)b)[i]);
-*/
     eqn_param.inputs         = arg_array;
     eqn_param.output.primary = out;
     if (fuse_type == LIBXSMM_DNN_BN_FUSE_RELU || fuse_type == LIBXSMM_DNN_BN_FUSE_RELU_WITH_MASK || fuse_type == LIBXSMM_DNN_BN_FUSE_ELTWISE_RELU_WITH_MASK) {
@@ -5237,10 +5223,6 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     }
 
     kernel(&eqn_param);
-/*
-    for (int i = 0; i < 10; i++)
-        printf("out[%d] = %f \n", i, ((float*)out)[i]);
-*/
   }
   void ref(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
     printf("ref() not implemented for BatchNormFwdScaleTPP\n");
@@ -5250,7 +5232,7 @@ class BatchNormFwdScaleTPP : public BaseTPP {
  protected:
   std::string hash_str() override {
     char hash[200];
-    snprintf(hash, 200, "batchnorm_fwd_scale_eqn_m%d_n%d_fuse%d", m, n, (int)fuse_type);
+    snprintf(hash, 200, "batchnorm_fwd_scale_ti%d_to%d_m%d_n%d_fuse%d", XsmmDtype<Tin>(), XsmmDtype<Tout>(), m, n, (int)fuse_type);
     return std::string(hash);
   }
   void* build_kernel() override {
@@ -5710,7 +5692,7 @@ class BatchNormBwdDTPP : public BaseTPP {
  protected:
   std::string hash_str() override {
     char hash[200];
-    snprintf(hash, 200, "batchnorm_bwd_d_eqn_m%d_n%d", m, n);
+    snprintf(hash, 200, "batchnorm_bwd_d_ti%d_to%d_m%d_n%d", XsmmDtype<Tin>(), XsmmDtype<Tout>(), m, n);
     return std::string(hash);
   }
   void* build_kernel() override {
