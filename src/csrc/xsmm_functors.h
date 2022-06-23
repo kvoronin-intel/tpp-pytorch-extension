@@ -4174,6 +4174,7 @@ class SplitSGDTPP : public BaseTPP {
   libxsmm_matrix_eqn_function kernel = NULL;
 };
 
+#if 0
 template <typename Tin, typename Tout, typename Tind>
 class EmbBagFwdTPP {
  public:
@@ -4211,6 +4212,7 @@ class EmbBagFwdTPP {
   int E;
   UnaryTPP kernel;
 };
+#endif
 
 template <typename Tin, typename Tout>
 class EmbBagBwdTPP {
