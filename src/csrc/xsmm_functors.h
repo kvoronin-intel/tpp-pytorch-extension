@@ -5078,10 +5078,13 @@ class ReduceColsTPP {
         out[r] = 0;
         out[rows + r] = 0;
       }
+      float acc1 = 0.0, acc2 = 0.0;
       for (int c = 0; c < cols; c++) {
-        out[       r] += (float)in[r * ldi + c];
-        out[rows + r] += (float)in[r * ldi + c] * (float)in[r * ldi + c];
+        acc1 += upconvert_to_float(in[r * ldi + c]);
+        acc2 += upconvert_to_float(in[r * ldi + c]) * upconvert_to_float(in[r * ldi + c]);
       }
+      out[       r] += acc1;
+      out[rows + r] += acc2;
     }
   }
 
@@ -5812,15 +5815,7 @@ class ReduceAddColExtTPP {
     for (int c = 0; c < cols; c++) {
       float acc = 0.0;
       for (int r = 0; r < rows; r++) {
-        if (sizeof(Tin) == 4)
-          acc += (float)in[r * ldi + c];
-        else if (sizeof(Tin) == 2) {
-          float tmp = 0.0;
-          libxsmm_convert_bf16_f32( (libxsmm_bfloat16*)(&in[r * ldi + c]), &tmp, 1);
-          acc += tmp;
-        } else {
-          printf("Other datatypes are not supported in ref() of ReduceAddColExtTPP\n");
-        }
+        acc += upconvert_to_float(in[r * ldi + c]);
       }
       out[c] = acc;
     }
