@@ -161,11 +161,45 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         )
         self.blocked_output_signature = self.blocked_input_signature
 
+        if self.affine:
+          self.weight = Parameter(torch.Tensor(num_channels))
+          self.bias   = Parameter(torch.Tensor(num_channels))
+          #print("for self.affine = True dtype in XsmmBatchNormTPP constructor weight.dtype = ", dtype, self.weight.dtype)
+
+          nn.init.constant_(self.weight, 1)
+          nn.init.constant_(self.bias, 0)
+
+        else:
+          self.register_parameter('weight', None)
+          self.register_parameter('bias', None)
+
+        if self.track_running_stats:
+          self.register_buffer('running_mean', torch.zeros(num_channels))
+          self.register_buffer('running_var', torch.ones(num_channels))
+          #self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long))
+        #else:
+        #  self.register_parameter('running_mean', None)
+        #  self.register_parameter('running_var', None)
+        #  self.register_parameter('num_batches_tracked', None)
+        self.reset_parameters()
+
         if bc != None:
             self.Cblock = bc
         else:
             self.Cblock = batchnorm_cpp.batchnorm_get_c_block(self.C)
         #print("dbg: self.Cblock = ", self.Cblock)
+
+    def reset_running_stats(self):
+        if self.track_running_stats:
+          self.running_mean.zero_()
+          self.running_var.fill_(1)
+          #self.num_batches_tracked.zero_()
+
+    def reset_parameters(self):
+      self.reset_running_stats()
+      if self.affine:
+        self.weight.data.fill_(1.)
+        self.bias.data.zero_()
 
     def forward(self, input, input_add = None):
         N = input.size(0)
