@@ -197,6 +197,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         #for i in range (40):
         #    print("ind y1_zeroed_rim[end-ind] = ", i, y1_zeroed_rim.view(-1)[-i].item())
         opt_y_fp32 = y1_zeroed_rim.to(torch.float)
+        y1_full_nan_count = torch.isnan(y1_unblocked.view(-1)).sum()
+        y1_zeroed_rim_nan_count = torch.isnan(y1_zeroed_rim.view(-1)).sum()
+        print("y1_full_nan_count = (ok-ish to have nonzero due to the padding)", y1_full_nan_count)
+        if y1_zeroed_rim_nan_count > 0:
+            print("Error: even after zeroing rims there are nans in the output, #nans = ", y1_zeroed_rim_nan_count)
+            exit()
     else:
         opt_y_fp32 = y1.unblocked_tensor().to(torch.float)
     #opt_y_fp32 = y1.unblocked_tensor().to(torch.float)

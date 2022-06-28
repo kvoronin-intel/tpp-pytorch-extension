@@ -48,6 +48,11 @@ parser.add_argument('--use-groupnorm', action="store_true", default=False, dest=
 parser.add_argument('--block-sizes', nargs="+", type=int, help='block sizes: bc_conv1, bc_conv2, bc_conv3, bk_conv3')
 parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h1_block, w1_block, ... h4/w4 (8 numbers); c1_block, k1_block, ... (8 numbers); avoid_fmas_in_rim')
 parser.add_argument('--tuning-strings', nargs="+", default=None, type=str, help='conv1_string, conv2_string, conv3_string, conv4_string')
+
+parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_28thr.data', type=str,
+                    help='file to read test input data from', dest='test_data_file')
+
+parser.add_argument('--niters', type=int, default=10, help='number of timed iterations (warmup hardcoded)')
 #import pdb
 
 # When physical padding is on, rims can be nans
@@ -58,12 +63,12 @@ def gn_init(m, zero_init=False):
     m.weight.data.fill_(0. if zero_init else 1.)
     m.bias.data.zero_()
 
-def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, tuning_params, tuning_strings):
+def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, tuning_params, tuning_strings, niters):
     time_start = time.time()
     #logging.info("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
     #        N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module)
-    print("info: run_test_bottleneck called with N H W inc outc bc_conv1 bc_conv2 bc_conv3 bk_conv3 stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
-            N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module)
+    print("info: run_test_bottleneck called with N H W inc outc bc_conv1 bc_conv2 bc_conv3 bk_conv3 stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module niters",
+            N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters)
 
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
@@ -261,6 +266,9 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     time_start = time.time()
 
     if with_validation:
+        rtol=1e-2
+        atol=1e+0
+
         #logging.debug("running ref bottleneck forward")
         print("running ref bottleneck forward")
         y2 = torch_bottleneck(x2)
@@ -279,29 +287,35 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         # Y (Out)
 
-        compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)")
+        validation_check_failed1 = compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
 
         """
         # X gradient
 
-        compare_padded_tensors(x1.grad, x2.grad, "X Grad")
+        simple_validation_check = simple_validation_check and compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
 
         # Weight gradients for batchnorms
 
-        compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3")
-        compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2")
-        compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1")
+        simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
+        simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
+        simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
         if has_downsample:
-            compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4")
+            simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
 
         # Weight gradients for convs
 
-        compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3")
-        compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2")
-        compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1")
+        simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
+        simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
+        simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
         if has_downsample:
-            compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4")
+            simple_validation_check = simple_validation_check and compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
         """
+
+        validation_checks_failed = validation_check_failed1
+        if not validation_checks_failed:
+            print("Validation FAILED")
+        else:
+            print("Validation PASSED")
 
     #return
     #exit()
@@ -354,23 +368,24 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         time_end = time.time()
         print("Warmup took (s) ", time_end - time_start)
 
-        timed_niter = 10
-        #logging.info("timed_niter = ", timed_niter)
-        print("timed_niter = ", timed_niter)
+        timed_niters = niters
+        #logging.info("timed_niters = ", timed_niters)
+        print("timed_niters = ", timed_niters)
 
         time_start = time.time()
-        for i in range(timed_niter):
+        for i in range(timed_niters):
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
                 bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings)
         time_end = time.time()
-        time_per_iter = (time_end - time_start) / timed_niter
+        time_per_iter = (time_end - time_start) / timed_niters
 
         print("Timed loop took (s) ", time_end - time_start)
         print("Final perf time: ", time_per_iter)
         gflop = bottleneck_cpp.bottleneck_bn_fwd_get_gflop(bottleneck_cfg)
-        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))
+        basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride) + " " + str(has_downsample)
+        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))
 
         #print("Error: performance part is not implemented for this test!")
         #exit()
@@ -404,7 +419,7 @@ def main():
     #with open("resnet50_bottleneck_test_data_28thr.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr_dbg.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr_saved.data") as f:
-    with open("resnet50_bottleneck_test_data_28thr.data") as f:
+    with open(args.test_data_file) as f:
         contents = f.readlines()
         for line in contents:
             if line[0] == '#' or len(line) < 2:
@@ -417,7 +432,7 @@ def main():
             [N, H, W, inc, outc, stride, expansion] = list(integer_map)
             eps = float(eps)
             run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings)
+                                opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
     exit()
 
     # Just a single size run
@@ -434,7 +449,7 @@ def main():
     has_downsample = True
 
     run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype,
-                        args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings)
+                        args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
 
 if __name__ == "__main__":
     args = parser.parse_args()

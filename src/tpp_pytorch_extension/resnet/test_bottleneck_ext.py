@@ -188,8 +188,13 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     print("y2 shape = ", y2.shape)
 
     # Y (Out)
+    if opt_dtype == torch.bfloat16:
+        rtol=1.5e-1
+    else:
+        rtol=5.0e-4
+    atol=1e+0
 
-    compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)")
+    validation_check_failed1 = compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
 
     z1.backward(retain_graph=True)
     z2.backward(retain_graph=True)
@@ -197,23 +202,33 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     # X gradient
 
-    compare_padded_tensors(x1.grad, x2.grad, "X Grad")
+    validation_check_failed2 = compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
 
     # Weight gradients for batchnorms
 
-    compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3")
-    compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2")
-    compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1")
+    validation_check_failed3 = compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
+    validation_check_failed4 = compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
+    validation_check_failed5 = compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
     if has_downsample:
-        compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4")
+        validation_check_failed6 = compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
+    else:
+        validation_check_failed6 = False
 
     # Weight gradients for convs
 
-    compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3")
-    compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2")
-    compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1")
+    validation_check_failed7 = compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
+    validation_check_failed8 = compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
+    validation_check_failed9 = compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
     if has_downsample:
-        compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4")
+        validation_check_failed10 = compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
+    else:
+        validation_check_failed10 = False
+
+    validation_checks_failed = validation_check_failed1 and validation_check_failed2 and validation_check_failed3 and validation_check_failed4 and validation_check_failed5 and validation_check_failed6 and validation_check_failed7 and validation_check_failed8 and validation_check_failed9 and validation_check_failed10
+    if not validation_checks_failed:
+        print("Validation FAILED")
+    else:
+        print("Validation PASSED")
 
     return
     #exit()
