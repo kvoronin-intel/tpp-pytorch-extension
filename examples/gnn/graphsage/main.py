@@ -11,6 +11,7 @@ import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
 from pcl_pytorch_extension.gnn.graphsage import fused_graphsage
+from pcl_pytorch_extension.gnn.common import gnn_utils
 import pcl_pytorch_extension as ppx
 import os, psutil
 from contextlib import contextmanager
@@ -33,6 +34,10 @@ def opt_impl(enable=True, use_bf16=False):
     except ImportError as e:
         pass
 
+def block(model):
+    for m in model.modules():
+        if hasattr(m, "maybe_block_params"):
+            m.maybe_block_params()
 
 class SAGE(nn.Module):
     def __init__(self, in_feats, n_hidden, n_classes, n_layers, activation, dropout):
@@ -153,11 +158,19 @@ def load_subtensor(nfeat, labels, seeds, input_nodes, use_bf16):
     """
     Extracts features and labels for a set of nodes.
     """
-    if use_bf16:
-        batch_inputs = nfeat[input_nodes].to(th.bfloat16)
+    if args.opt_mlp:
+        if use_bf16:
+            batch_inputs = gnn_utils.gather_features(nfeat, input_nodes).to(th.bfloat16)
+        else:
+            batch_inputs = gnn_utils.gather_features(nfeat, input_nodes)
     else:
-        batch_inputs = nfeat[input_nodes]
+        if use_bf16:
+            batch_inputs = nfeat[input_nodes].to(th.bfloat16)
+        else:
+            batch_inputs = nfeat[input_nodes]
+
     batch_labels = labels[seeds]
+
     return batch_inputs, batch_labels
 
 
@@ -179,6 +192,8 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+def save_checkpoint(state, filename='checkpoint.pth.tar'):
+    th.save(state, filename, _use_new_zipfile_serialization=True)
 
 #### Entry point
 def run(args, device, data):
@@ -190,16 +205,30 @@ def run(args, device, data):
         [int(fanout) for fanout in args.fan_out.split(",")]
     )
 
-    dataloader = dgl.dataloading.NodeDataLoader(
-        g,
-        train_nid,
-        sampler,
-        batch_size=args.batch_size,
-        shuffle=True,
-        drop_last=False,
-        num_workers=args.num_workers,
-        use_cpu_worker_affinity=True,
-    )
+    if args.dataset == "ogbn-papers100M":
+        dataloader = dgl.dataloading.NodeDataLoader(
+            g,
+            train_nid,
+            sampler,
+            batch_size=args.batch_size,
+            shuffle=True,
+            drop_last=False,
+            num_workers=args.num_workers,
+            use_cpu_worker_affinity=args.cpu_worker_aff,
+            persistent_workers=False,
+            formats=['csc']
+        )
+    else:
+        dataloader = dgl.dataloading.NodeDataLoader(
+            g,
+            train_nid,
+            sampler,
+            batch_size=args.batch_size,
+            shuffle=True,
+            drop_last=False,
+            num_workers=args.num_workers,
+            use_cpu_worker_affinity=args.cpu_worker_aff,
+        )
 
     # Define model and optimizer
     with opt_impl(args.opt_mlp, args.use_bf16):
@@ -207,6 +236,7 @@ def run(args, device, data):
             in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout
         )
         model = model.to(device)
+    block(model)
     loss_fcn = nn.CrossEntropyLoss()
 
     if args.opt_mlp:
@@ -236,10 +266,6 @@ def run(args, device, data):
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
-    for m in model.modules():
-        if hasattr(m, "maybe_block_params"):
-            m.maybe_block_params()
-
     # Training loop
     avgb = 0
     best_eval_acc = 0
@@ -255,6 +281,7 @@ def run(args, device, data):
         for epoch in range(args.num_epochs):
             batch_time = AverageMeter()
             data_time = AverageMeter()
+            gather_time = AverageMeter()
 
             iter_time = []
 
@@ -265,16 +292,15 @@ def run(args, device, data):
             end = time.time()
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
                 # measure data loading time
-                data_time.update(time.time() - end)
-
-                # copy block to gpu
-                if args.gpu > 0:
-                    blocks = [blk.int().to(device) for blk in blocks]
+                t0 = time.time()
+                data_time.update(t0 - end)
 
                 # Load the input features as well as output labels
                 batch_inputs, batch_labels = load_subtensor(
                     nfeat, labels, seeds, input_nodes, args.use_bf16
                 )
+                t1 = time.time()
+                gather_time.update(t1 - t0)    
 
                 # Compute loss and prediction
                 batch_pred = model(blocks, batch_inputs).to(th.float32)
@@ -285,23 +311,25 @@ def run(args, device, data):
                 optimizer.step()
 
                 # measure elapsed time
-                batch_time.update(time.time() - end)
+                batch_time.update(time.time() - t1)
                 end = time.time()
 
                 if step > 0:
-                    iter_time.append(batch_time.val)
+                    iter_time.append(data_time.val + gather_time.val + batch_time.val)
                 if step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
                     print(
                         "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
-                        "Time (s) {batch_time.val:.3f} ({batch_time.avg:.3f}) |"
-                        "Data {data_time.val:.3f} ({data_time.avg:.3f})".format(
+                        "Data Load (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
+                        "Gather (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
+                        "Compute (s) {batch_time.val:.3f} ({batch_time.avg:.3f})".format(
                             epoch,
                             step,
                             loss.item(),
                             acc.item(),
-                            batch_time=batch_time,
                             data_time=data_time,
+                            gather_time=gather_time,
+                            batch_time=batch_time,
                         )
                     )
 
@@ -311,24 +339,28 @@ def run(args, device, data):
                 avgb += np.sum(iter_time)
 
             if epoch % args.eval_every == 0 and epoch != 0:
-                eval_acc, test_acc, pred = evaluate(
-                    model, g, nfeat, labels, val_nid, test_nid, device
-                )
-                if args.save_pred:
-                    np.savetxt(
-                        args.save_pred + "%02d" % epoch,
-                        pred.argmax(1).cpu().numpy(),
-                        "%d",
+                if args.dataset == "ogbn-products":
+                    eval_acc, test_acc, pred = evaluate(
+                        model, g, nfeat, labels, val_nid, test_nid, device
                     )
-                print("Eval Acc {:.4f}".format(eval_acc))
-                if eval_acc > best_eval_acc:
-                    best_eval_acc = eval_acc
-                    best_test_acc = test_acc
-                print(
-                    "Best Eval Acc {:.4f} Test Acc {:.4f}".format(
-                        best_eval_acc, best_test_acc
+
+                    if args.save_pred:
+                        np.savetxt(
+                            args.save_pred + "%02d" % epoch,
+                            pred.argmax(1).cpu().numpy(),
+                            "%d",
+                        )
+                    print("Eval Acc {:.4f}".format(eval_acc))
+                    if eval_acc > best_eval_acc:
+                        best_eval_acc = eval_acc
+                        best_test_acc = test_acc
+                    print(
+                        "Best Eval Acc {:.4f} Test Acc {:.4f}".format(
+                            best_eval_acc, best_test_acc
+                        )
                     )
-                )
+                elif args.dataset == "ogbn-papers100M":
+                    save_checkpoint({'state_dict': model.state_dict()}, filename='ogbp100M'+str(epoch)+'.pth.tar')
 
     if prof and args.opt_mlp:
         ppx.print_debug_timers(0)
@@ -353,7 +385,10 @@ def run(args, device, data):
                 )
 
     print("Avg epoch time: {}".format(avgb / (epoch - 4)))
-    return best_test_acc, avgb / (epoch - 4)
+    if args.dataset == "ogbn-products":
+        return best_test_acc, avgb / (epoch - 4)
+    elif args.dataset == "ogbn-papers100M":
+        return avgb / (epoch - 4)
 
 
 if __name__ == "__main__":
@@ -398,6 +433,12 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--profile", action="store_true", help="Whether to profile or not",
     )
+    argparser.add_argument(
+        "--cpu-worker-aff", action="store_true", help="Whether to affinitize dataloader workers or not",
+    )
+    argparser.add_argument(
+        "--dataset", type=str, default="ogbn-products", help="default dataset name",
+    )
 
     args = argparser.parse_args()
 
@@ -407,7 +448,7 @@ if __name__ == "__main__":
         device = th.device("cpu")
 
     # load ogbn-products data
-    data = DglNodePropPredDataset(name="ogbn-products")
+    data = DglNodePropPredDataset(name=args.dataset)
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = (
         splitted_idx["train"],
@@ -415,15 +456,26 @@ if __name__ == "__main__":
         splitted_idx["test"],
     )
     graph, labels = data[0]
-    nfeat = graph.ndata.pop("feat").to(device)
-    labels = labels[:, 0].to(device)
-
-    in_feats = nfeat.shape[1]
-    n_classes = (labels.max() + 1).item()
+    n_classes = data.num_classes
+    if  args.dataset == 'ogbn-products':
+        nfeat = graph.ndata.pop("feat").to(device)
+        labels = labels[:, 0].to(device)
+        in_feats = nfeat.shape[1]
+        n_classes = (labels.max() + 1).item()
+    elif args.dataset == 'ogbn-papers100M':
+        #breakpoint()
+        #graph_ = dgl.add_reverse_edges(graph)
+        ed = graph.edges()
+        graph = dgl.add_edges(graph, ed[1], ed[0])
+        labels = labels[:, 0].long()
+        in_feats = graph.ndata['feat'].shape[1]
+        nfeat = graph.ndata["feat"]
+        del data, ed
 
     # Create csr/coo/csc formats before launching sampling processes
     # This avoids creating certain formats in each data loader process, which saves momory and CPU.
-    graph.create_formats_()
+    if args.dataset != 'ogbn-papers100M':
+        graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
 
@@ -431,12 +483,19 @@ if __name__ == "__main__":
     test_accs = []
     epoch_time = []
     if not args.profile:
-        for i in range(10):
-            # test_accs.append(run(args, device, data).cpu().numpy())
-            acc, et = run(args, device, data)
-            test_accs.append(acc)
-            epoch_time.append(et)
-            print("Average test accuracy:", np.mean(test_accs), "±", np.std(test_accs))
-            print("Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time))
+        if args.dataset == "ogbn-products":
+            for i in range(10):
+                # test_accs.append(run(args, device, data).cpu().numpy())
+                acc, et = run(args, device, data)
+                test_accs.append(acc)
+                epoch_time.append(et)
+                print("Average test accuracy:", np.mean(test_accs), "±", np.std(test_accs))
+                print("Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time))
+        elif args.dataset == "ogbn-papers100M":
+            for i in range(10):
+                et = run(args, device, data)
+                epoch_time.append(et)
+                print("Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time))
+
     else:
         run(args, device, data)

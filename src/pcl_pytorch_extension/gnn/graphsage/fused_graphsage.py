@@ -61,22 +61,23 @@ class SAGEMLPFunction(torch.autograd.Function):
                 align if N > align else N, apply_bias, p, act, res, training, inputs
             )
 
-        if act == "None":
-            act_mask = torch.tensor([], dtype=torch.short)
-        if p == 0.0:
-            dp_mask = torch.tensor([], dtype=torch.short)
+        if training:
+            if act == "None":
+                act_mask = torch.tensor([], dtype=torch.short)
+            if p == 0.0:
+                dp_mask = torch.tensor([], dtype=torch.short)
 
-        if res:
-            ctx.save_for_backward(inp, inp_res, wt, res_wt, act_mask, dp_mask)
-        else:
-            ctx.save_for_backward(inp, wt, act_mask, dp_mask)
+            if res:
+                ctx.save_for_backward(inp, inp_res, wt, res_wt, act_mask, dp_mask)
+            else:
+                ctx.save_for_backward(inp, wt, act_mask, dp_mask)
 
-        N = inp.size(0)
-        ctx.act = act
-        ctx.res = res
-        ctx.p = p
-        ctx.align = align if N > align else N
-        ctx.apply_bias = apply_bias
+            ctx.act = act
+            ctx.res = res
+            ctx.p = p
+            ctx.align = align
+            ctx.apply_bias = apply_bias
+
         return out
 
     @staticmethod

@@ -89,11 +89,12 @@ class BuildMakeLib(Command):
             check_call(["make", "-f", makefile] + build_args, cwd=str(build_dir))
 
 
-sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp"]
+sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp", "src/csrc/embedding.cpp"]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
 sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
+sources += glob.glob("src/csrc/gnn/common/*.cpp")
 
 print(sources)
 

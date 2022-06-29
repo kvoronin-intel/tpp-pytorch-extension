@@ -22,8 +22,7 @@ import numpy as np
 
 th.autograd.set_detect_anomaly(False)
 
-USE_BF16_PARAMS = True
-
+USE_BF16_ACT_PARAMS = False
 
 class RGCNNormFunction(th.autograd.Function):
     @staticmethod
@@ -214,7 +213,6 @@ class OptGraphConv(BlockedModule):
         self._norm = norm
         self._allow_zero_in_degree = allow_zero_in_degree
         self.align = 32
-        self.use_bf16 = False
 
         self.bc = self._in_feats
         self.bk = self._out_feats
@@ -240,10 +238,12 @@ class OptGraphConv(BlockedModule):
         else:
             self.register_parameter("bias", None)
 
+        if not USE_BF16_ACT_PARAMS:
+            self.use_bf16 = False
         self.reset_parameters()
 
         self._activation = activation
-        self.blocked_input_signature = blocked_layout.get_blocking_signature(
+        self.blocked_weight_signature = blocked_layout.get_blocking_signature(
             "CK", "KCCK"
         )
 
@@ -314,11 +314,20 @@ class OptGraphConv(BlockedModule):
 
             if weight is not None:
                 wt = self.get_blocked_tensor(
-                    weight, self.blocked_input_signature, [self.bc, self.bk]
+                    weight, self.blocked_weight_signature, [self.bc, self.bk]
                 )
+                if self.use_bf16:
+                    wt = wt.to(th.bfloat16)
+                    vs = wt.shape
+                    vs = [vs[0], vs[1], vs[2] // 2, 2, vs[3]]
+                    wt = wt.view(vs).permute([0, 1, 2, 4, 3]).contiguous()
+
+                    rst = rst.to(th.bfloat16)
                 inputs = [degs, rst, wt]
                 rst = RGCNMLPFunction.apply(align, self._norm, *inputs)
             else:
+                if self.use_bf16:
+                    rst = rst.to(bfloat16)
                 inputs = [degs, rst]
                 rst = RGCNNormFunction.apply(align, self._norm, *inputs)
 
@@ -347,10 +356,10 @@ class OptGraphConvBF16(OptGraphConv):
         allow_zero_in_degree=False,
     ):
 
-        super(OptGraphConvBF16, self).__init__()
+        super(OptGraphConvBF16, self).__init__(
+            in_feat, out_feat, norm, weight, bias, activation, allow_zero_in_degree)
 
         self.use_bf16 = True
-
 
 class OptRelGraphEmbed(BlockedModule):
     def __init__(
@@ -363,20 +372,30 @@ class OptRelGraphEmbed(BlockedModule):
         self.node_feats_projection = node_feats_projection
         self.node_embeddings = nn.ModuleDict()
 
-        self.use_bf16 = False
+        if not USE_BF16_ACT_PARAMS:
+            self.use_bf16 = False
 
         if node_feats_projection:
             self.embeds = nn.ParameterDict()
         for ntype in g.ntypes:
             if node_feats[ntype] is None:
                 node_embedding = nn.Embedding(num_nodes[ntype], embed_size, sparse=True)
+                node_embedding.weight = BlockedParameter(th.Tensor(node_embedding.weight.shape[0], node_embedding.weight.shape[1]))
+                node_embedding.weight.set_blocking_param((None, None, th.float32))
                 nn.init.uniform_(node_embedding.weight, -1, 1)
                 self.node_embeddings[ntype] = node_embedding
             elif node_feats[ntype] is not None and node_feats_projection:
                 input_embedding_size = node_feats[ntype].shape[-1]
-                embed = nn.Parameter(th.Tensor(input_embedding_size, self.embed_size))
+                embed = BlockedParameter(th.Tensor(input_embedding_size, self.embed_size))
                 nn.init.xavier_uniform_(embed, gain=nn.init.calculate_gain("relu"))
                 self.embeds[ntype] = embed
+
+    def maybe_block_params(self):
+        for ntype in self.g.ntypes:
+            if self.node_feats[ntype] is None:
+                self.node_embeddings[ntype].weight.block()
+            if self.node_feats[ntype] is not None and self.node_feats_projection:
+                self.embeds[ntype].weight.block()
 
     def forward(self, in_nodes, device):
 
@@ -392,18 +411,11 @@ class OptRelGraphEmbed(BlockedModule):
         for ntype, nid in zip(ntypes, nids):
             if self.node_feats[ntype] is None:
                 x[ntype] = self.node_embeddings[ntype](nid)
-                if self.use_bf16:
-                    x[ntype] = x[ntype].to(th.bfloat16)
             else:
                 if self.node_feats_projection:
                     x[ntype] = self.node_feats[ntype][nid] @ self.embeddings[ntype]
-                    if self.use_bf16:
-                        x[ntype] = x[ntype].to(th.bfloat16)
                 else:
                     x[ntype] = self.node_feats[ntype][nid]
-                    if self.use_bf16:
-                        x[ntype] = x[ntype].to(th.bfloat16)
-
         return x
 
 
@@ -422,6 +434,7 @@ class OptRelGraphConvLayer(BlockedModule):
         self_loop=False,
     ):
         super(OptRelGraphConvLayer, self).__init__()
+
         self.in_feat = in_feat
         self.out_feat = out_feat
         self.rel_names = rel_names
@@ -438,14 +451,25 @@ class OptRelGraphConvLayer(BlockedModule):
             self.activation = ""
         self.self_loop = self_loop
 
-        self.conv = dglnn.HeteroGraphConv(
-            {
-                rel: OptGraphConv(
-                    in_feat, out_feat, norm=norm, weight=False, bias=False
+        if USE_BF16_ACT_PARAMS:
+            if self.use_bf16:
+                self.conv = dglnn.HeteroGraphConv(
+                    {
+                        rel: OptGraphConvBF16(
+                            in_feat, out_feat, norm=norm, weight=False, bias=False
+                        )
+                        for rel in rel_names
+                    }
                 )
-                for rel in rel_names
-            }
-        )
+        else:
+            self.conv = dglnn.HeteroGraphConv(
+                {
+                    rel: OptGraphConv(
+                        in_feat, out_feat, norm=norm, weight=False, bias=False
+                    )
+                    for rel in rel_names
+                }
+            )
 
         self.align = 32
         self.bc = self.in_feat
@@ -491,10 +515,11 @@ class OptRelGraphConvLayer(BlockedModule):
 
         self.dropout = dropout
         self.nn_dropout = nn.Dropout(dropout)
-        self.use_bf16 = False
+        if not USE_BF16_ACT_PARAMS:
+            self.use_bf16 = False
 
-    def maybe_block_params(self, param):
-        param.block()
+    def maybe_block_params(self):
+        self.loop_weight.block()
 
     def forward(self, g, inputs):
         g = g.local_var()
@@ -508,7 +533,7 @@ class OptRelGraphConvLayer(BlockedModule):
             wdict = {}
 
         if self.self_loop:
-            self.maybe_block_params(self.loop_weight)
+            self.maybe_block_params()
             if g.is_block:
                 inputs_dst = {k: v[: g.num_dst_nodes(k)] for k, v in inputs.items()}
             else:
@@ -561,12 +586,31 @@ class OptRelGraphConvLayerBF16(OptRelGraphConvLayer):
         weight=True,
         bias=True,
         activation=None,
-        self_loop=False,
         dropout=0.0,
+        self_loop=False,
     ):
-        super(OptRelGraphConvLayerBF16, self).__init__()
-
         self.use_bf16 = True
+        global USE_BF16_ACT_PARAMS
+        USE_BF16_ACT_PARAMS = True
+
+        super(OptRelGraphConvLayerBF16, self).__init__(
+            in_feat,
+            out_feat,
+            rel_names,
+            num_bases,
+            norm,
+            weight,
+            bias,
+            activation,
+            dropout,
+            self_loop)
+
+        # weight for self loop
+        if self.self_loop:
+            self.loop_weight.set_blocking_param(([[self.bc // 2, 2], self.bk], [3, 0, 1, 4, 2], th.bfloat16,))
+            nn.init.xavier_uniform_(
+                self.loop_weight, gain=nn.init.calculate_gain("relu")
+            )
 
 
 class OptRelGraphEmbedBF16(OptRelGraphEmbed):
@@ -574,10 +618,18 @@ class OptRelGraphEmbedBF16(OptRelGraphEmbed):
         self, g, embed_size, num_nodes, node_feats, node_feats_projection=False
     ):
 
-        super(OptRelGraphEmbedBF16, self).__init__()
-
         self.use_bf16 = True
+        global USE_BF16_ACT_PARAMS
+        USE_BF16_ACT_PARAMS = True
 
+        super(OptRelGraphEmbedBF16, self).__init__(
+            g, embed_size, num_nodes, node_feats)
+
+        for ntype in self.g.ntypes:
+            if self.node_feats[ntype] is None:
+                self.node_embeddings[ntype].weight.set_blocking_param((None, None, th.bfloat16,))
+            if self.node_feats[ntype] is None and node_feats_projection:
+                self.embeds[ntype].weight.set_blocking_param((None, None, th.bfloat16,))
 
 class OptEntityClassify(BlockedModule):
     def __init__(
@@ -596,6 +648,7 @@ class OptEntityClassify(BlockedModule):
         self_loop=False,
     ):
         super(OptEntityClassify, self).__init__()
+
         self.g = g
         self.in_dim = in_dim
         self.h_dim = h_dim
@@ -609,50 +662,93 @@ class OptEntityClassify(BlockedModule):
         self.num_layers = num_layers
         self.dropout = dropout
         self.input_dropout = input_dropout
-        self.use_self_loop = self_loop
-        self.use_bf16 = False
+        self.self_loop = self_loop
         self.align = 32
 
         self.layers = nn.ModuleList()
-        # i2h
-        self.layers.append(
-            OptRelGraphConvLayer(
-                self.in_dim,
-                self.h_dim,
-                self.rel_names,
-                self.num_bases,
-                norm=norm,
-                activation=activation,
-                self_loop=self.use_self_loop,
-                dropout=self.dropout,
-            )
-        )
-        # h2h
-        for _ in range(1, self.num_layers - 1):
+        if USE_BF16_ACT_PARAMS:
+            assert self.use_bf16 == True
+            # i2h
             self.layers.append(
-                OptRelGraphConvLayer(
-                    self.h_dim,
+                OptRelGraphConvLayerBF16(
+                    self.in_dim,
                     self.h_dim,
                     self.rel_names,
                     self.num_bases,
                     norm=norm,
                     activation=activation,
-                    self_loop=self.use_self_loop,
+                    self_loop=self.self_loop,
                     dropout=self.dropout,
                 )
             )
-        # h2o
-        self.layers.append(
-            OptRelGraphConvLayer(
-                self.h_dim,
-                self.out_dim,
-                self.rel_names,
-                self.num_bases,
-                norm=norm,
-                activation=None,
-                self_loop=self.use_self_loop,
+            # h2h
+            for _ in range(1, self.num_layers - 1):
+                self.layers.append(
+                    OptRelGraphConvLayerBF16(
+                        self.h_dim,
+                        self.h_dim,
+                        self.rel_names,
+                        self.num_bases,
+                        norm=norm,
+                        activation=activation,
+                        self_loop=self.self_loop,
+                        dropout=self.dropout,
+                    )
+                )
+            # h2o
+            self.layers.append(
+                OptRelGraphConvLayerBF16(
+                    self.h_dim,
+                    self.out_dim,
+                    self.rel_names,
+                    self.num_bases,
+                    norm=norm,
+                    activation=None,
+                    self_loop=self.self_loop,
+                )
             )
-        )
+        else:
+            # i2h
+            self.layers.append(
+                OptRelGraphConvLayer(
+                    self.in_dim,
+                    self.h_dim,
+                    self.rel_names,
+                    self.num_bases,
+                    norm=norm,
+                    activation=activation,
+                    self_loop=self.self_loop,
+                    dropout=self.dropout,
+                )
+            )
+            # h2h
+            for _ in range(1, self.num_layers - 1):
+                self.layers.append(
+                    OptRelGraphConvLayer(
+                        self.h_dim,
+                        self.h_dim,
+                        self.rel_names,
+                        self.num_bases,
+                        norm=norm,
+                        activation=activation,
+                        self_loop=self.self_loop,
+                        dropout=self.dropout,
+                    )
+                )
+            # h2o
+            self.layers.append(
+                OptRelGraphConvLayer(
+                    self.h_dim,
+                    self.out_dim,
+                    self.rel_names,
+                    self.num_bases,
+                    norm=norm,
+                    activation=None,
+                    self_loop=self.self_loop,
+                )
+            )
+        if not USE_BF16_ACT_PARAMS:
+            self.use_bf16 = False
 
     def forward(self, g, inputs):
         if self.use_bf16:
@@ -735,6 +831,7 @@ class OptEntityClassifyBF16(OptEntityClassify):
     def __init__(
         self,
         g,
+        in_dim,
         h_dim,
         out_dim,
         num_bases,
@@ -744,11 +841,27 @@ class OptEntityClassifyBF16(OptEntityClassify):
         input_dropout=0,
         dropout=0,
         activation=None,
-        use_self_loop=False,
+        self_loop=False,
     ):
-        super(OptEntityClassifyBF16, self).__init__()
-
         self.use_bf16 = True
+        global USE_BF16_ACT_PARAMS
+        USE_BF16_ACT_PARAMS = True
+
+        super(OptEntityClassifyBF16, self).__init__(
+            g,
+            in_dim,
+            h_dim,
+            out_dim,
+            num_bases,
+            num_layers,
+            norm,
+            layer_norm,
+            input_dropout,
+            dropout,
+            activation,
+            self_loop,
+        )
+
 
 
 def block(model):

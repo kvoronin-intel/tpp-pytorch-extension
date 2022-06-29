@@ -64,7 +64,7 @@ if (self_loop) {
 
   at::Tensor t_grad_bias = at::empty(0);
   if (apply_bias)
-    t_grad_bias = t_wt.new_empty({nk * bk});
+    t_grad_bias = at::empty({nk * bk});
 
   at::Tensor t_grad_out_f32 = t_grad_out;
   if (t_grad_out.dtype() == at::kBFloat16)

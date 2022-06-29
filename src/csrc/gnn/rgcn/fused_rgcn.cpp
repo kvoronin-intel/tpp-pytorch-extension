@@ -76,7 +76,7 @@ std::vector<at::Tensor> fused_rgcn_mlp_fwd(
     std::string norm_type,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);
-  if (inputs[0].dtype() == at::kFloat) {
+  if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_rgcn_mlp_flat_fwd.h"
   } else {

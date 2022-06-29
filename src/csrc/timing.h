@@ -2,6 +2,7 @@
 #define _BERT_TIMING_H_
 
 #include "utils.h"
+#include <immintrin.h>
 
 enum DebugTimer {
   BRGEMM,
@@ -20,6 +21,7 @@ enum DebugTimer {
   EW_MUL,
   EW_ZERO,
   EW_RED,
+  ROW_GT,
   OPTIM,
   LAST_TIMER
 };
@@ -41,6 +43,7 @@ inline const char* DebugTimerName(int t) {
                          "MUL",
                          "ZERO",
                          "REDUCE",
+                         "ROW_GT",
                          "OPTIM",
                          "LAST_TIMER"};
   return names[t];
@@ -79,6 +82,7 @@ class ScopedTimer {
  public:
   ScopedTimer(DebugTimer t, long f = 0) : type(t), flops(f), start(getTime()) {}
   ~ScopedTimer() {
+    _mm_sfence();
     auto time = getTime() - start;
     int tid = omp_get_thread_num();
     auto& pass = _pass_list[globalPass];

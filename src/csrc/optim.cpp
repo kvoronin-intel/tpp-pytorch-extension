@@ -385,7 +385,7 @@ void fused_split_adamw(
     PCL_ASSERT(t_data_hi.dim() == 2, "Sparse Adam support only 2D params\n");
     // TODO: BFloat16 coalesce() might not be optimal in pytorch, implement our
     // own
-    t_grad = t_grad.coalesce();
+    //t_grad = t_grad.coalesce();
     auto t_values = t_grad._values();
     auto t_indices = t_grad._indices();
     auto data_hi = t_data_hi.data_ptr<T>();

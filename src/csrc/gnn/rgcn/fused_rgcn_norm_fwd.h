@@ -58,7 +58,7 @@ auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, C)), EW_COPY);
       auto recp_tpp = SCOPEIT(RecpTPP<float>(rem), EW_RECP);
       auto recp_sqrt_tpp = SCOPEIT(RecpSqrtTPP<float>(rem), EW_RECP_SQRT);
       auto mul_norm_tpp =
-          SCOPEIT_REF((MulNormTPP<float, T>(rem, C, C, C)), EW_MUL);
+          SCOPEIT((MulNormTPP<float, T>(rem, C, C, C)), EW_MUL);
       auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(rem, C)), EW_COPY);
 
       if (norm_type == "left" || norm_type == "right")
