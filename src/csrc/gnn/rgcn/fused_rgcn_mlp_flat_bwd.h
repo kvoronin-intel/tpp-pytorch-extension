@@ -117,14 +117,14 @@ auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
     16)));
 
 // BF16 del-wt brgemms
-auto brgemm_dw_bf16_tpp = SCOPEIT(
-    (BrgemmTPP<
-        T,
-        float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 0.0, 0, 16)));
-auto brgemm_dw_bf16_tpp_b1 = SCOPEIT(
-    (BrgemmTPP<
-        T,
-        float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 1.0, 0, 16)));
+auto brgemm_dw_bf16_tpp =
+    SCOPEIT((BrgemmTPP<
+             T,
+             float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 0.0, 0, 16)));
+auto brgemm_dw_bf16_tpp_b1 =
+    SCOPEIT((BrgemmTPP<
+             T,
+             float>(bc, bk, bnp, bc* bnp, bk* bnp, bnp, bk, bk, 1.0, 0, 16)));
 
 {
   RECORD_SCOPE(rgdbias, {t_grad_out});
@@ -202,7 +202,8 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEIT(
         for (int n3c = chunk_start; n3c < chunk_end; n3c++) {
           int n = n3c / nc;
           int c = n3c % nc;
-          brgemm_di_tpp(grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk, true);
+          brgemm_di_tpp(
+              grad_out[n][0][0], wt_TV[0][c], grad_in[n][0][c], nk, true);
         }
         brgemm_di_tpp.release();
       }
@@ -231,7 +232,7 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEIT(
 
       if (bk != bkp) {
         T tmp[rem][nk * bkp];
-        //float tmp_in[rem][nc][bc];
+        // float tmp_in[rem][nc][bc];
 
         for (int k = 0; k < nk; k++) {
           set_zero_col_tpp(&tmp[0][k * bk] + bk);
@@ -239,29 +240,30 @@ auto brgemm_dw_bf16_tpp_b1 = SCOPEIT(
         }
         for (int c = 0; c < nc; c++) {
           brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in[nn * bn][c], nk, true);
-          //brgemm_di_tpp(tmp[0], wt_TV[0][c], tmp_in[0][c], nk, true);
-          //cvt_tpp(tmp_in[0][c], grad_in[nn * bn][c]);
+          // brgemm_di_tpp(tmp[0], wt_TV[0][c], tmp_in[0][c], nk, true);
+          // cvt_tpp(tmp_in[0][c], grad_in[nn * bn][c]);
         }
 
       } else {
         auto brgemm_di_tf_tpp = SCOPEIT((BrgemmTPP<T, float>(
-                rem,
-                bc,
-                bkp,
-                bkp,
-                nc * bc * bkp,
-                nk * bkp,
-                bc,
-                nc * bc,
-                0.0,
-                0,
-                nk)));
+            rem,
+            bc,
+            bkp,
+            bkp,
+            nc * bc * bkp,
+            nk * bkp,
+            bc,
+            nc * bc,
+            0.0,
+            0,
+            nk)));
 
         brgemm_di_tf_tpp.config();
         float tmp[rem][nc][bc];
         for (int c = 0; c < nc; c++) {
-          //brgemm_di_tpp(
-          //    grad_out[nn * bn][0], wt_TV[0][c], grad_in[nn * bn][c], nk, true);
+          // brgemm_di_tpp(
+          //     grad_out[nn * bn][0], wt_TV[0][c], grad_in[nn * bn][c], nk,
+          //     true);
           brgemm_di_tf_tpp(
               grad_out[nn * bn][0], wt_TV[0][c], tmp[0][c], nk, true);
           cvt_tpp(tmp[0][c], grad_in[nn * bn][c]);
@@ -400,7 +402,8 @@ auto trans_tpp = SCOPEIT(
                   global_tmp_inT[tid][ifm1 - my_ifm_start][0],
                   global_tmp_go[tid][0],
                   grad_wt_priv[team_id][ofm1][ifm1],
-                  blocks, true);
+                  blocks,
+                  true);
             }
           }
         }

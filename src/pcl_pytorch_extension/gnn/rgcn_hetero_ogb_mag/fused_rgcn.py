@@ -24,6 +24,7 @@ th.autograd.set_detect_anomaly(False)
 
 USE_BF16_ACT_PARAMS = False
 
+
 class RGCNNormFunction(th.autograd.Function):
     @staticmethod
     def forward(ctx, align, norm_type, *inputs):
@@ -229,7 +230,12 @@ class OptGraphConv(BlockedModule):
 
         if weight:
             self.weight = BlockedParameter(th.Tensor(self._in_feats, self._out_feats))
-            self.weight.set_blocking_param(([self.bc, self.bk], [2, 0, 1, 3],))
+            self.weight.set_blocking_param(
+                (
+                    [self.bc, self.bk],
+                    [2, 0, 1, 3],
+                )
+            )
         else:
             self.register_parameter("weight", None)
 
@@ -357,9 +363,11 @@ class OptGraphConvBF16(OptGraphConv):
     ):
 
         super(OptGraphConvBF16, self).__init__(
-            in_feat, out_feat, norm, weight, bias, activation, allow_zero_in_degree)
+            in_feat, out_feat, norm, weight, bias, activation, allow_zero_in_degree
+        )
 
         self.use_bf16 = True
+
 
 class OptRelGraphEmbed(BlockedModule):
     def __init__(
@@ -380,13 +388,19 @@ class OptRelGraphEmbed(BlockedModule):
         for ntype in g.ntypes:
             if node_feats[ntype] is None:
                 node_embedding = nn.Embedding(num_nodes[ntype], embed_size, sparse=True)
-                node_embedding.weight = BlockedParameter(th.Tensor(node_embedding.weight.shape[0], node_embedding.weight.shape[1]))
+                node_embedding.weight = BlockedParameter(
+                    th.Tensor(
+                        node_embedding.weight.shape[0], node_embedding.weight.shape[1]
+                    )
+                )
                 node_embedding.weight.set_blocking_param((None, None, th.float32))
                 nn.init.uniform_(node_embedding.weight, -1, 1)
                 self.node_embeddings[ntype] = node_embedding
             elif node_feats[ntype] is not None and node_feats_projection:
                 input_embedding_size = node_feats[ntype].shape[-1]
-                embed = BlockedParameter(th.Tensor(input_embedding_size, self.embed_size))
+                embed = BlockedParameter(
+                    th.Tensor(input_embedding_size, self.embed_size)
+                )
                 nn.init.xavier_uniform_(embed, gain=nn.init.calculate_gain("relu"))
                 self.embeds[ntype] = embed
 
@@ -495,7 +509,10 @@ class OptRelGraphConvLayer(BlockedModule):
                 outs = len(self.rel_names)
                 for i in range(outs):
                     self.weight[i].set_blocking_param(
-                        ([self.bc, self.bk], [2, 0, 1, 3],)
+                        (
+                            [self.bc, self.bk],
+                            [2, 0, 1, 3],
+                        )
                     )
                     nn.init.xavier_uniform_(
                         self.weight[i], gain=nn.init.calculate_gain("relu")
@@ -508,7 +525,12 @@ class OptRelGraphConvLayer(BlockedModule):
         # weight for self loop
         if self.self_loop:
             self.loop_weight = BlockedParameter(th.Tensor(in_feat, out_feat))
-            self.loop_weight.set_blocking_param(([self.bc, self.bk], [2, 0, 1, 3],))
+            self.loop_weight.set_blocking_param(
+                (
+                    [self.bc, self.bk],
+                    [2, 0, 1, 3],
+                )
+            )
             nn.init.xavier_uniform_(
                 self.loop_weight, gain=nn.init.calculate_gain("relu")
             )
@@ -603,11 +625,18 @@ class OptRelGraphConvLayerBF16(OptRelGraphConvLayer):
             bias,
             activation,
             dropout,
-            self_loop)
+            self_loop,
+        )
 
         # weight for self loop
         if self.self_loop:
-            self.loop_weight.set_blocking_param(([[self.bc // 2, 2], self.bk], [3, 0, 1, 4, 2], th.bfloat16,))
+            self.loop_weight.set_blocking_param(
+                (
+                    [[self.bc // 2, 2], self.bk],
+                    [3, 0, 1, 4, 2],
+                    th.bfloat16,
+                )
+            )
             nn.init.xavier_uniform_(
                 self.loop_weight, gain=nn.init.calculate_gain("relu")
             )
@@ -622,14 +651,26 @@ class OptRelGraphEmbedBF16(OptRelGraphEmbed):
         global USE_BF16_ACT_PARAMS
         USE_BF16_ACT_PARAMS = True
 
-        super(OptRelGraphEmbedBF16, self).__init__(
-            g, embed_size, num_nodes, node_feats)
+        super(OptRelGraphEmbedBF16, self).__init__(g, embed_size, num_nodes, node_feats)
 
         for ntype in self.g.ntypes:
             if self.node_feats[ntype] is None:
-                self.node_embeddings[ntype].weight.set_blocking_param((None, None, th.bfloat16,))
+                self.node_embeddings[ntype].weight.set_blocking_param(
+                    (
+                        None,
+                        None,
+                        th.bfloat16,
+                    )
+                )
             if self.node_feats[ntype] is None and node_feats_projection:
-                self.embeds[ntype].weight.set_blocking_param((None, None, th.bfloat16,))
+                self.embeds[ntype].weight.set_blocking_param(
+                    (
+                        None,
+                        None,
+                        th.bfloat16,
+                    )
+                )
+
 
 class OptEntityClassify(BlockedModule):
     def __init__(
@@ -861,7 +902,6 @@ class OptEntityClassifyBF16(OptEntityClassify):
             activation,
             self_loop,
         )
-
 
 
 def block(model):

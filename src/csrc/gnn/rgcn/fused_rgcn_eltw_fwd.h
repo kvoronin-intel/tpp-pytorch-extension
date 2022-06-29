@@ -79,13 +79,13 @@ if (self_loop) {
     RECORD_SCOPE(rgewo_gemm, {t_in, t_wt_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel 
+#pragma omp parallel
       {
         int tid = omp_get_thread_num();
         int threads = omp_get_num_threads();
         int work = nn * nk;
         int chunk =
-          (work % threads == 0) ? (work / threads) : (work / threads) + 1;
+            (work % threads == 0) ? (work / threads) : (work / threads) + 1;
         int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
         int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
 
@@ -174,13 +174,13 @@ if (self_loop) {
     RECORD_SCOPE(rgewo_gemm, {t_in, t_wt_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel 
+#pragma omp parallel
       {
         int tid = omp_get_thread_num();
         int threads = omp_get_num_threads();
         int work = nn * nk;
         int chunk =
-          (work % threads == 0) ? (work / threads) : (work / threads) + 1;
+            (work % threads == 0) ? (work / threads) : (work / threads) + 1;
         int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
         int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
 

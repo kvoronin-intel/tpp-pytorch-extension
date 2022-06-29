@@ -34,10 +34,12 @@ def opt_impl(enable=True, use_bf16=False):
     except ImportError as e:
         pass
 
+
 def block(model):
     for m in model.modules():
         if hasattr(m, "maybe_block_params"):
             m.maybe_block_params()
+
 
 class SAGE(nn.Module):
     def __init__(self, in_feats, n_hidden, n_classes, n_layers, activation, dropout):
@@ -192,8 +194,10 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def save_checkpoint(state, filename='checkpoint.pth.tar'):
+
+def save_checkpoint(state, filename="checkpoint.pth.tar"):
     th.save(state, filename, _use_new_zipfile_serialization=True)
+
 
 #### Entry point
 def run(args, device, data):
@@ -216,7 +220,7 @@ def run(args, device, data):
             num_workers=args.num_workers,
             use_cpu_worker_affinity=args.cpu_worker_aff,
             persistent_workers=False,
-            formats=['csc']
+            formats=["csc"],
         )
     else:
         dataloader = dgl.dataloading.NodeDataLoader(
@@ -300,7 +304,7 @@ def run(args, device, data):
                     nfeat, labels, seeds, input_nodes, args.use_bf16
                 )
                 t1 = time.time()
-                gather_time.update(t1 - t0)    
+                gather_time.update(t1 - t0)
 
                 # Compute loss and prediction
                 batch_pred = model(blocks, batch_inputs).to(th.float32)
@@ -360,7 +364,10 @@ def run(args, device, data):
                         )
                     )
                 elif args.dataset == "ogbn-papers100M":
-                    save_checkpoint({'state_dict': model.state_dict()}, filename='ogbp100M'+str(epoch)+'.pth.tar')
+                    save_checkpoint(
+                        {"state_dict": model.state_dict()},
+                        filename="ogbp100M" + str(epoch) + ".pth.tar",
+                    )
 
     if prof and args.opt_mlp:
         ppx.print_debug_timers(0)
@@ -431,13 +438,20 @@ if __name__ == "__main__":
         "--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer."
     )
     argparser.add_argument(
-        "--profile", action="store_true", help="Whether to profile or not",
+        "--profile",
+        action="store_true",
+        help="Whether to profile or not",
     )
     argparser.add_argument(
-        "--cpu-worker-aff", action="store_true", help="Whether to affinitize dataloader workers or not",
+        "--cpu-worker-aff",
+        action="store_true",
+        help="Whether to affinitize dataloader workers or not",
     )
     argparser.add_argument(
-        "--dataset", type=str, default="ogbn-products", help="default dataset name",
+        "--dataset",
+        type=str,
+        default="ogbn-products",
+        help="default dataset name",
     )
 
     args = argparser.parse_args()
@@ -457,24 +471,24 @@ if __name__ == "__main__":
     )
     graph, labels = data[0]
     n_classes = data.num_classes
-    if  args.dataset == 'ogbn-products':
+    if args.dataset == "ogbn-products":
         nfeat = graph.ndata.pop("feat").to(device)
         labels = labels[:, 0].to(device)
         in_feats = nfeat.shape[1]
         n_classes = (labels.max() + 1).item()
-    elif args.dataset == 'ogbn-papers100M':
-        #breakpoint()
-        #graph_ = dgl.add_reverse_edges(graph)
+    elif args.dataset == "ogbn-papers100M":
+        # breakpoint()
+        # graph_ = dgl.add_reverse_edges(graph)
         ed = graph.edges()
         graph = dgl.add_edges(graph, ed[1], ed[0])
         labels = labels[:, 0].long()
-        in_feats = graph.ndata['feat'].shape[1]
+        in_feats = graph.ndata["feat"].shape[1]
         nfeat = graph.ndata["feat"]
         del data, ed
 
     # Create csr/coo/csc formats before launching sampling processes
     # This avoids creating certain formats in each data loader process, which saves momory and CPU.
-    if args.dataset != 'ogbn-papers100M':
+    if args.dataset != "ogbn-papers100M":
         graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
@@ -489,13 +503,19 @@ if __name__ == "__main__":
                 acc, et = run(args, device, data)
                 test_accs.append(acc)
                 epoch_time.append(et)
-                print("Average test accuracy:", np.mean(test_accs), "±", np.std(test_accs))
-                print("Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time))
+                print(
+                    "Average test accuracy:", np.mean(test_accs), "±", np.std(test_accs)
+                )
+                print(
+                    "Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time)
+                )
         elif args.dataset == "ogbn-papers100M":
             for i in range(10):
                 et = run(args, device, data)
                 epoch_time.append(et)
-                print("Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time))
+                print(
+                    "Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time)
+                )
 
     else:
         run(args, device, data)

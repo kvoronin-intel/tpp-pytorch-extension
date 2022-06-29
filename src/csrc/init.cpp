@@ -10,10 +10,11 @@ std::vector<std::pair<std::string, submodule_init_func>> _submodule_list;
 
 // Declared in timing.h
 std::vector<Scope> _scope_list{Scope("Reserved")};
-std::vector<Scope> _pass_list{Scope("OTH"),
-                              Scope("FWD"),
-                              Scope("BWD"),
-                              Scope("UPD")};
+std::vector<Scope> _pass_list{
+    Scope("OTH"),
+    Scope("FWD"),
+    Scope("BWD"),
+    Scope("UPD")};
 
 double ifreq = 1.0 / getFreq();
 

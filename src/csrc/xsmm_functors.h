@@ -543,8 +543,8 @@ class ConvertTPP {
         init_done(true) {}
   void operator()(Tin* in, Tout* out) {
     if (!(XsmmDtype<Tin>() == LIBXSMM_DATATYPE_F32 &&
-          XsmmDtype<Tout>() == LIBXSMM_DATATYPE_F32) || ((void*)in != (void*)out)
-       )
+          XsmmDtype<Tout>() == LIBXSMM_DATATYPE_F32) ||
+        ((void*)in != (void*)out))
       kernel((void*)in, (void*)out);
   }
   void ref(Tin* in, Tout* out) {
@@ -849,16 +849,16 @@ class GradBiasTPP {
   AddTPP<float, float> add;
 };
 
-//############################# Mul & Reduction TPP #####################################
+//############################# Mul & Reduction TPP
+//#####################################
 
 template <typename T1, typename T2 = T1, typename T3 = T1>
-class MulReduceTPP: public BaseTPP {
-
-public:
+class MulReduceTPP : public BaseTPP {
+ public:
   MulReduceTPP() {}
   MulReduceTPP(int N, int M) : N(N), M(M) {
     kernel = (libxsmm_matrix_eqn_function)get_kernel();
-    initialized=true;
+    initialized = true;
   }
 
   void operator()(T1* in0, T2* in1, T3* out) {
@@ -870,29 +870,30 @@ public:
     arg_array[1].primary = (void*)in1;
     eqn_param.inputs = arg_array;
     eqn_param.output.primary = (void*)out;
-    
+
     kernel(&eqn_param);
   }
 
   void ref(T1* in0, T2* in1, T3* out) {
-    for (int r=0; r < N; r++) {
+    for (int r = 0; r < N; r++) {
       for (int c = 0; c < M; c++) {
-        out[r] += (float)in0[r * M + c] * (float)in1[r *M + c];
+        out[r] += (float)in0[r * M + c] * (float)in1[r * M + c];
       }
     }
   }
-protected:
+
+ protected:
   std::string hash_str() override {
     char hash[200];
     snprintf(
-      hash,
-      200,
-      "mul_reduce_eqn_t%d_%d_%d_r%d_c%d",
-      XsmmDtype<T1>(),
-      XsmmDtype<T2>(),
-      XsmmDtype<T3>(),
-      N, //);
-      M);
+        hash,
+        200,
+        "mul_reduce_eqn_t%d_%d_%d_r%d_c%d",
+        XsmmDtype<T1>(),
+        XsmmDtype<T2>(),
+        XsmmDtype<T3>(),
+        N, //);
+        M);
     return std::string(hash);
   }
   void* build_kernel() override {
@@ -918,7 +919,7 @@ protected:
     return (void*)meqn_dispatch(1, N, &ld, dt3, my_eqn0);
   }
 
-  private:
+ private:
   int N = 0;
   int M = 0;
   libxsmm_matrix_eqn_function kernel = NULL;
@@ -1014,34 +1015,34 @@ class ReduceAddRowTPP {
   AddTPP<Tout, Tout> add;
 };
 
-//############################# Broadcast & Multiplication TPP #####################################
+//############################# Broadcast & Multiplication TPP
+//#####################################
 template <typename Tin, typename Tout = Tin>
 class BCastMulTPP {
  public:
- BCastMulTPP() {}
- BCastMulTPP(int rows, int cols) : BCastMulTPP(rows, cols, cols, cols) {}
- BCastMulTPP(int rows, int cols, int ldi, int ldo)
-    : rows(rows),
-      cols(cols),
-      ldi(ldi),
-      ldo(ldo),
-      kernel(
-          rows,
-          cols,
-          1,
-          ldi,
-          ldo,
-          XsmmDtype<Tin>(),
-          XsmmDtype<Tin>(),
-          XsmmDtype<Tout>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0,        //Broadcast in Row Dimension
-          LIBXSMM_MELTW_TYPE_BINARY_MUL)                //Multiplication
-  {}     
- void operator()(Tin* in0, Tin* in1, Tout* out) {
-    
-      kernel((void*)in0, (void*)in1, (void*)out);
-  
+  BCastMulTPP() {}
+  BCastMulTPP(int rows, int cols) : BCastMulTPP(rows, cols, cols, cols) {}
+  BCastMulTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        kernel(
+            rows,
+            cols,
+            1,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0, // Broadcast in Row
+                                                      // Dimension
+            LIBXSMM_MELTW_TYPE_BINARY_MUL) // Multiplication
+  {}
+  void operator()(Tin* in0, Tin* in1, Tout* out) {
+    kernel((void*)in0, (void*)in1, (void*)out);
   }
   void ref(Tin* in0, Tin* in1, Tout* out) {
     for (int r = 0; r < rows; r++) {
@@ -1050,7 +1051,8 @@ class BCastMulTPP {
       }
     }
   }
-  private:
+
+ private:
   int rows = 0;
   int cols = 0;
   int ldi;
@@ -1059,35 +1061,35 @@ class BCastMulTPP {
   ConvertTPP<Tin, Tout> cvt;
 };
 
-//############################# Broadcast & Multiplication Addition TPP #####################################
+//############################# Broadcast & Multiplication Addition TPP
+//#####################################
 template <typename Tin, typename Tout = Tin>
 class BCastMulAddTPP {
  public:
- BCastMulAddTPP() {}
- BCastMulAddTPP(int rows, int cols) : BCastMulAddTPP(rows, cols, cols, cols) {}
- BCastMulAddTPP(int rows, int cols, int ldi, int ldo)
-    : rows(rows),
-      cols(cols),
-      ldi(ldi),
-      ldo(ldo),
-      kernel(
-          rows,
-          cols,
-          1,
-          ldi,
-          ldo,
-          XsmmDtype<Tin>(),
-          XsmmDtype<Tin>(),
-          XsmmDtype<Tout>(),
-          LIBXSMM_DATATYPE_F32,
-          LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0,        //Broadcast in Row Dimension
-          LIBXSMM_MELTW_TYPE_BINARY_MULADD)                //Multiplication
-          {}
- void operator()(Tin* in0, Tin* in1, Tout* out) {
-   
-      kernel((void*)in0, (void*)in1, (void*)out);
-    }
-  
+  BCastMulAddTPP() {}
+  BCastMulAddTPP(int rows, int cols) : BCastMulAddTPP(rows, cols, cols, cols) {}
+  BCastMulAddTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        kernel(
+            rows,
+            cols,
+            1,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_ROW_IN_0, // Broadcast in Row
+                                                      // Dimension
+            LIBXSMM_MELTW_TYPE_BINARY_MULADD) // Multiplication
+  {}
+  void operator()(Tin* in0, Tin* in1, Tout* out) {
+    kernel((void*)in0, (void*)in1, (void*)out);
+  }
 
   void ref(Tin* in0, Tin* in1, Tout* out) {
     for (int r = 0; r < rows; r++) {
@@ -1096,7 +1098,8 @@ class BCastMulAddTPP {
       }
     }
   }
-  private:
+
+ private:
   int rows = 0;
   int cols = 0;
   int ldi;
@@ -1300,11 +1303,13 @@ class ScaleAddTPP {
 
 template <typename Tin, typename Tind, typename Tout>
 class EmbeddingFwdTPP {
-  public:
-    EmbeddingFwdTPP() {}
-    EmbeddingFwdTPP(int rows, int cols, int ldi) : EmbeddingFwdTPP(rows, cols, ldi, ldi) {}
-    EmbeddingFwdTPP(int rows, int cols) : EmbeddingFwdTPP(rows, cols, cols, cols) {}
-    EmbeddingFwdTPP(int rows, int cols, int ldi, int ldo)
+ public:
+  EmbeddingFwdTPP() {}
+  EmbeddingFwdTPP(int rows, int cols, int ldi)
+      : EmbeddingFwdTPP(rows, cols, ldi, ldi) {}
+  EmbeddingFwdTPP(int rows, int cols)
+      : EmbeddingFwdTPP(rows, cols, cols, cols) {}
+  EmbeddingFwdTPP(int rows, int cols, int ldi, int ldo)
       : rows(rows),
         cols(cols),
         ldi(ldi),
@@ -1318,26 +1323,27 @@ class EmbeddingFwdTPP {
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
             (LIBXSMM_MELTW_FLAG_UNARY_GS_COLS |
-             (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES :
-              LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
+             (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
+                                : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
             LIBXSMM_MELTW_TYPE_UNARY_GATHER) {}
-    void operator()(Tin* in0, Tind* in1, Tout* out) {
-      kernel((void*)in0, (void*)in1, NULL, (void*)out, NULL);
-    }
-    void ref(Tin* in0, Tind* in1, Tout* out) {
-      for(int r=0; r< rows; r++) {
-        auto ind = in1[r];
-        for(int c=0; c<cols; c++) {
-          out[r*ldo + c] = in0[ind*ldi + c];
-        }
+  void operator()(Tin* in0, Tind* in1, Tout* out) {
+    kernel((void*)in0, (void*)in1, NULL, (void*)out, NULL);
+  }
+  void ref(Tin* in0, Tind* in1, Tout* out) {
+    for (int r = 0; r < rows; r++) {
+      auto ind = in1[r];
+      for (int c = 0; c < cols; c++) {
+        out[r * ldo + c] = in0[ind * ldi + c];
       }
     }
-  private:
-    int rows=0;
-    int cols=0;
-    int ldi=0;
-    int ldo=0;
-    UnaryTPP kernel;
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi = 0;
+  int ldo = 0;
+  UnaryTPP kernel;
 };
 
 template <typename Tin, typename Tind, typename Tout>
@@ -1354,10 +1360,7 @@ class EmbeddingBwdTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            (libxsmm_meltw_unary_flags)(
-                LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC |
-                (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                                   : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
+            (libxsmm_meltw_unary_flags)(LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC | (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX_OP_ADD) {}
   void operator()(Tin* in0, Tind* in1, Tout* out, int N) {
     unsigned long long _N = N;
@@ -1374,7 +1377,7 @@ class EmbeddingBwdTPP {
   }
 
  private:
-  int E=0;
+  int E = 0;
   UnaryTPP kernel;
 };
 
@@ -4291,10 +4294,7 @@ class EmbBagFwdTPP {
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
             LIBXSMM_DATATYPE_F32,
-            (libxsmm_meltw_unary_flags)(
-                LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC |
-                (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
-                                   : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
+            (libxsmm_meltw_unary_flags)(LIBXSMM_MELTW_FLAG_UNARY_REDUCE_XOR_ACC | (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX_OP_ADD) {}
   void operator()(Tout* output, Tin* weight, Tind* input, int N) {
     unsigned long long _N = N;

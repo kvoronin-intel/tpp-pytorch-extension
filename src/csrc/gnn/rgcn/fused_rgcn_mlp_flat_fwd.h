@@ -66,13 +66,13 @@ auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, bk, K, K)), EW_MUL);
         recp_sqrt_tpp(degs[n], norm[n]);
     }
 #endif
-#pragma omp parallel 
+#pragma omp parallel
     {
       int tid = omp_get_thread_num();
       int threads = omp_get_num_threads();
       int work = nn * nk;
       int chunk =
-        (work % threads == 0) ? (work / threads) : (work / threads) + 1;
+          (work % threads == 0) ? (work / threads) : (work / threads) + 1;
       int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
       int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
 
@@ -111,12 +111,12 @@ auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, bk, K, K)), EW_MUL);
         recp_sqrt_tpp(degs[nn * bn], norm[nn * bn]);
 
       brgemm_tpp.config();
-      
+
       for (int k = 0; k < nk; k++) {
         brgemm_tpp(in[nn * bn][0], wt_V[k][0], out_f32[nn * bn][k], nc);
         mul_norm_tpp(norm[nn * bn], out_f32[nn * bn][k], out[nn * bn][k]);
       }
-      
+
       brgemm_tpp.release();
     }
   }

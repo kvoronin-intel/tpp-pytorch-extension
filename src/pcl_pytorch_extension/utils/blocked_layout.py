@@ -366,7 +366,12 @@ class TestModule(BlockedModule):
     def __init__(self):
         super(BlockedModule, self).__init__()
         self.param1 = BlockedParameter(torch.arange(10.0))
-        self.param1.set_blcoking_param(([5], [1, 0],))
+        self.param1.set_blcoking_param(
+            (
+                [5],
+                [1, 0],
+            )
+        )
         self.param2 = torch.nn.Parameter(torch.arange(3.0))
 
     def forward(self):

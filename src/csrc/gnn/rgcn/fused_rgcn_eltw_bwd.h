@@ -354,7 +354,8 @@ if (self_loop) {
             cpy_tpp(grad_out[nn * bn][0], &tmp[0][k * bk]);
           }
           for (int c = 0; c < nc; c++)
-            brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in_dst[nn * bn][c], nk, true);
+            brgemm_di_tpp(
+                tmp[0], wt_TV[0][c], grad_in_dst[nn * bn][c], nk, true);
         } else {
           for (int c = 0; c < nc; c++)
             brgemm_di_tpp(
@@ -495,7 +496,8 @@ if (self_loop) {
                     global_tmp_inT[tid][ifm1 - my_ifm_start][0],
                     global_tmp_go[tid][0],
                     grad_wt_priv[team_id][ofm1][ifm1],
-                    blocks, true);
+                    blocks,
+                    true);
               }
             }
           }
@@ -576,7 +578,8 @@ if (self_loop) {
 
               n2v_tpp(grad_out[nn * bn][k], tmp_go);
               trans_tpp(in[nn * bn][c], tmp_inT);
-              brgemm_dw_bf16_tpp_b1(tmp_inT, tmp_go, grad_wt_tmp[k][c], 1, true);
+              brgemm_dw_bf16_tpp_b1(
+                  tmp_inT, tmp_go, grad_wt_tmp[k][c], 1, true);
             }
             brgemm_dw_bf16_tpp_b1.release();
           }

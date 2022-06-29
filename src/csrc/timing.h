@@ -1,8 +1,8 @@
 #ifndef _BERT_TIMING_H_
 #define _BERT_TIMING_H_
 
-#include "utils.h"
 #include <immintrin.h>
+#include "utils.h"
 
 enum DebugTimer {
   BRGEMM,
@@ -27,25 +27,26 @@ enum DebugTimer {
 };
 
 inline const char* DebugTimerName(int t) {
-  const char* names[] = {"BRGEMM",
-                         "XPOSE",
-                         "DROPOUT",
-                         "LYR_NRM",
-                         "SOFTMAX",
-                         "ACT",
-                         "BIAS",
-                         "VNNI",
-                         "COPY",
-                         "ADD",
-                         "SCALE",
-                         "RECP",
-                         "RECP_SQRT",
-                         "MUL",
-                         "ZERO",
-                         "REDUCE",
-                         "ROW_GT",
-                         "OPTIM",
-                         "LAST_TIMER"};
+  const char* names[] = {
+      "BRGEMM",
+      "XPOSE",
+      "DROPOUT",
+      "LYR_NRM",
+      "SOFTMAX",
+      "ACT",
+      "BIAS",
+      "VNNI",
+      "COPY",
+      "ADD",
+      "SCALE",
+      "RECP",
+      "RECP_SQRT",
+      "MUL",
+      "ZERO",
+      "REDUCE",
+      "ROW_GT",
+      "OPTIM",
+      "LAST_TIMER"};
   return names[t];
 }
 

@@ -42,7 +42,9 @@ class RelGraphEmbedding(nn.Module):
                 self.embeddings[ntype] = embedding
 
     def forward(
-        self, in_nodes: Dict[str, torch.Tensor] = None, device: torch.device = None,
+        self,
+        in_nodes: Dict[str, torch.Tensor] = None,
+        device: torch.device = None,
     ) -> Dict[str, torch.Tensor]:
         if in_nodes is not None:
             ntypes = [ntype for ntype in in_nodes.keys()]
@@ -124,7 +126,10 @@ class RelGraphConvLayer(nn.Module):
             )
 
     def _apply_layers(
-        self, ntype: str, inputs: torch.Tensor, inputs_dst: torch.Tensor = None,
+        self,
+        ntype: str,
+        inputs: torch.Tensor,
+        inputs_dst: torch.Tensor = None,
     ) -> torch.Tensor:
         x = inputs
 
@@ -143,7 +148,9 @@ class RelGraphConvLayer(nn.Module):
         return x
 
     def forward(
-        self, hg: dgl.DGLHeteroGraph, inputs: Dict[str, torch.Tensor],
+        self,
+        hg: dgl.DGLHeteroGraph,
+        inputs: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         hg = hg.local_var()
 
@@ -248,7 +255,9 @@ class EntityClassify(nn.Module):
             self._layer_norms = None
 
     def _apply_layers(
-        self, layer_idx: int, inputs: Dict[str, torch.Tensor],
+        self,
+        layer_idx: int,
+        inputs: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         x = inputs
 
