@@ -782,8 +782,6 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         conv_loop_bf16_nchw(
           [&](int* ind) {
             int i_n = ind[0], i_c = ind[1], i_k = ind[2], pix = ind[3], i_r = ind[4], i_s = ind[5];
-            libxsmm_gemm_param gemm_param;
-            libxsmm_meltw_unary_param unary_param;
             int tid = omp_get_thread_num();
 
             DECL_VLA_PTR_PT         (T,                    gradout,   [Kb][ofhp][ofwp][bk],   t_GO);

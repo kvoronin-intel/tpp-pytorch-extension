@@ -44,7 +44,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   const long h2_in_gemm = tuning_params[17];
   const long h3_in_gemm = tuning_params[18];
   const long h4_in_gemm = tuning_params[19];
-  const long fuse_stats = tuning_params[20];
+  const long pack_input_for_1x1_strided = tuning_params[20];
+  const long fuse_stats = tuning_params[21];
 
   const std::string c1_string = tuning_strings[0];
   const std::string c2_string = tuning_strings[1];
@@ -103,6 +104,7 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
   auto c_block = c1_block, k_block = k1_block;
   auto h_in_gemm = h1_in_gemm;
   auto conv_loop_string = c1_string;
+  auto pack_input = 0; /* only could be non-zero for 1x1 strided to make any sense */
   #include "fused_conv_bn_fwd.h"
 }
 
@@ -143,6 +145,7 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   auto c_block = c2_block, k_block = k2_block;
   auto h_in_gemm = h2_in_gemm;
   auto conv_loop_string = c2_string;
+  auto pack_input = 0; /* only could be non-zero for 1x1 strided to make any sense */
   #include "fused_conv_bn_fwd.h"
 }
 
@@ -183,6 +186,7 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   auto c_block = c4_block, k_block = k4_block;
   auto h_in_gemm = h3_in_gemm;
   auto conv_loop_string = c4_string;
+  auto pack_input = ( (conv_cfg.u != 1 || conv_cfg.v != 1) ? pack_input_for_1x1_strided : 0); /* only could be non-zero for 1x1 strided to make any sense */
   #include "fused_conv_bn_fwd.h"
 }
   } else {
@@ -229,6 +233,7 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
   auto c_block = c3_block, k_block = k3_block;
   auto h_in_gemm = h4_in_gemm;
   auto conv_loop_string = c3_string;
+  auto pack_input = 0; /* only could be non-zero for 1x1 strided to make any sense */
   #include "fused_conv_bn_fwd.h"
 }
 

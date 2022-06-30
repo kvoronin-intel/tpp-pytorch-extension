@@ -3,6 +3,8 @@ RECORD_FUNCTION("conv_fwd", std::vector<c10::IValue>());
 
 // ( input, weight) = inputs
 
+//#define VERBOSE
+
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
 
@@ -31,16 +33,24 @@ const long N  = sizes[0];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
 
-/*
+auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
+//return std::vector<at::Tensor>({t_O});
+
+/* hardcoded here unlike the fused bottleneck where it is an external parameter */
+long pack_input = 0;
+
+/* in T */
+const long conv_fwd_scratch_size = (pack_input == 0 ? 0 : N*ofh*ofw*cfg.C);
+auto t_scratch_conv = at::empty(conv_fwd_scratch_size, torch::TensorOptions().dtype(t_I.dtype()));
+
+#ifdef VERBOSE
 std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
 std::cout << "stride_h stride_w = " << cfg.u << " " << cfg.v << std::endl;
-*/
-
-auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
-//return std::vector<at::Tensor>({t_O});
+std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
+#endif
 
 {
 
@@ -50,43 +60,46 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 
   long Cb_step = Cb;
 
-  //std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+#ifdef VERBOSE
+  std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+#endif
 
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
+  SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
 
   //cfg.avoid_fmas_in_rim = 1;
 
+  if (R != 1 || S != 1) {
+    pack_input = 0;
+  }
+
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
   if ((R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1)) {
-    //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
-    //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
-    //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ifhp*ifwp*sizeof(DType), Cb_step );
-    //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-    //l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n-1, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
-    //brgemm_kernel2.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-    //printf("brgemm_kernel(tpp), stride_w = %d \n", stride_w);
-    //printf("bc*stride_w = %d \n", bc*stride_w);
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
-    //printf("brgemm_kernel2(tpp) \n");
+    if (pack_input == 0) {
+      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    } else {
+      if (cfg.avoid_fmas_in_rim) {
+        printf("Error: cfg.avoid_fmas_in_rim = %d is incompatible with pack_input = %d\n", cfg.avoid_fmas_in_rim, pack_input);
+        exit(-1);
+      }
+      if (R != 1 || S != 1) {
+        printf("Error: R = %d and S = %d are incompatible with pack_input = %d\n", R, S, pack_input);
+        exit(-1);
+      }
+      input_pack_tpp = SCOPEIT(CpyTPP<T>(gemm_n, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
+
+      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    }
+
     brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
 
-    //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
-    //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   } else {
-    //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
-    //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
-    //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_OFFSET, 0, 0, 0 );
-    //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-
-    //printf("brgemm_kernel(tpp) else\n");
     brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
 
-    //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
-    //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -103,7 +116,6 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
           B_offsets[i] = (ifm * ifhp * ifwp * bc +
               kj * ifwp * bc +
               ki * bc) * sizeof(T);
-          /* printf("A_offsets[%d] = %llu B_offsets[%d] = %llu \n", i, A_offsets[i], i, B_offsets[i]); */
           i++;
         }
       }
@@ -123,15 +135,16 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
     s_step = 1;
   }
 
-/*
+#ifdef VERBOSE
   std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
                                                                                                 << Kb << " " << k_step << " " << ofh << " " << h_step << " "
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
 
   std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "pack_input = " << pack_input << std::endl;
   std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
-*/
+#endif
 
   /* FIXME: Fix this! */
   char loop_specs_str[256] = "Abcdefg";
@@ -159,18 +172,38 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
           DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_I);
           DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_W);
 
+
           if (cfg.avoid_fmas_in_rim == 0) {
 
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);
             }
 
-            brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                       weight    [i_k][i_c][i_r][i_s][0],
-                       output_off[i_n][i_k][i_h]                 [i_w],
-                       B_offsets.get(), A_offsets.get(),
-                       Cb_step * r_step * s_step,
-                       true);
+            if (pack_input > 0 && i_r == 0 && i_s == 0 && i_k == 0 && i_c == 0) {
+              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+              for (int _br = 0; _br < Cb; _br++) {
+                for (int _h = 0; _h < h_step; _h++) {
+                  input_pack_tpp(inp[i_n][_br][(i_h+_h)*stride_h][i_w * stride_w], packed_inp[i_n][_br][i_h+_h][i_w]);
+                }
+              }
+            }
+
+            if (pack_input == 0) {
+              brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                         weight    [i_k][i_c][i_r][i_s][0],
+                         output_off[i_n][i_k][i_h]                 [i_w],
+                         B_offsets.get(), A_offsets.get(),
+                         Cb_step * r_step * s_step,
+                         true);
+            } else {
+              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+              brgemm_tpp(packed_inp[i_n][i_c][i_h][i_w],
+                         weight    [i_k][i_c][i_r][i_s][0],
+                         output_off[i_n][i_k][i_h]                 [i_w],
+                         B_offsets.get(), A_offsets.get(),
+                         Cb_step * r_step * s_step,
+                         true);
+            }
           } else { /* for if cfg.avoid_fmas_in_rim == 0 */
             if (i_c == 0 && i_r == 0 && i_s == 0) {
               zero_tpp(output_off[i_n][i_k][i_h][i_w]);

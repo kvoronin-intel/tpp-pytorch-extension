@@ -125,10 +125,12 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
   int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
   int c1_block = 1, k1_block = 1, c2_block = 1, k2_block = 1, c3_block = 1, k3_block = 1, c4_block = 1, k4_block = 1;
   int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;
+  int pack_input_for_1x1_strided = 0;
   int fuse_stats        = 1;
   std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
                                          c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
                                          h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm,
+                                         pack_input_for_1x1_strided,
                                          fuse_stats};
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
