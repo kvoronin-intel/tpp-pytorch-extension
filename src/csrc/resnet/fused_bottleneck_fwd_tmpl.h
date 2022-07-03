@@ -63,6 +63,13 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
 
   auto global_fuse_scaling = 0; /* if set to 1, enables fusion of scaling for bn1 and bn2 in the subsequent convolutions conv2 and conv3 */
 
+#ifdef TIMING
+  double time_c1 = 0.0, time_b1 = 0.0, time_c2 = 0.0, time_b2 = 0.0, time_c3 = 0.0, time_b3 = 0.0, time_c4 = 0.0, time_b4 = 0.0;
+  double time_c1b1 = 0.0, time_c2b2 = 0.0, time_c3b3 = 0.0, time_c4b4 = 0.0;
+  double time_b1stats = 0.0, time_b2stats = 0.0, time_b3stats = 0.0, time_b4stats = 0.0;
+  double time_c1b1extra = 0.0, time_c2b2extra = 0.0, time_c3b3extra = 0.0, time_c4b4extra = 0.0;
+#endif
+
 #ifdef VERBOSE
   printf("running conv1 + bn1\n");
 
@@ -105,7 +112,16 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
   auto h_in_gemm = h1_in_gemm;
   auto conv_loop_string = c1_string;
   auto pack_input = 0; /* only could be non-zero for 1x1 strided to make any sense */
+
+  double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+#ifdef TIMING
+  time_c1        = t_conv_end - t_conv_start;
+  time_b1        = t_bn_end - t_conv_end;
+  time_c1b1      = t_end - t_start;
+  time_b1stats   = t_bn_stats_end - t_conv_end;
+  time_c1b1extra = (t_end - t_start) - (time_c1 + time_b1);
+#endif
 }
 
 #ifdef VERBOSE
@@ -146,7 +162,16 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   auto h_in_gemm = h2_in_gemm;
   auto conv_loop_string = c2_string;
   auto pack_input = 0; /* only could be non-zero for 1x1 strided to make any sense */
+
+  double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+#ifdef TIMING
+  time_c2        = t_conv_end - t_conv_start;
+  time_b2        = t_bn_end - t_conv_end;
+  time_c2b2      = t_end - t_start;
+  time_b2stats   = t_bn_stats_end - t_conv_end;
+  time_c2b2extra = (t_end - t_start) - (time_c2 + time_b2);
+#endif
 }
 
   at::Tensor conv4_out, residual, bn4_relu_out, bn4_scratch_out;
@@ -184,10 +209,19 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
   auto h_block = h4_block, w_block = w4_block;
   auto c_block = c4_block, k_block = k4_block;
-  auto h_in_gemm = h3_in_gemm;
+  auto h_in_gemm = h4_in_gemm;
   auto conv_loop_string = c4_string;
   auto pack_input = ( (conv_cfg.u != 1 || conv_cfg.v != 1) ? pack_input_for_1x1_strided : 0); /* only could be non-zero for 1x1 strided to make any sense */
+
+  double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+#ifdef TIMING
+  time_c4        = t_conv_end - t_conv_start;
+  time_b4        = t_bn_end - t_conv_end;
+  time_c4b4      = t_end - t_start;
+  time_b4stats   = t_bn_stats_end - t_conv_end;
+  time_c4b4extra = (t_end - t_start) - (time_c4 + time_b4);
+#endif
 }
   } else {
     conv4_out    = dummy_return;
@@ -231,11 +265,86 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
   auto h_block = h3_block, w_block = w3_block;
   auto c_block = c3_block, k_block = k3_block;
-  auto h_in_gemm = h4_in_gemm;
+  auto h_in_gemm = h3_in_gemm;
   auto conv_loop_string = c3_string;
   auto pack_input = 0; /* only could be non-zero for 1x1 strided to make any sense */
+
+  double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+#ifdef TIMING
+  time_c3        = t_conv_end - t_conv_start;
+  time_b3        = t_bn_end - t_conv_end;
+  time_c3b3      = t_end - t_start;
+  time_b3stats   = t_bn_stats_end - t_conv_end;
+  time_c3b3extra = (t_end - t_start) - (time_c3 + time_b3);
+#endif
 }
+
+#ifdef TIMING
+  auto buf = tuning_timings.request();
+  float* ptr = (float*)buf.ptr;
+  //if (tuning_timings.size())
+  {
+/*
+    timings->time_c1 = time_c1;
+    timings->time_c2 = time_c2;
+    timings->time_c3 = time_c3;
+    timings->time_c4 = time_c4;
+    timings->time_b1 = time_b1;
+    timings->time_b2 = time_b2;
+    timings->time_b3 = time_b3;
+    timings->time_b4 = time_b4;
+    timings->time_c1b1 = time_c1b1;
+    timings->time_c2b2 = time_c2b2;
+    timings->time_c3b3 = time_c3b3;
+    timings->time_c4b4 = time_c4b4;
+    timings->time_c1b1extra = time_c1b1extra;
+    timings->time_c2b2extra = time_c2b2extra;
+    timings->time_c3b3extra = time_c3b3extra;
+    timings->time_c4b4extra = time_c4b4extra;
+    timings->time_b1stats = time_b1stats;
+    timings->time_b2stats = time_b2stats;
+    timings->time_b3stats = time_b3stats;
+    timings->time_b4stats = time_b4stats;
+*/
+/*
+    tuning_timings[0] += time_c1;
+    tuning_timings[1] += time_c2;
+    tuning_timings[2] += time_c3;
+    tuning_timings[3] += time_c4;
+    tuning_timings[4] += time_b1;
+    tuning_timings[5] += time_b2;
+    tuning_timings[6] += time_b3;
+    tuning_timings[7] += time_b4;
+    tuning_timings[8] += time_c1b1;
+    tuning_timings[9] += time_c2b2;
+    tuning_timings[10] += time_c3b3;
+    tuning_timings[11] += time_c4b4;
+    tuning_timings[12] += time_c1b1extra;
+    tuning_timings[13] += time_c2b2extra;
+    tuning_timings[14] += time_c3b3extra;
+    tuning_timings[15] += time_c4b4extra;
+*/
+    ptr[0] += time_c1;
+    ptr[1] += time_c2;
+    ptr[2] += time_c3;
+    ptr[3] += time_c4;
+    ptr[4] += time_b1;
+    ptr[5] += time_b2;
+    ptr[6] += time_b3;
+    ptr[7] += time_b4;
+    ptr[8] += time_c1b1;
+    ptr[9] += time_c2b2;
+    ptr[10] += time_c3b3;
+    ptr[11] += time_c4b4;
+    ptr[12] += time_c1b1extra;
+    ptr[13] += time_c2b2extra;
+    ptr[14] += time_c3b3extra;
+    ptr[15] += time_c4b4extra;
+  }
+
+  //printf("dbg: tuning_timings at the end of bf_fwd_ext = %f %f %f (time_c1 - c3 = %f %f %f)", ptr[0], ptr[1], ptr[2], time_c1, time_c2, time_c3);
+#endif
 
   return {bn3_out, conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, residual, bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
             bn1_scratch_out, bn2_scratch_out, bn3_scratch_out, bn4_scratch_out };

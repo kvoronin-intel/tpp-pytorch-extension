@@ -5,6 +5,11 @@
 
 #include <iostream>
 #include <vector>
+
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
+
 #include "ext_tpp.h"
 #include "init.h"
 #include "timing.h"
@@ -16,6 +21,8 @@ using namespace pcl;
 static int my_rank = guess_mpi_rank();
 
 #define FUSED_BOTTLENECK
+
+#define TIMING
 
 #ifdef FUSED_BOTTLENECK
   #warning "FUSED_BOTTLENECK is enabled"
@@ -98,7 +105,8 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext(
     bool training,
     std::vector<at::Tensor> inputs,
     std::vector<int> tuning_params,
-    std::vector<std::string> tuning_strings) {
+    std::vector<std::string> tuning_strings,
+    pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
@@ -132,9 +140,11 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
                                          h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm,
                                          pack_input_for_1x1_strided,
                                          fuse_stats};
+  //std::vector<float> default_tuning_timings(0);
+  pybind11::array_t<float> default_tuning_timings(16);
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
-  return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings);
+  return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings, default_tuning_timings);
 }
 
 std::vector<at::Tensor> bottleneck_bn_bwd(
@@ -311,6 +321,34 @@ double bottleneck_bn_fwd_get_gflop(bottleneck_bn_config cfg)
   return gflop_convs + gflop_bns;
 }
 
+std::vector<float> bottleneck_bn_fwd_get_gflop_details(bottleneck_bn_config cfg)
+{
+  std::vector<float> gflop_details(16);
+
+  /* gflop counts for convolutions */
+  gflop_details[0] = (2.0*(float)cfg.conv1.N*(float)cfg.conv1.C*(float)cfg.conv1.K*(float)cfg.conv1.R*(float)cfg.conv1.S*(float)cfg.conv1.ofh*(float)cfg.conv1.ofw)/(1000*1000*1000);
+  gflop_details[1] = (2.0*(float)cfg.conv2.N*(float)cfg.conv2.C*(float)cfg.conv2.K*(float)cfg.conv2.R*(float)cfg.conv2.S*(float)cfg.conv2.ofh*(float)cfg.conv2.ofw)/(1000*1000*1000);
+  gflop_details[2] = (2.0*(float)cfg.conv3.N*(float)cfg.conv3.C*(float)cfg.conv3.K*(float)cfg.conv3.R*(float)cfg.conv3.S*(float)cfg.conv3.ofh*(float)cfg.conv3.ofw)/(1000*1000*1000);
+  if (cfg.has_residual_conv)
+    gflop_details[3] = (2.0*(float)cfg.conv4.N*(float)cfg.conv4.C*(float)cfg.conv4.K*(float)cfg.conv4.R*(float)cfg.conv4.S*(float)cfg.conv4.ofh*(float)cfg.conv4.ofw)/(1000*1000*1000);
+  else
+    gflop_details[3] = 0.0;
+
+  /* gflop count for batchnorms */
+  float coeff_batchnorm = 7.0; /* 3 for stats + 4 for scaling */
+  gflop_details[4] = coeff_batchnorm * (float)cfg.conv1.N * (float)cfg.conv1.K * (float)cfg.conv1.ofh * (float)cfg.conv1.ofw / (1000*1000*1000);
+  gflop_details[5] = coeff_batchnorm * (float)cfg.conv2.N * (float)cfg.conv2.K * (float)cfg.conv2.ofh * (float)cfg.conv2.ofw / (1000*1000*1000);
+  gflop_details[6] = coeff_batchnorm * (float)cfg.conv3.N * (float)cfg.conv3.K * (float)cfg.conv3.ofh * (float)cfg.conv3.ofw / (1000*1000*1000);
+  if (cfg.has_residual_conv)
+    gflop_details[7] = coeff_batchnorm * (float)cfg.conv4.N * (float)cfg.conv4.K * (float)cfg.conv4.ofh * (float)cfg.conv4.ofw / (1000*1000*1000);
+  else
+    gflop_details[7] = 0.0;
+
+  return gflop_details;
+}
+
+
+
 REGISTER_SUBMODULE(_bottleneck, m) {
   m.def(
       "bottleneck_bn_fwd",
@@ -327,5 +365,6 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_setup_fused_fwd_tuner", &bottleneck_bn_setup_fused_fwd_tuner, "Pcl BOTTLENECK BN setup (custom version for tuning fwd of the fused bottleneck)");
   m.def("bottleneck_bn_fwd_ext", &bottleneck_bn_fwd_ext, "Pcl BOTTLENECK BN forward with tuning params");
   m.def("bottleneck_bn_fwd_get_gflop", &bottleneck_bn_fwd_get_gflop, "Pcl BOTTLENECK BN forward gflop count");
+  m.def("bottleneck_bn_fwd_get_gflop_details", &bottleneck_bn_fwd_get_gflop_details, "Pcl BOTTLENECK BN forward gflop counts for various components");
 }
 

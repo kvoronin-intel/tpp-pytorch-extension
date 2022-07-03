@@ -9,13 +9,14 @@ loop_names=()
 loop_specs=()
 
 #For now we don't block additionally K dim, handled by BF of BR dimension
-#for i in 0 1; do
-#  for j in 0 1; do
-for i in 0; do
-  for j in 0; do
+for i in 0 1; do
+  for j in 0 1; do
+#for i in 0; do
+  #for j in 0; do
     loop_names+=("conv1")
-    #loop_specs+=("a_0_K,b_0_K,c_${i}_M,d_${j}_N,e_0_N,f_0_K,g_0_K")
-    loop_specs+=("A_0_M,b_0_K,c_${i}_M,d_0_K,e_0_K,f_0_K,g_0_K")
+    loop_specs+=("A_0_M,b_0_K,c_${i}_K,d_${j}_K,e_0_K,f_0_K,g_0_K")
+    loop_specs+=("A_0_M,b_0_K,c_${i}_M,d_${j}_K,e_0_K,f_0_K,g_0_K") for the last bottleneck
+    #loop_specs+=("A_0_M,b_0_K,c_${i}_M,d_0_K,e_0_K,f_0_K,g_0_K")
   done
 done
 
@@ -35,7 +36,7 @@ while IFS= read -r line || [[ "$line" ]]; do
   let "nLoops+=1"
 done < tuner_config.txt
 
-nBottlenecks=8
+nBottlenecks=1
 
 HBFS=("1")
 KBFS=("1")
@@ -44,22 +45,28 @@ export OMP_NUM_THREADS=24
 export GOMP_CPU_AFFINITY="0-23"
 unset LIBXSMM_VERBOSE
 
+expansion=4
+eps="1e-7"
+
 for (( l = 0 ; l < $nBottlenecks ; l++)); do
   echo "l = $l"
   N=${OMP_NUM_THREADS}
   bc=32
   bk=32
   niters=20
-  H=56
-  W=56
-  C=64
-  K=64
-  str=1
-  CBFS=("1" "2")
-  WBFS=("1" "2" "4")
-  downsample="True"
-  expansion=4
-  eps="1e-7"
+  if [ $l -eq 0 ]; then
+    H=56
+    W=56
+    C=64
+    K=64
+    str=1
+    CBFS=("1")
+    WBFS=("1" "2")
+    HBFS=("4" "7") # 14
+    KBFS=("1")
+    downsample="True"
+    h_in_gemm=1
+  fi
 
   if [ $l -eq 1 ]; then
     H=56
@@ -67,8 +74,10 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     C=256
     K=64
     str=1
-    CBFS=("1" "2")
+    CBFS=("1")
     WBFS=("1" "2")
+    HBFS=("4" "7") # 14
+    KBFS=("1")
     downsample="False"
   fi
 
@@ -78,8 +87,11 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     C=256
     K=128
     str=2
-    CBFS=("1" "2")
-    WBFS=("1" "2")
+    CBFS=("1")
+    WBFS=("1") for all but the first one, for the first one 1 and "2")
+    HBFS=("4" "7") and maybe for the last two, no 7 
+    KBFS=("1")
+    dont pack_input for 1x1 strided, 28 W should be enough
     downsample="True"
   fi
 
@@ -89,8 +101,10 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     C=512
     K=128
     str=1
-    CBFS=("1" "2")
-    WBFS=("1" "2")
+    CBFS=("1")
+    WBFS=("1")
+    HBFS=("7")
+    KBFS=("1") but for the last one KBFS = 1, 4 if extended
     downsample="False"
   fi
 
@@ -100,8 +114,13 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     C=512
     K=256
     str=2
-    CBFS=("1" "2" "8")
-    WBFS=("1" "2")
+    CBFS=("1")
+    WBFS=("1")
+    HBFS=("1") 
+    KBFS=("1") # potentially, KBFS
+    h in gemm 2 for all except the first one and 3x3+str2
+    #1x1 with stride 2 should 
+    pack_input for 1x1 strided
     downsample="True"
   fi
 
@@ -111,8 +130,11 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     C=1024
     K=256
     str=1
-    CBFS=("1" "2" "8")
-    WBFS=("1" "2")
+    CBFS=("1")
+    WBFS=("1")
+    HBFS=("1")
+    KBFS=("1") # potentially, KBFS for the last one
+    h_in_gemm=2
     downsample="False"
   fi
 
@@ -122,19 +144,29 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     C=1024
     K=512
     str=2
-    CBFS=("1" "2" "8")
-    WBFS=("1" "2")
+    CBFS=("1")
+    WBFS=("1")
+    HBFS=("1")
+    KBFS=("1") # potentially, KBFS for the last one
+    h_in_gemm = 2 for the first one
+    h_in_gemm=1 for the middle one
+    h_in_gemm=7 for the last one
+    # There was a mistake during the meeting, this one also has a 1x1 s2 residual conv
     downsample="True"
   fi
 
+  # Should have AC and CA
   if [ $l -eq 7 ]; then
     H=7
     W=7
     C=2048
     K=512
     str=1
-    CBFS=("1" "2" "4")
-    WBFS=("1" "2")
+    CBFS=("1")
+    WBFS=("1")
+    HBFS=("1")
+    KBFS=("1") # potentially, KBFS for the last one
+    h_in_gemm=7
     downsample="False"
   fi
 
@@ -150,27 +182,37 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
   tmp_input_file="${benchmark_out_name}_tmp_input_file"
   echo "${N} ${H} ${W} ${C} ${K} ${str} ${expansion} ${downsample} ${eps}" > $tmp_input_file
 
-  nLoops=1 # while developing the script
+  nloops_actual=1
+  #nLoops=1 # while developing the script
   for (( j = 0 ; j < $nLoops ; j++)); do
     line=${loopArray[$j]}
-    echo ${line}
+    #echo ${line}
     lowerline=$(echo ${line} | tr '[:upper:]' '[:lower:]')
-    echo ${lowerline}
+    #echo ${lowerline}
     KBFcount=$( echo ${lowerline} | tr -d -c 'c' | awk '{ print length; }' )
-    echo "C count is ${KBFcount}"
+    #echo "C count is ${KBFcount}"
     HBFcount=$( echo ${lowerline} | tr -d -c 'd' | awk '{ print length; }' )
-    echo "D count is ${HBFcount}"
+    #echo "D count is ${HBFcount}"
 
     h_in_gemm=1
-    echo "bc = ${bc}, bk = ${bk}"
+    #echo "bc = ${bc}, bk = ${bk}"
     
     #if [ $KBFcount -eq 2 ]; then
-    #  if [ $HBFcount -eq 2 ]; then
+      if [ $HBFcount -eq 2 ]; then
         for cb in "${CBFS[@]}"; do
           for kb in "${KBFS[@]}"; do
             for wb in "${WBFS[@]}"; do
               for hb in "${HBFS[@]}"; do
-                for fuse_stats in 1 0 ; do
+                for fuse_stats in 1 ; do
+    if [[ $line == Afgb* ]]
+    then
+      #echo "line counted = ${line}"
+      let "nloops_actual+=1"
+    else
+      #echo "line skipped = ${line}"
+      continue
+    fi
+                  : '  
                   block_sizes_line=" --block-sizes ${bc} ${bc} ${bk} ${bk} "
                   hw_blocks_subline="${hb} ${wb} ${hb} ${wb} ${hb} ${wb} ${hb} ${wb}"
                   ck_blocks_subline="${cb} ${kb} ${cb} ${kb} ${cb} ${kb} ${cb} ${kb}"
@@ -181,14 +223,50 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
                   #set +x
                   #echo "Exiting"
                   #exit
-                  break 5 # for developing the script
+                  '
+                  #break 5 # for developing the script
                 done
               done
             done
           done
         done
-    #  fi
+      fi
     #fi
+ 
+      if [ $HBFcount -eq 1 ]; then
+        for cb in "${CBFS[@]}"; do
+          for kb in "${KBFS[@]}"; do
+            for wb in "${WBFS[@]}"; do
+              #for hb in "${HBFS[@]}"; do
+              for hb in 1 ; do
+                for fuse_stats in 1 ; do
+    if [[ $line == Afgb* ]]
+    then
+      #echo "line counted = ${line}"
+      let "nloops_actual+=1"
+    else
+      #echo "line skipped = ${line}"
+      continue
+    fi 
+                  : ' 
+                  block_sizes_line=" --block-sizes ${bc} ${bc} ${bk} ${bk} "
+                  hw_blocks_subline="${hb} ${wb} ${hb} ${wb} ${hb} ${wb} ${hb} ${wb}"
+                  ck_blocks_subline="${cb} ${kb} ${cb} ${kb} ${cb} ${kb} ${cb} ${kb}"
+                  tuning_params_line=" --tuning-params ${hw_blocks_subline} ${ck_blocks_subline} ${h_in_gemm} ${h_in_gemm} ${h_in_gemm} ${h_in_gemm} ${fuse_stats}"
+                  tuning_strings_line=" --tuning-strings ${line} ${line} ${line} ${line}"
+                  #set -x
+                  ${common_runline} ${block_sizes_line} ${tuning_params_line} --test-data-file $tmp_input_file ${tuning_strings_line} --niters ${niters} >> ${benchmark_out_name}
+                  #set +x
+                  #echo "Exiting"
+                  #exit
+                  #break 5 # for developing the script
+                  '
+                done
+              done
+            done
+          done
+        done
+      fi
 
     : '
     if [ $KBFcount -eq 2 ]; then
@@ -256,7 +334,7 @@ for (( l = 0 ; l < $nBottlenecks ; l++)); do
     fi
     '
   done
-
+  echo "nloops_actual = $nloops_actual"
   rm -f ${tmp_input_file}
 done
 

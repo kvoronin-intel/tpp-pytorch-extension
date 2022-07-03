@@ -251,7 +251,7 @@ class Bottleneck_base(nn.Module):
 
 class BottleneckApplyBNTPP(Function):
     @staticmethod
-    def forward(ctx, config, training, tuning_params, tuning_strings, *inputs ):
+    def forward(ctx, config, training, tuning_params, tuning_strings, tuning_timings, *inputs ):
 
         #print("dbg: in bottleneck bn apply tpp forward")
 
@@ -283,8 +283,27 @@ class BottleneckApplyBNTPP(Function):
         #print("b4n = ", b4n);
 
         #print("nan check in bottleneck for input before, nancount = ", torch.isnan(input.view(-1)).sum())
+        """
+        rank = int(os.environ.get("PMI_RANK", -1))
+        if rank < 0:
+            rank = 0
+        if rank == 0:
+            c1w_nan_count = torch.isnan(c1w.view(-1)).sum()
+            print("nan check before in bottleneck for c1w, nancount = ", c1w_nan_count)
+            c2w_nan_count = torch.isnan(c2w.view(-1)).sum()
+            print("nan check before in bottleneck for c2w, nancount = ", c1w_nan_count)
+            c3w_nan_count = torch.isnan(c3w.view(-1)).sum()
+            print("nan check in bottleneck for c3w, nancount = ", c3w_nan_count)
+            c4w_nan_count = torch.isnan(c4w.view(-1)).sum()
+            print("nan check in bottleneck for c4w, nancount = ", c4w_nan_count)
+            if c1w_nan_count > 0 or c2w_nan_count > 0 or c3w_nan_count > 0 or c4w_nan_count > 0:
+                print("Exiting before doing the forward because nan count in conv weights is not zero")
+                exit(-1)
+        """
 
-        if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
+        #print("dbg: type of tuning timings = ", type(tuning_timings))
+        #print("dbg: tuning timings before fwd in forward() = ", tuning_timings)
+        if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or tuning_timings is None:
             (output,
             conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out,
             bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
@@ -293,31 +312,30 @@ class BottleneckApplyBNTPP(Function):
             (output,
             conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out,
             bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
-            b1s_out, b2s_out, b3s_out, b4s_out ) = bottleneck_cpp.bottleneck_bn_fwd_ext(config, training, inputs, tuning_params, tuning_strings) #_tensors)
+            b1s_out, b2s_out, b3s_out, b4s_out ) = bottleneck_cpp.bottleneck_bn_fwd_ext(config, training, inputs, tuning_params, tuning_strings, tuning_timings) #_tensors)
         #print("dbg: bottleneck_forward_new called")
+        #print("dbg: type of tuning timings = ", type(tuning_timings))
+        #print("dbg: tuning timings after fwd in forward() = ", tuning_timings)
 
         if config.has_residual_conv == 0:
             dummy_tensor = torch.empty(1)
             bn4_relu_out = dummy_tensor
             conv4_out    = dummy_tensor
 
-        (input,
-         c1w, c2w, c3w, c4w,
-         b1w, b2w, b3w, b4w,
-         b1b, b2b, b3b, b4b,
-         b1m, b2m, b3m, b4m,
-         b1n, b2n, b3n, b4n ) = inputs
-         #c1s, c2s, c3s, c4s, # should not be used as they were changed in fwd, _out are the actual versions at this moment
-         #b1s, b2s, b3s, b4s ) = inputs
 
         """
         for i in range(64):
             ind = i
             print("ind c1w b1w c3w b3w", ind, c1w.view(-1)[ind].item(), b1w.view(-1)[ind].item(), c3w.view(-1)[ind].item(), b3w.view(-1)[ind].item())
 
-        for i in range(64):
-            ind = i
-            print("ind c1o b1o c2o b2o c3o b3o", ind, conv1_out.view(-1)[ind].item(), bn1_out.view(-1)[ind].item(), conv2_out.view(-1)[ind].item(), bn2_out.view(-1)[ind].item(), conv3_out.view(-1)[ind].item(), bn3_out.view(-1)[ind].item())
+        if config.has_residual_conv:
+            for i in range(64):
+                ind = i
+                print("ind c1o b1o c2o b2o c3o b3o c4o b4o", ind, conv1_out.view(-1)[ind].item(), bn1_out.view(-1)[ind].item(), conv2_out.view(-1)[ind].item(), bn2_out.view(-1)[ind].item(), conv3_out.view(-1)[ind].item(), bn3_out.view(-1)[ind].item(), conv4_out.view(-1)[ind].item(), bn4_out.view(-1)[ind].item())
+        else:
+            for i in range(64):
+                ind = i
+                print("ind c1o b1o c2o b2o c3o b3o", ind, conv1_out.view(-1)[ind].item(), bn1_out.view(-1)[ind].item(), conv2_out.view(-1)[ind].item(), bn2_out.view(-1)[ind].item(), conv3_out.view(-1)[ind].item(), bn3_out.view(-1)[ind].item())
 
         for i in range(64):
             ind = i
@@ -325,17 +343,55 @@ class BottleneckApplyBNTPP(Function):
         """
 
         """
-        #print("nan check in bottleneck for input after, nancount = ", torch.isnan(input.view(-1)).sum())
-        print("nan check in bottleneck for conv1_out, nancount = ", torch.isnan(conv1_out.view(-1)).sum())
-        print("nan check in bottleneck for bn1_out, nancount = ", torch.isnan(bn1_out.view(-1)).sum())
-        print("nan check in bottleneck for conv2_out, nancount = ", torch.isnan(conv2_out.view(-1)).sum())
-        print("nan check in bottleneck for bn2_out, nancount = ", torch.isnan(bn2_out.view(-1)).sum())
-        print("nan check in bottleneck for conv3_out, nancount = ", torch.isnan(conv3_out.view(-1)).sum())
-        #print("nan check in bottleneck for residual, nancount = ", torch.isnan(residual.view(-1)).sum())
-        print("nan check in bottleneck for conv4_out, nancount = ", torch.isnan(conv4_out.view(-1)).sum())
-        print("nan check in bottleneck for bn4_out, nancount = ", torch.isnan(bn4_out.view(-1)).sum())
-        print("nan check in bottleneck for bn3_out, nancount = ", torch.isnan(bn3_out.view(-1)).sum())
-        print("nan check in bottleneck for output, nancount = ", torch.isnan(output.view(-1)).sum())
+        rank = int(os.environ.get("PMI_RANK", -1))
+        if rank < 0:
+            rank = 0
+        if rank == 0:
+            c1w_nan_count = torch.isnan(c1w.view(-1)).sum()
+            print("nan check in bottleneck for c1w, nancount = ", c1w_nan_count)
+            conv1_nan_count = torch.isnan(conv1_out.view(-1)).sum()
+            #print("nan check in bottleneck for input after, nancount = ", torch.isnan(input.view(-1)).sum())
+            print("nan check in bottleneck for conv1_out, nancount = ", conv1_nan_count)
+            bn1_nan_count = torch.isnan(bn1_out.view(-1)).sum()
+            print("nan check in bottleneck for bn1_out, nancount = ", bn1_nan_count)
+            c2w_nan_count = torch.isnan(c2w.view(-1)).sum()
+            print("nan check in bottleneck for c2w, nancount = ", c2w_nan_count)
+            conv2_full_nan_count = torch.isnan(conv2_out.view(-1)).sum()
+            print("nan check in bottleneck for full conv2_out, nancount = ", conv2_full_nan_count)
+            if conv2_full_nan_count > 0:
+                conv2_out_zeroed_rim = torch.zeros_like(conv2_out)
+                output_hw_padding = [1, 1, 1, 1]
+                nchwc_shape = conv2_out.shape
+                print("debug: nchwc shape = ", nchwc_shape)
+                outH = nchwc_shape[2] - output_hw_padding[0] - output_hw_padding[1]
+                outW = nchwc_shape[3] - output_hw_padding[2] - output_hw_padding[3]
+                print("range = ", 'full', ' ', 'full', output_hw_padding[0], outH + output_hw_padding[0], output_hw_padding[2], outW + output_hw_padding[2])
+                conv2_out_zeroed_rim[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]] = conv2_out[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]]
+
+                conv2_nan_count = torch.isnan(conv2_out_zeroed_rim.view(-1)).sum()
+            else:
+                conv2_nan_count = conv2_full_nan_count
+            print("nan check in bottleneck for zeroed-rim conv2_out, nancount = ", conv2_nan_count)
+            bn2_nan_count = torch.isnan(bn2_out.view(-1)).sum()
+            print("nan check in bottleneck for bn2_out, nancount = ", bn2_nan_count)
+            c3w_nan_count = torch.isnan(c3w.view(-1)).sum()
+            print("nan check in bottleneck for c3w, nancount = ", c3w_nan_count)
+            conv3_nan_count = torch.isnan(conv3_out.view(-1)).sum()
+            print("nan check in bottleneck for conv3_out, nancount = ", conv3_nan_count)
+            #print("nan check in bottleneck for residual, nancount = ", torch.isnan(residual.view(-1)).sum())
+            c4w_nan_count = torch.isnan(c4w.view(-1)).sum()
+            print("nan check in bottleneck for c4w, nancount = ", c4w_nan_count)
+            conv4_nan_count = torch.isnan(conv4_out.view(-1)).sum()
+            print("nan check in bottleneck for conv4_out, nancount = ", conv4_nan_count)
+            bn4_nan_count = torch.isnan(bn4_out.view(-1)).sum()
+            print("nan check in bottleneck for bn4_out, nancount = ", bn4_nan_count)
+            bn3_nan_count = torch.isnan(bn3_out.view(-1)).sum()
+            print("nan check in bottleneck for bn3_out, nancount = ", bn3_nan_count)
+            output_nan_count = torch.isnan(output.view(-1)).sum()
+            print("nan check in bottleneck for output, nancount = ", torch.isnan(output.view(-1)).sum())
+            if conv1_nan_count > 0 or conv2_nan_count > 0 or conv3_nan_count > 0 or conv4_nan_count > 0 or bn1_nan_count > 0 or bn2_nan_count > 0 or bn3_nan_count > 0 or bn4_nan_count > 0 or c1w_nan_count > 0 or c2w_nan_count > 0 or c3w_nan_count > 0 or c4w_nan_count > 0:
+                print("Exiting because nan count is not zero")
+                exit(-1)
         """
 
         """
@@ -444,6 +500,30 @@ class BottleneckApplyBNTPP(Function):
 
         grad_input = grad_c1i + grad_c4i
 
+        rank = int(os.environ.get("PMI_RANK", -1))
+        if rank < 0:
+            rank = 0
+        if rank == 0:
+            grad_c1w_nan_count = torch.isnan(grad_c1w.view(-1)).sum()
+            print("nan check in bottleneck for grad_c1w, nancount = ", grad_c1w_nan_count)
+            grad_b1w_nan_count = torch.isnan(grad_b1w.view(-1)).sum()
+            print("nan check in bottleneck for grad_b1w_out, nancount = ", grad_b1w_nan_count)
+            grad_c2w_nan_count = torch.isnan(grad_c2w.view(-1)).sum()
+            print("nan check in bottleneck for grad_c2w, nancount = ", grad_c2w_nan_count)
+            grad_b2w_nan_count = torch.isnan(grad_b2w.view(-1)).sum()
+            print("nan check in bottleneck for grad_b2w_out, nancount = ", grad_b2w_nan_count)
+            grad_c3w_nan_count = torch.isnan(grad_c3w.view(-1)).sum()
+            print("nan check in bottleneck for grad_c3w, nancount = ", grad_c3w_nan_count)
+            grad_c4w_nan_count = torch.isnan(grad_c4w.view(-1)).sum()
+            print("nan check in bottleneck for grad_c4w, nancount = ", grad_c4w_nan_count)
+            grad_b4w_nan_count = torch.isnan(grad_b4w.view(-1)).sum()
+            print("nan check in bottleneck for grad_b4w_out, nancount = ", grad_b4w_nan_count)
+            grad_b3w_nan_count = torch.isnan(grad_b3w.view(-1)).sum()
+            print("nan check in bottleneck for grad_b3w_out, nancount = ", grad_b3w_nan_count)
+            if grad_b1w_nan_count > 0 or grad_b2w_nan_count > 0 or grad_b3w_nan_count > 0 or grad_b4w_nan_count > 0 or grad_c1w_nan_count > 0 or grad_c2w_nan_count > 0 or grad_c3w_nan_count > 0 or grad_c4w_nan_count > 0:
+                print("Exiting because nan count is not zero")
+                exit(-1)
+
         """
         print("debug: pad_h = ", param_struct.pad_h)
         padding = [param_struct.pad_h, param_struct.pad_h, param_struct.pad_h, param_struct.pad_h]  #ctx.padding
@@ -477,8 +557,8 @@ class BottleneckApplyBNTPP(Function):
         """
 
 
-        return (None, None, # for handle and training arguments in forward
-                None, None, # for tuning_params and tuning_scripts
+        return (None, None,       # for handle and training arguments in forward
+                None, None, None, # for tuning_params, tuning_scripts and tuning_timings
                 grad_input,
                 grad_c1w, grad_c2w, grad_c3w, grad_c4w,
                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
@@ -569,9 +649,16 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
     #def set_tuning_strings(self, tuning_strings):
     #    self.tuning_strings = tuning_strings
 
-    def forward(self, input, tuning_params=None, tuning_strings=None):
+    def forward(self, input, tuning_params=None, tuning_strings=None, tuning_timings=None):
 
         #print("bn1.running_mean at the start of forward = ", self.bn1.running_mean)
+
+        rank = int(os.environ.get("PMI_RANK", -1))
+        if rank < 0:
+            rank = 0
+        if rank == 0:
+            print("debug: BottleneckTPP forward is called with inplanes, planes, stride, downsample1, downsample2 use_groupnorm dtype bc_conv1 bc_conv2 bc_conv3 bk_conv3 = ",
+                  self.inplanes, self.planes, self.stride, self.downsample1, self.downsample2, self.use_groupnorm, self.dtype, self.bc_conv1, self.bc_conv2, self.bc_conv3, self.bk_conv3)
 
         self.maybe_block()
 
@@ -691,7 +778,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         else:
             #output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs, tuning_params=tuning_params, tuning_strings=tuning_strings)
             #output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs, tuning_params, tuning_strings)
-            output = BottleneckApplyBNTPP.apply(self.config, self.training, tuning_params, tuning_strings, *inputs )
+            output = BottleneckApplyBNTPP.apply(self.config, self.training, tuning_params, tuning_strings, tuning_timings, *inputs )
 
         #print("dbg: self.conv1_scratch numel after forward = ", self.conv1_scratch.numel())
         #print("dbg: self.bn1_scratch   numel after forward = ", self.bn1_scratch.numel())

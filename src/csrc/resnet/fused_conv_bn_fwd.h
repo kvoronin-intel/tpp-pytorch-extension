@@ -1,11 +1,15 @@
 {
 
+#ifdef TIMING
+t_start = getTime();
+#endif
+
 //#define VERBOSE
 
 // t_CI and t_CW should be defined outside
 // t_BW, t_BB, t_BM, t_BV, t_BIA should be defined outside
 // t_BW_prev, t_BB_prev, t_BM_prev, t_BV_prev, t_relu_mask_prev, eltwise_prev must be defined outside if fuse_scaling = 1
-// h_block, w_block, c_block, k_block, h_in_gemm and fuse_stats must be defined outside
+// h_block, w_block, c_block, k_block, h_in_gemm, pack_input and fuse_stats must be defined outside
 
 auto sizes = t_CI.sizes();
 
@@ -21,6 +25,7 @@ std::cout << "CONV+BN meta setup info"           << std::endl;
 std::cout << "fuse_stats    = " << fuse_stats    << std::endl;
 std::cout << "fuse_scaling  = " << fuse_scaling  << std::endl;
 std::cout << "tuning_params = " << tuning_params << std::endl;
+std::cout << "pack_input (on entry) = " << pack_input  << std::endl;
 std::cout << "conv_fwd_loop_specs_str = " << conv_fwd_loop_specs_str << std::endl;
 #endif
 
@@ -48,6 +53,10 @@ const long N  = sizes[0];
 
 std::vector<long> conv_output_size{N, Kb, ofhp, ofwp, bk};
 
+/* in T */
+const long conv_fwd_scratch_size = (pack_input == 0 ? 0 : N*ofh*ofw*conv_cfg.C);
+auto t_scratch_conv = at::empty(conv_fwd_scratch_size, torch::TensorOptions().dtype(t_CI.dtype()));
+
 #ifdef VERBOSE
 std::cout << "CONV setup info" << std::endl;
 std::cout << "t_CI sizes = " << t_CI.sizes() << std::endl;
@@ -55,6 +64,7 @@ std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "conv_output_size = " << conv_output_size << std::endl;
 std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
 std::cout << "stride_h stride_w = " << stride_h << " " << stride_w << std::endl;
+std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 std::cout << "conv_pad_h_out conv_pad_w_out = " << conv_pad_h_out << " " << conv_pad_w_out << std::endl;
 #endif
 
@@ -103,12 +113,13 @@ const long sumsq_N_offset        = LIBXSMM_UP2(sum_N_offset + Kb * N * bk, 64);
 
 const long dbeta_N_offset        = LIBXSMM_UP2(Kb * N * bk, 64);
 
-const long full_fwd_scratch_size = sumsq_N_offset + LIBXSMM_UP2((size_t)Kb * (size_t)N * (size_t)bk, 64);
-const long full_bwd_scratch_size = dbeta_N_offset + LIBXSMM_UP2(Kb * N * bk, 64);
-const long full_scratch_size     = std::max(full_fwd_scratch_size, full_bwd_scratch_size);
-std::vector<long> scratch_size{full_scratch_size};
-BN_SCRATCH_OUT = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat));
-auto t_scratch = BN_SCRATCH_OUT;
+/* in floats */
+const long full_fwd_scratch_size_in_floats = sumsq_N_offset + LIBXSMM_UP2((size_t)Kb * (size_t)N * (size_t)bk, 64);
+const long full_bwd_scratch_size_in_floats = dbeta_N_offset + LIBXSMM_UP2(Kb * N * bk, 64);
+const long full_scratch_size_in_floats     = std::max(full_fwd_scratch_size_in_floats, full_bwd_scratch_size_in_floats);
+std::vector<long> scratch_size_in_floats{full_scratch_size_in_floats};
+BN_SCRATCH_OUT = at::empty(scratch_size_in_floats, torch::TensorOptions().dtype(at::kFloat));
+auto t_scratch_bn = BN_SCRATCH_OUT;
 
 bool use_hw_blocking = true;
 
@@ -144,6 +155,13 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
     avoid_fmas_in_rim = 1;
   }
 
+  if (R != 1 || S != 1) {
+#ifdef VERBOSE
+    std::cout << "Setting pack_input to zero for non 1x1 convs" << std::endl;
+#endif
+    pack_input = 0;
+  }
+
   //auto gemm_n = ofw / w_block;
   auto w_gemm_pixels = ofw/w_block;
   auto gemm_n = (w_gemm_pixels +  2 * conv_pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + conv_pad_w);
@@ -157,12 +175,37 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
+  SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
 
   zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
   if ((R == 1 && S == 1) || (avoid_fmas_in_rim == 1)) {
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    if (pack_input == 0) {
+      //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    } else {
+      if (avoid_fmas_in_rim) {
+        printf("Error: avoid_fmas_in_rim = %d is incompatible with pack_input = %d\n", avoid_fmas_in_rim, pack_input);
+        exit(-1);
+      }
+      if (R != 1 || S != 1) {
+        printf("Error: R = %d and S = %d are incompatible with pack_input = %d\n", R, S, pack_input);
+        exit(-1);
+      }
+      //auto l_pack_shape = libxsmm_create_meltw_unary_shape(bc, gemm_n, bc*stride_w, bc, dtype, dtype, dtype);
+      //input_pack_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, l_pack_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+      //printf("input_pack_tpp\n");
+      input_pack_tpp = SCOPEIT(CpyTPP<T>(gemm_n, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
+      //l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc, bk, dtype, dtype, dtype, dtype );
+      //l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ofh*ofw*sizeof(DType), Cb_step );
+      //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
+      //printf("brgemm_tpp\n");
+      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    }
+
+    //printf("brgemm2_tpp\n");
     brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
 
   } else {
@@ -214,6 +257,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
   std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
+  std::cout << "pack_input = " << pack_input << std::endl;
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
@@ -265,6 +309,10 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 std::cout << "Running conv part in conv/bn fusion" << std::endl;
 #endif
 
+#ifdef TIMING
+  t_conv_start = getTime();
+#endif
+
   {
     RECORD_SCOPE(fusedbtlnk_conv_fwd, {});
     {
@@ -287,16 +335,44 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
               exit(-1);
             } /* if fuse_scaling + extra conditions */
 
-            brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                       weight    [i_k][i_c][i_r][i_s][0],
-                       output_off[i_n][i_k][i_h]                 [i_w],
-                       B_offsets.get(), A_offsets.get(),
-                       Cb_step * r_step * s_step,
-                       true);
+            if (pack_input > 0 && i_r == 0 && i_s == 0 && i_k == 0 && i_c == 0) {
+              //DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+              //libxsmm_blasint _br, _h;
+              for (int _br = 0; _br < Cb; _br++) {
+                for (int _h = 0; _h < h_step; _h++) {
+                  //libxsmm_meltw_unary_param pack_param;
+                  //pack_param.in.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, _br, (i_h+_h) * stride_h, i_w * stride_w, 0, Cb, ifhp, ifwp, bc);
+                  //pack_param.out.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), packed_input_libxsmm, i_n, _br, i_h+_h, i_w, 0, Cb, ofh, ofw, bc);
+                  //input_pack_kernel( &pack_param );
+                  input_pack_tpp(inp[i_n][_br][(i_h+_h)*stride_h][i_w * stride_w], packed_inp[i_n][_br][i_h+_h][i_w]);
+                }
+              }
+            }
+
+            if (pack_input == 0) {
+              //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
+              brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                         weight    [i_k][i_c][i_r][i_s][0],
+                         output_off[i_n][i_k][i_h]                 [i_w],
+                         B_offsets.get(), A_offsets.get(),
+                         Cb_step * r_step * s_step,
+                         true);
+            } else {
+              //DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+              //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), packed_input_libxsmm, i_n, i_c, i_h, i_w, 0, Cb, ofh, ofw, bc);
+              brgemm_tpp(packed_inp[i_n][i_c][i_h][i_w],
+                         weight    [i_k][i_c][i_r][i_s][0],
+                         output_off[i_n][i_k][i_h]                 [i_w],
+                         B_offsets.get(), A_offsets.get(),
+                         Cb_step * r_step * s_step,
+                         true);
+            }
 
             /* Computing local stats */
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
-              DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch, sum_N_offset);
+              DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
               if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
                 if (i_h == 0 && i_w == 0)
@@ -345,7 +421,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
             }
                         /* Computing local stats */
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
-              DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch, sum_N_offset);
+              DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
               if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
                 if (i_h == 0 && i_w == 0)
@@ -367,6 +443,10 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
     } /* end of the fusedbtlnk_conv_fwd scope with recorded parallel for */
   } /* end of the dummy scope */
 
+#ifdef TIMING
+  t_conv_end = getTime();
+#endif
+
 #ifdef VERBOSE
 std::cout << "Running bn part in conv/bn fusion" << std::endl;
 #endif
@@ -380,7 +460,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
             const int n = ind[0], kb = ind[1];
 
             DECL_VLA_PTR_PT_EXT(T,     inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
-            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk],              t_scratch, sum_N_offset);
+            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk],              t_scratch_bn, sum_N_offset);
 
             if (!use_hw_blocking) {
               for (int hi = 0; hi < H; hi++) {
@@ -414,10 +494,10 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
           [&](int *ind) {
             const int kb = ind[0];
 
-            DECL_VLA_PTR_PT    (float, sum_X_X2, [Kb][bk], t_scratch);
-            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk],  t_scratch, sum_N_offset);
-            DECL_VLA_PTR_PT    (float, mean,     [bk],     t_BM);
-            DECL_VLA_PTR_PT    (float, var,      [bk],     t_BV);
+            DECL_VLA_PTR_PT    (float, sum_X_X2, [Kb][bk],  t_scratch_bn);
+            DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk], t_scratch_bn, sum_N_offset);
+            DECL_VLA_PTR_PT    (float, mean,     [bk],      t_BM);
+            DECL_VLA_PTR_PT    (float, var,      [bk],      t_BV);
 
             zero_bk_tpp(sum_X_X2[0][kb]);
             zero_bk_tpp(sum_X_X2[1][kb]);
@@ -434,6 +514,10 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
       } /* end of the fusedbtlnk_bn_fwd_stats scope with recorded parallel for */
     } /* for if (separate_stats_reduction) */
   } /* end of if (training) for computing the stats */
+
+#ifdef TIMING
+  t_bn_stats_end = getTime();
+#endif
 
   if (!fuse_scaling)
   {
@@ -504,4 +588,8 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
     } /* end of the fusedbtlnk_bn_fwd_scale scope with recorded parallel for */
   } /* if (!fuse_scaling) */
 
+#ifdef TIMING
+  t_bn_end = getTime();
+  t_end = t_bn_end;
+#endif
 } /* end of the scope for conv1 + bn1 */
