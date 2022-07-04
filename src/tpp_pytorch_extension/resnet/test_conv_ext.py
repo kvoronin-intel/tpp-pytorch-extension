@@ -448,7 +448,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop, gflop / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
 
         sum_timings = tuning_timings[0]
-        print("timing diff (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+        print("timing diff vs pure conv (part of conv_fwd_tmpl) (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+
+        sum_timings = tuning_timings[1]
+        print("timing diff vs conv_fwd_tmpl (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
 
         if with_backward:
             print("Error: with_perf is not supported for with_backward = True")
