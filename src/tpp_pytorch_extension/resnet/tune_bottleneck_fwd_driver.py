@@ -52,6 +52,8 @@ parser.add_argument('--tuning-strings', nargs="+", default=None, type=str, help=
 parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_28thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
+parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride for the bottleneck')
+
 parser.add_argument('--niters', type=int, default=10, help='number of timed iterations (warmup hardcoded)')
 #import pdb
 
@@ -443,20 +445,37 @@ def main():
     #with open("resnet50_bottleneck_test_data_28thr.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr_dbg.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr_saved.data") as f:
-    with open(args.test_data_file) as f:
-        contents = f.readlines()
-        for line in contents:
-            if line[0] == '#' or len(line) < 2:
-                continue
-            preprocessed_line = " ".join(line.strip().split()) # to remove extra spaces in the input line
-            [N, H, W, inc, outc, stride, expansion, has_downsample, eps] = list(preprocessed_line.split(" ")) #list(line.split(" "))
-            has_downsample = False if has_downsample.strip() == 'False' else True
-            string_list = list(preprocessed_line.split(" ")) #list(line.strip().split(" "))
-            integer_map = map(int, string_list[:7])
-            [N, H, W, inc, outc, stride, expansion] = list(integer_map)
-            eps = float(eps)
-            run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
+    if args.basic_sizes is not None:
+        if len(args.basic_sizes) != 6:
+            print("Error: basic sizes must have exactly 5 elements if defined (N, H, W, inc, outc, stride)")
+            exit()
+        [N, H, W, inc, outc, stride] = args.basic_sizes
+        eps = 1e-7
+        expansion = 4
+        #if (stride != 1 or inc != outc * expansion) and has_downsample == False:
+        #    print("For these stride, inc, outc and expansion has_downsample must be True")
+        #    exit()
+        if (stride != 1 or inc != outc * expansion):
+            has_downsample = True
+        else:
+            has_downsample = False
+        run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
+                            opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
+    else:
+        with open(args.test_data_file) as f:
+            contents = f.readlines()
+            for line in contents:
+                if line[0] == '#' or len(line) < 2:
+                    continue
+                preprocessed_line = " ".join(line.strip().split()) # to remove extra spaces in the input line
+                [N, H, W, inc, outc, stride, expansion, has_downsample, eps] = list(preprocessed_line.split(" ")) #list(line.split(" "))
+                has_downsample = False if has_downsample.strip() == 'False' else True
+                string_list = list(preprocessed_line.split(" ")) #list(line.strip().split(" "))
+                integer_map = map(int, string_list[:7])
+                [N, H, W, inc, outc, stride, expansion] = list(integer_map)
+                eps = float(eps)
+                run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
+                                    opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
     exit()
 
     # Just a single size run
