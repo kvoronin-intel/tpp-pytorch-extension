@@ -293,7 +293,27 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bk, spatial_block_size, relu, eltwise)), NORMALIZE);
 
-  char nkb_loop_specs_str[256] = "AB";
+  char nkb_loop_specs_str[256];// = "AB";
+  int A_seen = 0, C_seen = 0;
+  for (int i = 0; i < strlen(conv_fwd_loop_specs_str); i++) {
+      if (conv_fwd_loop_specs_str[i] == 'A')
+        A_seen++;
+      else if (conv_fwd_loop_specs_str[i] == 'C')
+        C_seen++;
+  }
+  if (A_seen && C_seen)
+    strcpy(nkb_loop_specs_str, "AB");
+  else if (A_seen && !C_seen)
+    strcpy(nkb_loop_specs_str, "Ab");
+  else if (!A_seen && C_seen)
+    strcpy(nkb_loop_specs_str, "Ba");
+  else
+    strcpy(nkb_loop_specs_str, "ab");
+
+#ifdef VERBOSE
+  std::cout << "nkb_loop_specs_str = " << nkb_loop_specs_str << std::endl;
+#endif
+
   const long bn_n_step = 1, bn_kb_step = 1;
   auto nkb_loop = ThreadedLoop<2>({
       LoopSpecs{0, N,  bn_n_step,  {/*l1_n_step, l0_n_step*/}},   // Logical N  loop specs
