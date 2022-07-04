@@ -173,9 +173,17 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 #endif
 
   /* FIXME: Fix this! */
-  char loop_specs_str[256] = "Abcdefg";
+  //char loop_specs_str[256] = "Abcdefg";
   //char loop_specs_str[256] = "ABc";
   //char loop_specs_str[256] = "aBC";
+
+  char loop_specs_str[256];
+  std::strcpy(loop_specs_str, tuning_string.c_str());
+
+#ifdef VERBOSE
+  std::cout << "tuning_params = " << tuning_params << std::endl;
+  std::cout << "loop_specs_str = " << loop_specs_str << std::endl;
+#endif
 
   auto conv_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},//, true},
