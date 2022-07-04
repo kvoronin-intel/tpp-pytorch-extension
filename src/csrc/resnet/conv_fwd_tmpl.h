@@ -1,6 +1,14 @@
 
 RECORD_FUNCTION("conv_fwd", std::vector<c10::IValue>());
 
+#ifdef TIMING
+  double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0;
+#endif
+
+#ifdef TIMING
+t_start = getTime();
+#endif
+
 // ( input, weight) = inputs
 
 //#define VERBOSE
@@ -28,6 +36,8 @@ int Kb = cfg.blocksofm;
 
 int pad_h_out = cfg.pad_h_out;
 int pad_w_out = cfg.pad_w_out;
+int conv_pad_h = cfg.pad_h;
+int conv_pad_w = cfg.pad_w;
 
 const long N  = sizes[0];
 
@@ -37,7 +47,7 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 //return std::vector<at::Tensor>({t_O});
 
 /* hardcoded here unlike the fused bottleneck where it is an external parameter */
-long pack_input = 0;
+//long pack_input = 0;
 
 /* in T */
 const long conv_fwd_scratch_size = (pack_input == 0 ? 0 : N*ofh*ofw*cfg.C);
@@ -54,11 +64,13 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
 {
 
-  auto gemm_n = ofw;
+  //auto gemm_n = ofw;
+  auto w_gemm_pixels = ofw / w_block;
+  auto gemm_n = (w_gemm_pixels +  2 * conv_pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + conv_pad_w);
   auto gemm_m = bk;
   auto gemm_k = bc;
 
-  long Cb_step = Cb;
+  long Cb_step = Cb / c_block;
 
 #ifdef VERBOSE
   std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
@@ -71,8 +83,15 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
 
   //cfg.avoid_fmas_in_rim = 1;
+  long avoid_fmas_in_rim = 0;
+  if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
+    avoid_fmas_in_rim = 1;
+  }
 
   if (R != 1 || S != 1) {
+#ifdef VERBOSE
+    std::cout << "Setting pack_input to zero for non 1x1 convs" << std::endl;
+#endif
     pack_input = 0;
   }
 
@@ -125,14 +144,19 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   long n_step = 1;
   long c_step = Cb_step;
   long k_step = 1;
-  long h_step = 1;
-  long w_step = ofw;
+  long h_step = h_in_gemm;
+  long w_step = ofw / w_block;
   long r_step = R;
   long s_step = S;
 
   if (cfg.avoid_fmas_in_rim == 1) {
     r_step = 1;
     s_step = 1;
+  }
+
+  if ( (h_in_gemm > 1) && (w_block != 1) ) {
+    printf("Invalid input GEMM config: When multiple H pixels are handled in the gemm, then the full ofw should be also used as gemm_n...\n");
+    exit(-1);
   }
 
 #ifdef VERBOSE
@@ -142,8 +166,10 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                                                                                                 << S << " " << s_step << " " << std::endl;
 
   std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
+  std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
+  std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "pack_input = " << pack_input << std::endl;
-  std::cout << "avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
 #endif
 
   /* FIXME: Fix this! */
@@ -154,12 +180,16 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   auto conv_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},//, true},
       LoopSpecs{0, Cb, c_step},
-      LoopSpecs{0, Kb, k_step},
-      LoopSpecs{0, ofh, h_step},
+      LoopSpecs{0, Kb, k_step, {k_block}},
+      LoopSpecs{0, ofh, h_step, {h_block}},
       LoopSpecs{0, ofw, w_step},
       LoopSpecs{0, R, r_step},
       LoopSpecs{0, S, s_step}},
       loop_specs_str);
+
+#ifdef TIMING
+  t_conv_start = getTime();
+#endif
 
   {
     RECORD_SCOPE(conv_fwd, {});
@@ -240,5 +270,15 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
 } /* end of the dummy scope */
 
+#ifdef TIMING
+  t_end = getTime();
+#endif
+
+#ifdef TIMING
+  auto buf = tuning_timings.request();
+  float* ptr = (float*)buf.ptr;
+  ptr[0] += t_end - t_conv_start;
+  ptr[1] += t_end - t_start;
+#endif
 return t_O;
 

@@ -1,6 +1,7 @@
 import argparse
-import torch
+import time
 import numpy as np
+import torch
 
 import pcl_pytorch_extension
 from pcl_pytorch_extension._C import _conv as conv_cpp
@@ -25,17 +26,58 @@ parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='
 parser.add_argument('--bc',  nargs='?', type=int)
 parser.add_argument('--bk',  nargs='?', type=int)
 
+parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h_block, w_block, c_block, k_block; h_in_gemm; pack_input')
+parser.add_argument('--tuning-string', default=None, type=str, help='conv_string')
+
+parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_28thr.data', type=str,
+                    help='file to read test input data from', dest='test_data_file')
+
+parser.add_argument('--niters', type=int, default=10, help='number of timed iterations (warmup hardcoded)')
+
+parser.add_argument("--with-bwd", action="store_true", default=False, help='if true, runs backward', dest='with_backward')
+
+
 #import pdb
 
 global_counter = 0
 
 #torch.autograd.set_detect_anomaly(True)
 
-def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, test_module):
-    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_perf test_module ",
-            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, test_module)
+def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, with_backward, test_module, tuning_params, tuning_string, niters):
+    time_start = time.time()
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_perf with_backward test_module niters",
+            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, with_backward, test_module, niters)
 
     global global_counter
+
+    channel_block_sizes = [bc, bk]
+
+    tuning_params_count = 6
+    if tuning_params is not None and len(tuning_params) != tuning_params_count:
+        print("Wrong length of the tuning params (must be " + str(tuning_params_count) + " if present) = " + str(tuning_params) + " " + str(len(tuning_params)))
+        exit()
+
+    if tuning_params is not None:
+        if test_module != 'ext_tpp':
+            print("Custom tuning params can only be used for ext_tpp test_module")
+            exit()
+        [h_block, w_block, c_block, k_block, h_in_gemm, pack_input_for_1x1_strided ] = tuning_params
+        print("info: tuning params: h_block, w_block, c_block, k_block = ", h_block, w_block, c_block, k_block)
+        print("info: tuning params: h_in_gemm = ", h_in_gemm)
+        print("info: pack input for 1x1 strided = ", pack_input_for_1x1_strided)
+    else:
+        tuning_params = None
+        print("info: tuning params are empty")
+
+    if tuning_string is not None:
+        if test_module != 'ext_tpp':
+            print("Custom tuning string can only be used for ext_tpp test_module")
+            exit()
+        c_loop_string = tuning_string
+        print("info: tuning string: c_string = ", c_loop_string)
+    else:
+        tuning_string = None
+        print("info: tuning string are empty")
 
     #inc = 4
 
@@ -72,6 +114,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("test_module not supported, test_module = ", test_module)
         exit()
 
+    time_end = time.time()
+    print("Setting up opt_conv module took (s) ", time_end - time_start)
+    time_start = time.time()
+
     if opt_has_physical_padding != False:
         #input_hw_padding  = [opt_padding[0], opt_padding[0], opt_padding[1], opt_padding[1]]
         #output_hw_padding = [opt_padding[2], opt_padding[2], opt_padding[3], opt_padding[3]]
@@ -84,6 +130,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         output_hw_padding = [0, 0, 0, 0]
 
     torch_conv = torch.nn.Conv2d(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, device=None, dtype=ref_dtype)
+
+    time_end = time.time()
+    print("Setting up reference torch_conv module took (s) ", time_end - time_start)
+    time_start = time.time()
 
     torch.manual_seed(0)
 
@@ -180,8 +230,21 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     #for i in range(10):
     #    print("i x1 x2 = ", i, x1.view(-1)[i].item(), x2.view(-1)[i].item())
 
+    time_end = time.time()
+    print("Setting up the data for the modules took (s) ", time_end - time_start)
+    time_start = time.time()
+
     y1 = opt_conv(x1) #xp)
+
+    time_end = time.time()
+    print("First forward took (s) ", time_end - time_start)
+    time_start = time.time()
+
     y2 = torch_conv(x2)
+
+    time_end = time.time()
+    print("First reference forward took (s) ", time_end - time_start)
+    time_start = time.time()
 
     y1_unblocked  = y1.unblocked_tensor()
     nchw_shape = y1_unblocked.shape
@@ -211,79 +274,92 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     #    print("i y1 y2 = ", i, y1.view(-1)[i].item(), y2.view(-1)[i].item())
     #for i in range(10):
     #    print("i y1 y2 = ", -i-1, y1.view(-1)[-i-1].item(), y2.view(-1)[-i-1].item())
-
-    z1 = y1.mean()
-    z2 = y2.mean()
-
-    if opt_has_physical_padding != False:
-        y1_numel = y1.unblocked_tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
-        print("z1 for zeroed rim (with account for padding)", y1_zeroed_rim.mean() * y1_numel / y2.numel())
-    else:
-        y1_numel = y1.unblocked_tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
-        print("z1                         ", z1)
-    print("z2                         ", z2)
-
-    """
-    #temp
-    ref_y_fp32 = y2.to(torch.float)
-    if opt_has_physical_padding != False:
-        ref_y_fp32 = torch.nn.functional.pad(ref_y_fp32, output_hw_padding, mode='constant', value=0.0)
-    shift = output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2]
-    print("shift = ", shift)
-    for i in range(10):
-        ind = i + shift - 5 if opt_has_physical_padding != False else i
-        print("ind opt_y_fp32 ref_y_fp32 = ", ind, opt_y_fp32.view(-1)[ind].item(), ref_y_fp32.view(-1)[ind].item())
-
-    #np.savetxt('conv_forward_run_' + str(global_counter) + '.txt', opt_y_fp32.contiguous().view(-1).detach().to(torch.float).numpy())
-    global_counter = global_counter + 1
-
-    return
-    #exit()
-    """
-
     
-    if opt_has_physical_padding != False:
-        x1.requires_grad              = False
-        y1._t.retain_grad()
-        opt_conv.weight.requires_grad = False
-        if has_bias:
-            opt_conv.bias.requires_grad   = False
-        z1.backward(retain_graph=True,gradient=torch.tensor(1.*y1_numel / y2.numel(), dtype=torch.float))
-        #for i in range(10):
-        #    print("i after first bwd opt_conv.weight.grad = ", i, opt_conv.weight.grad.view(-1)[i].item())
-        # zero the rim
-        print("debug: Zeroing the rim of the output tensor on the Python side")
-        nchw_shape = y1.grad.shape
-        y1_grad_zeroed_rim = torch.zeros_like(y1.grad)
-        print("debug: nchw shape = ", nchw_shape)
-        outH = nchw_shape[2] - output_hw_padding[0] - output_hw_padding[1]
-        outW = nchw_shape[3] - output_hw_padding[2] - output_hw_padding[3]
-        print("range = ", 'full', ' ', 'full', output_hw_padding[0], outH + output_hw_padding[0], output_hw_padding[2], outW + output_hw_padding[2])
-        y1_grad_zeroed_rim[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]] = y1.grad[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]]
-        # now doing the main backward()
-        x1.requires_grad              = True
-        opt_conv.weight.requires_grad = True
-        if has_bias:
-            opt_conv.bias.requires_grad   = True
-        y1._t.backward(gradient=y1_grad_zeroed_rim)
-    else:
-        z1.backward(retain_graph=True)
-    #z1.backward(retain_graph=True)
-
-    z2.backward(retain_graph=True)
-
-    # X gradient
-    compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, zero_rim_for_opt = True)
-
-    # Bias gradient
-    if has_bias:
-      compare_padded_tensors(opt_conv.bias.grad, torch_conv.bias.grad, "Bias Grad")
-
-    # Weight gradient
-    compare_weight_grads( opt_conv.weight.grad, torch_conv.weight.grad, "conv")
-
     # Output (fwd)
     compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", outW, output_hw_padding, zero_rim_for_opt = True)
+
+    time_end = time.time()
+    print("Validating tensors for fwd took (s) ", time_end - time_start)
+    time_start = time.time()
+
+    if with_backward == True:
+        z1 = y1.mean()
+        z2 = y2.mean()
+
+        if opt_has_physical_padding != False:
+            y1_numel = y1.unblocked_tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
+            print("z1 for zeroed rim (with account for padding)", y1_zeroed_rim.mean() * y1_numel / y2.numel())
+        else:
+            y1_numel = y1.tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
+            print("z1                         ", z1)
+        print("z2                         ", z2)
+
+        """
+        #temp
+        ref_y_fp32 = y2.to(torch.float)
+        if opt_has_physical_padding != False:
+            ref_y_fp32 = torch.nn.functional.pad(ref_y_fp32, output_hw_padding, mode='constant', value=0.0)
+        shift = output_hw_padding[0] * (W + output_hw_padding[2] + output_hw_padding[3]) + output_hw_padding[2]
+        print("shift = ", shift)
+        for i in range(10):
+            ind = i + shift - 5 if opt_has_physical_padding != False else i
+            print("ind opt_y_fp32 ref_y_fp32 = ", ind, opt_y_fp32.view(-1)[ind].item(), ref_y_fp32.view(-1)[ind].item())
+
+        #np.savetxt('conv_forward_run_' + str(global_counter) + '.txt', opt_y_fp32.contiguous().view(-1).detach().to(torch.float).numpy())
+        global_counter = global_counter + 1
+
+        return
+        #exit()
+        """
+
+        
+        if opt_has_physical_padding != False:
+            x1.requires_grad              = False
+            y1._t.retain_grad()
+            opt_conv.weight.requires_grad = False
+            if has_bias:
+                opt_conv.bias.requires_grad   = False
+            z1.backward(retain_graph=True,gradient=torch.tensor(1.*y1_numel / y2.numel(), dtype=torch.float))
+            #for i in range(10):
+            #    print("i after first bwd opt_conv.weight.grad = ", i, opt_conv.weight.grad.view(-1)[i].item())
+            # zero the rim
+            print("debug: Zeroing the rim of the output tensor on the Python side")
+            nchw_shape = y1.grad.shape
+            y1_grad_zeroed_rim = torch.zeros_like(y1.grad)
+            print("debug: nchw shape = ", nchw_shape)
+            outH = nchw_shape[2] - output_hw_padding[0] - output_hw_padding[1]
+            outW = nchw_shape[3] - output_hw_padding[2] - output_hw_padding[3]
+            print("range = ", 'full', ' ', 'full', output_hw_padding[0], outH + output_hw_padding[0], output_hw_padding[2], outW + output_hw_padding[2])
+            y1_grad_zeroed_rim[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]] = y1.grad[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]]
+            # now doing the main backward()
+            x1.requires_grad              = True
+            opt_conv.weight.requires_grad = True
+            if has_bias:
+                opt_conv.bias.requires_grad   = True
+            y1._t.backward(gradient=y1_grad_zeroed_rim)
+        else:
+            z1.backward(retain_graph=True)
+        #z1.backward(retain_graph=True)
+
+        z2.backward(retain_graph=True)
+
+        time_end = time.time()
+        print("Preparing data for backward and backwards (both opt and ref) took (s) ", time_end - time_start)
+        time_start = time.time()
+
+        # X gradient
+        compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, zero_rim_for_opt = True)
+
+        # Bias gradient
+        if has_bias:
+          compare_padded_tensors(opt_conv.bias.grad, torch_conv.bias.grad, "Bias Grad")
+
+        # Weight gradient
+        compare_weight_grads( opt_conv.weight.grad, torch_conv.weight.grad, "conv")
+
+        time_end = time.time()
+        print("Validating tensors for backward took (s) ", time_end - time_start)
+        time_start = time.time()
 
     """
     counter = 0
@@ -305,11 +381,80 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     print("Stats: bad reldiffs  are X out of Y:", counter_reldiff, inc*outc*R*R)
     """
 
-    return
+    #return
     #exit()
 
     # Does not work at the moment for bwd
     if with_perf:
+
+        conv_cfg = opt_conv.config
+
+        blocked_input = opt_conv.get_blocked_tensor(
+            x1,
+            opt_conv.blocked_input_signature,
+            [None, opt_conv.Cblock, None, None],
+        )
+
+        inputs = [blocked_input, opt_conv.weight]
+
+        warmup_niter = 5
+        #logging.info("warmup_niter = ", warmup_niter)
+        print("warmup_niter = ", warmup_niter)
+
+        time_end = time.time()
+        print("Reference forward took (s) ", time_end - time_start)
+
+        #dummy_tuning_timings = [0.0] * 16
+        dummy_tuning_timings = np.zeros(16, dtype=np.float32)
+        time_start = time.time()
+
+        for i in range(warmup_niter):
+            if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or dummy_tuning_timings is None:
+                conv_cpp.conv_fwd(conv_cfg, inputs)
+            else:
+                conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+
+        time_end = time.time()
+        print("Warmup took (s) ", time_end - time_start)
+
+        timed_niters = niters
+        #logging.info("timed_niters = ", timed_niters)
+        print("timed_niters = ", timed_niters)
+
+        #tuning_timings = [0.0] * 16
+        tuning_timings = np.zeros(16, dtype=np.float32)
+        #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+
+        time_start = time.time()
+        for i in range(timed_niters):
+            if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or tuning_timings is None:
+                conv_cpp.conv_fwd(conv_cfg, inputs)
+            else:
+                conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings)
+        time_end = time.time()
+        time_per_iter = (time_end - time_start) / timed_niters
+
+        #print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+
+        print("Timed loop took (s) ", time_end - time_start)
+        print("Final perf time: ", time_per_iter)
+        gflop = conv_cpp.conv_fwd_get_gflop(conv_cfg)
+        basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride)
+        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_string: " + str(tuning_string))
+
+        # Checking the timings
+        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop, gflop / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
+
+        sum_timings = tuning_timings[0]
+        print("timing diff (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+
+        if with_backward:
+            print("Error: with_perf is not supported for with_backward = True")
+            exit()
+
+        return
+
+        # Below is the out-dated older perf code
 
         # perf part for fwd
         # warmup
@@ -403,7 +548,8 @@ def main():
     #with open("resnet50_conv_test_data_extended_new.data") as f:
     #with open("resnet50_conv_test_data_extended_new_28thr_reordered.data") as f:
     #with open("resnet50_conv_test_data_extended_new_28thr.data") as f:
-    with open("resnet50_conv_test_data_for_bottleneck_28thr.data") as f:
+    #with open("resnet50_conv_test_data_for_bottleneck_28thr.data") as f:
+    with open(args.test_data_file) as f:
         contents = f.readlines()
         for line in contents:
             #print("line")
@@ -425,7 +571,9 @@ def main():
             #print(type(inc))
             #print(type(groups))
             #print(type(has_bias))
-            run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+            run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+                          args.with_perf, args.with_backward, args.test_module,
+                          args.tuning_params, args.tuning_string, args.niters)
     exit()
 
     # Just a single size run
@@ -446,7 +594,7 @@ def main():
     H=224
     W=224
 
-    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.with_backward, args.test_module)
 
 if __name__ == "__main__":
     args = parser.parse_args()

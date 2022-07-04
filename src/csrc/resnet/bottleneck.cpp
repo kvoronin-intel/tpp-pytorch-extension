@@ -129,7 +129,6 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
     bottleneck_bn_config cfg,
     bool training,
     std::vector<at::Tensor> inputs) {
-  /* -1 for avoid_fmas_in_rim means that this flag will be taken out of the conv_cfg passed into particular conv+bn fusion code */
   int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
   int c1_block = 1, k1_block = 1, c2_block = 1, k2_block = 1, c3_block = 1, k3_block = 1, c4_block = 1, k4_block = 1;
   int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;

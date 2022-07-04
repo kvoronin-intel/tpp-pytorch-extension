@@ -6,6 +6,10 @@
 #include <iostream>
 #include <vector>
 
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
+
 #include "ext_tpp.h"
 #include "init.h"
 #include "timing.h"
@@ -23,6 +27,8 @@ static int my_rank = guess_mpi_rank();
 #   include "threaded_loops.h"
 #endif
 
+#define TIMING
+
 REGISTER_SCOPE(conv_fwd,     "conv_fwd");
 
 REGISTER_SCOPE(conv_bwd_upd, "conv_bwd_upd");
@@ -32,10 +38,20 @@ REGISTER_SCOPE(conv_bwd_d,   "conv_bwd_d");
 /* Has the conv_config and all setters */
 #include "conv_setup_full.h"
 
-at::Tensor conv_fwd(
+at::Tensor conv_fwd_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs) {
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::string tuning_string,
+    pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(FWD);
+
+  const long h_block = tuning_params[0];
+  const long w_block = tuning_params[1];
+  const long c_block = tuning_params[2];
+  const long k_block = tuning_params[3];
+  const long h_in_gemm = tuning_params[4];
+        long pack_input = tuning_params[5];
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "conv_fwd_tmpl.h"
@@ -43,6 +59,22 @@ at::Tensor conv_fwd(
     typedef bfloat16 T;
 #include "conv_fwd_tmpl.h"
   }
+}
+
+at::Tensor conv_fwd(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs) {
+  int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
+  int h_in_gemm = 1;
+  int pack_input_for_1x1_strided = 0;
+  std::vector<int> default_tuning_params{h_block, w_block, c_block, k_block,
+                                         h_in_gemm,
+                                         pack_input_for_1x1_strided};
+  //std::vector<float> default_tuning_timings(0);
+  pybind11::array_t<float> default_tuning_timings(16);
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::string default_tuning_string{"Abcdefg"};
+  return conv_fwd_ext(cfg, inputs, default_tuning_params, default_tuning_string, default_tuning_timings);
 }
 
 std::vector<at::Tensor> conv_bwd(
@@ -153,6 +185,17 @@ std::vector<int> conv_get_feature_map_blocks( int C, int K, int dtype_int )
     return res;
 }
 
+double conv_fwd_get_gflop(conv_config cfg)
+{
+  double gflop_conv = 0;
+  //double gflop = (2.0*(double)n_iters*(double)N*(double)C*(double)K*(double)R*(double)S*(double)ofh*(double)ofw)/(1000*1000*1000);
+
+  /* gflop count for convolution fwd */
+  gflop_conv = (2.0*(double)cfg.N*(double)cfg.C*(double)cfg.K*(double)cfg.R*(double)cfg.S*(double)cfg.ofh*(double)cfg.ofw)/(1000*1000*1000);
+
+  return gflop_conv;
+}
+
 REGISTER_SUBMODULE(_conv, m) {
   m.def(
       "conv_fwd",
@@ -172,5 +215,7 @@ REGISTER_SUBMODULE(_conv, m) {
   //.def_readwrite("initialized", &conv_config::initialized);
   m.def("conv_setup", &conv_setup, "Pcl CONV setup (with internally computed block sizes)");
   m.def("conv_setup_preset", &conv_setup_preset, "Pcl CONV setup (with reset block sizes)");
+  m.def("conv_fwd_ext", &conv_fwd_ext, "Pcl CONV forward with extra (tuning) parameters");
+  m.def("conv_fwd_get_gflop", &conv_fwd_get_gflop, "Pcl CONV get gflop count for fwd");
 }
 
