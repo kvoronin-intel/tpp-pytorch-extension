@@ -32,6 +32,8 @@ parser.add_argument('--tuning-string', default=None, type=str, help='conv_string
 parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_28thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
+parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride R for the conv')
+
 parser.add_argument('--niters', type=int, default=10, help='number of timed iterations (warmup hardcoded)')
 
 parser.add_argument("--with-bwd", action="store_true", default=False, help='if true, runs backward', dest='with_backward')
@@ -549,31 +551,33 @@ def main():
     #with open("resnet50_conv_test_data_extended_new_28thr_reordered.data") as f:
     #with open("resnet50_conv_test_data_extended_new_28thr.data") as f:
     #with open("resnet50_conv_test_data_for_bottleneck_28thr.data") as f:
-    with open(args.test_data_file) as f:
-        contents = f.readlines()
-        for line in contents:
-            #print("line")
-            #print(type(line))
-            #print(line)
-            [N, H, W, inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
-            #[inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
-            string_list = list(line.strip().split(" "))
-            has_bias=False if has_bias.strip() == 'False' else True
-            padding_mode=padding_mode.strip()
-            #print(string_list)
-            #print(string_list[:7])
-            #integer_map = map(int, string_list[:7])
-            #print(string_list[:10])
-            integer_map = map(int, string_list[:10])
-            #print(integer_map)
-            [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
-            #[inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
-            #print(type(inc))
-            #print(type(groups))
-            #print(type(has_bias))
-            run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
-                          args.with_perf, args.with_backward, args.test_module,
-                          args.tuning_params, args.tuning_string, args.niters)
+    if args.basic_sizes is not None:
+        if len(args.basic_sizes) != 7:
+            print("Error: basic sizes must have exactly 7 elements if defined (N, H, W, inc, outc, stride, R)")
+            exit()
+        [N, H, W, inc, outc, stride, R] = args.basic_sizes
+        padding = R // 2
+        groups=1
+        dilation=1
+        has_bias = False
+        padding_mode='zeros'
+        run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+                      args.with_perf, args.with_backward, args.test_module,
+                      args.tuning_params, args.tuning_string, args.niters)
+    else:
+        with open(args.test_data_file) as f:
+            contents = f.readlines()
+            for line in contents:
+                [N, H, W, inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
+                #[inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
+                string_list = list(line.strip().split(" "))
+                has_bias=False if has_bias.strip() == 'False' else True
+                padding_mode=padding_mode.strip()
+                integer_map = map(int, string_list[:10])
+                [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
+                run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+                              args.with_perf, args.with_backward, args.test_module,
+                              args.tuning_params, args.tuning_string, args.niters)
     exit()
 
     # Just a single size run

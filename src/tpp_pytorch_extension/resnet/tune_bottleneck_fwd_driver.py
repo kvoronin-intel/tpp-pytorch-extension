@@ -447,7 +447,7 @@ def main():
     #with open("resnet50_bottleneck_test_data_28thr_saved.data") as f:
     if args.basic_sizes is not None:
         if len(args.basic_sizes) != 6:
-            print("Error: basic sizes must have exactly 5 elements if defined (N, H, W, inc, outc, stride)")
+            print("Error: basic sizes must have exactly 6 elements if defined (N, H, W, inc, outc, stride)")
             exit()
         [N, H, W, inc, outc, stride] = args.basic_sizes
         eps = 1e-7
