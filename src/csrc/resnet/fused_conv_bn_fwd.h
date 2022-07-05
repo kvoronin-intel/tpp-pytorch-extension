@@ -128,7 +128,7 @@ const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
 
 long spatial_block_size = 0;
 
-if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out != 0 ) {
+if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out != 0 || w_block != 1) {
   use_hw_blocking    = false; /* alternative is w blocking ([w, bc] blocks) */
   spatial_block_size = W / num_W_blocks;
 } else {
