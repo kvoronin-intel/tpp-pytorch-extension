@@ -125,7 +125,7 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext(
   }
 }
 
-std::vector<at::Tensor> bottleneck_bn_fwd_ext_study(
+std::vector<at::Tensor> bottleneck_bn_fwd_ext_study1(
     bottleneck_bn_config cfg,
     bool training,
     std::vector<at::Tensor> inputs,
@@ -133,7 +133,7 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext_study(
     std::vector<std::string> tuning_strings,
     pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(FWD);
-#define EXT_STUDY
+#define EXT_STUDY1
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #ifdef FUSED_BOTTLENECK
@@ -149,7 +149,34 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext_study(
 #   include "bottleneck_fwd_tmpl.h"
 #endif
   }
-#undef EXT_STUDY
+#undef EXT_STUDY1
+}
+
+std::vector<at::Tensor> bottleneck_bn_fwd_ext_study2(
+    bottleneck_bn_config cfg,
+    bool training,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::vector<std::string> tuning_strings,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(FWD);
+#define EXT_STUDY2
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_fwd_tmpl.h"
+#else
+#   include "bottleneck_fwd_tmpl.h"
+#endif
+  } else {
+    typedef bfloat16 T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_fwd_tmpl.h"
+#else
+#   include "bottleneck_fwd_tmpl.h"
+#endif
+  }
+#undef EXT_STUDY2
 }
 
 
@@ -394,6 +421,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_fwd_ext", &bottleneck_bn_fwd_ext, "Pcl BOTTLENECK BN forward with tuning params");
   m.def("bottleneck_bn_fwd_get_gflop", &bottleneck_bn_fwd_get_gflop, "Pcl BOTTLENECK BN forward gflop count");
   m.def("bottleneck_bn_fwd_get_gflop_details", &bottleneck_bn_fwd_get_gflop_details, "Pcl BOTTLENECK BN forward gflop counts for various components");
-  m.def("bottleneck_bn_fwd_ext_study", &bottleneck_bn_fwd_ext_study, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
+  m.def("bottleneck_bn_fwd_ext_study1", &bottleneck_bn_fwd_ext_study1, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
+  m.def("bottleneck_bn_fwd_ext_study2", &bottleneck_bn_fwd_ext_study2, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
 }
 

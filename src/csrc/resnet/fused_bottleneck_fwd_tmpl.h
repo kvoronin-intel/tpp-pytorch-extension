@@ -80,6 +80,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
 
 at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 
+#if !defined(EXT_STUDY2)
+
 //RECORD_SCOPE("conv1_bn1_fwd", std::vector<c10::IValue>());
 {
   auto t_CI  = input;
@@ -124,7 +126,7 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 #endif
 }
 
-#ifdef EXT_STUDY
+#ifdef EXT_STUDY1
 #ifdef TIMING
   {
     auto buf = tuning_timings.request();
@@ -139,6 +141,8 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
   return {conv1_out, bn1_out};
 #endif
 
+#endif /* for #if !defined(EXT_STUDY2) */
+
 #ifdef VERBOSE
   printf("running conv2 + bn2\n");
 #endif
@@ -147,7 +151,11 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
 //RECORD_SCOPE("conv2_bn2_fwd", std::vector<c10::IValue>());
 {
+#ifdef EXT_STUDY2
+  auto t_CI  = input;
+#else
   auto t_CI  = bn1_out;
+#endif
   auto t_CW  = conv2_weight;
 
   auto conv_cfg = cfg.conv2;
@@ -188,6 +196,22 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   time_c2b2extra = (t_end - t_start) - (time_c2 + time_b2);
 #endif
 }
+
+#ifdef EXT_STUDY2
+#ifdef TIMING
+  {
+    auto buf = tuning_timings.request();
+    float* ptr = (float*)buf.ptr;
+    ptr[1] += time_c2;
+    ptr[5] += time_b2;
+    ptr[9] += time_c2b2;
+    ptr[13] += time_c2b2extra;
+  }
+#endif
+
+  return {conv2_out, bn2_out};
+#endif
+
 
   at::Tensor conv4_out, residual, bn4_relu_out, bn4_scratch_out;
   if (cfg.has_residual_conv) {
