@@ -293,6 +293,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bk, spatial_block_size, relu, eltwise)), NORMALIZE);
 
+  char kb_loop_specs_str[256];
   char nkb_loop_specs_str[256];// = "AB";
   int A_seen = 0, C_seen = 0;
   for (int i = 0; i < strlen(conv_fwd_loop_specs_str); i++) {
@@ -310,8 +311,14 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
   else
     strcpy(nkb_loop_specs_str, "ab");
 
+  if (C_seen)
+    strcpy(kb_loop_specs_str, "A");
+  else
+    strcpy(kb_loop_specs_str, "a");
+
 #ifdef VERBOSE
   std::cout << "nkb_loop_specs_str = " << nkb_loop_specs_str << std::endl;
+  std::cout << "kb_loop_specs_str  = " << kb_loop_specs_str  << std::endl;
 #endif
 
   const long bn_n_step = 1, bn_kb_step = 1;
@@ -320,7 +327,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
       LoopSpecs{0, Kb, bn_kb_step, {/*l1_k_step, l0_k_step*/}}},  // Logical Kb loop specs
       nkb_loop_specs_str);
 
-  char kb_loop_specs_str[256] = "A";
+  //char kb_loop_specs_str[256] = "A";
   auto kb_loop = ThreadedLoop<1>({
       LoopSpecs{0, Kb, bn_kb_step, {/*l1_k_step, l0_k_step*/}}},  // Logical Kb loop specs
       kb_loop_specs_str);
@@ -473,6 +480,9 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
 
   if (training) {
     if (!fuse_stats) {
+#ifdef VERBOSE
+std::cout << "Running the standalone partial stats reduce loops" << std::endl;
+#endif
       RECORD_SCOPE(fusedbtlnk_bn_fwd_reduce, {});
       {
         nkb_loop(
@@ -508,6 +518,9 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
     } /* for if (!fuse_stats) */
 
     if (separate_stats_reduction) {
+#ifdef VERBOSE
+std::cout << "Running the separate stats reduction loop" << std::endl;
+#endif
       RECORD_SCOPE(fusedbtlnk_bn_fwd_stats, {});
       {
         kb_loop(
