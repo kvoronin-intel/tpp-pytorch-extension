@@ -190,6 +190,9 @@ nthreads=int(os.getenv("OMP_NUM_THREADS"))
 print("dbg: nthreads = ", nthreads)
 
 for l in [2]: #range(nBottlenecks):
+    #file_path = 'bottleneck_' + str(l) + '_tuning_dbg_0705.txt'
+    #sys.stdout = open(file_path, "w")
+
     # common parameters (potentially overwrite-able)
     N=nthreads
     bs=32
