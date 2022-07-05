@@ -125,6 +125,35 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext(
   }
 }
 
+std::vector<at::Tensor> bottleneck_bn_fwd_ext_study(
+    bottleneck_bn_config cfg,
+    bool training,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::vector<std::string> tuning_strings,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(FWD);
+#define EXT_STUDY
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_fwd_tmpl.h"
+#else
+#   include "bottleneck_fwd_tmpl.h"
+#endif
+  } else {
+    typedef bfloat16 T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_fwd_tmpl.h"
+#else
+#   include "bottleneck_fwd_tmpl.h"
+#endif
+  }
+#undef EXT_STUDY
+}
+
+
+
 std::vector<at::Tensor> bottleneck_bn_fwd(
     bottleneck_bn_config cfg,
     bool training,
@@ -365,5 +394,6 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_fwd_ext", &bottleneck_bn_fwd_ext, "Pcl BOTTLENECK BN forward with tuning params");
   m.def("bottleneck_bn_fwd_get_gflop", &bottleneck_bn_fwd_get_gflop, "Pcl BOTTLENECK BN forward gflop count");
   m.def("bottleneck_bn_fwd_get_gflop_details", &bottleneck_bn_fwd_get_gflop_details, "Pcl BOTTLENECK BN forward gflop counts for various components");
+  m.def("bottleneck_bn_fwd_ext_study", &bottleneck_bn_fwd_ext_study, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
 }
 

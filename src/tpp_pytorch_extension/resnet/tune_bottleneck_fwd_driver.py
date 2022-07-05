@@ -373,7 +373,8 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or dummy_tuning_timings is None:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
-                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
+                #bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
+                bottleneck_cpp.bottleneck_bn_fwd_ext_study(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
 
         time_end = time.time()
         print("Warmup took (s) ", time_end - time_start)
@@ -391,7 +392,8 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or tuning_timings is None:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
-                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
+                #bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
+                bottleneck_cpp.bottleneck_bn_fwd_ext_study(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 

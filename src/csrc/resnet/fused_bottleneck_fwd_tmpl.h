@@ -124,6 +124,21 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 #endif
 }
 
+#ifdef EXT_STUDY
+#ifdef TIMING
+  {
+    auto buf = tuning_timings.request();
+    float* ptr = (float*)buf.ptr;
+    ptr[0] += time_c1;
+    ptr[4] += time_b1;
+    ptr[8] += time_c1b1;
+    ptr[12] += time_c1b1extra;
+  }
+#endif
+
+  return {conv1_out, bn1_out};
+#endif
+
 #ifdef VERBOSE
   printf("running conv2 + bn2\n");
 #endif
@@ -348,4 +363,3 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
   return {bn3_out, conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, residual, bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
             bn1_scratch_out, bn2_scratch_out, bn3_scratch_out, bn4_scratch_out };
-
