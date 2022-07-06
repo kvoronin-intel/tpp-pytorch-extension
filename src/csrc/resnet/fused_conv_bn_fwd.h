@@ -121,20 +121,58 @@ std::vector<long> scratch_size_in_floats{full_scratch_size_in_floats};
 BN_SCRATCH_OUT = at::empty(scratch_size_in_floats, torch::TensorOptions().dtype(at::kFloat));
 auto t_scratch_bn = BN_SCRATCH_OUT;
 
-bool use_hw_blocking = true;
+bool use_hw_blocking_in_fusion      = true;
+bool use_hw_blocking_outside_fusion = true;
 
-const long num_HW_blocks = (H > W ? H : W);
-const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
+//const long num_HW_blocks = (H > W ? H : W);
+//const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
+long num_HW_blocks_outside_fusion = 0;
+long num_W_blocks_outside_fusion = 0;
 
-long spatial_block_size = 0;
+long spatial_block_size_in_fusion = 0, spatial_block_size_outside_fusion = 0;
 
+if (fuse_stats == 1) {
+  /* In fusion, hw- or w-blocking is chosen based on w_block value */
+  if (w_block != 1) {
+    use_hw_blocking_in_fusion    = false; /* w blocking ([w, bc] blocks) */
+    spatial_block_size_in_fusion = ofw / w_block;
+  } else {
+    use_hw_blocking_in_fusion    = true; /* hw-blocking using [hw, bc] blocks */
+    spatial_block_size_in_fusion = h_in_gemm * W;
+  }
+}
+
+if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out != 0) {
+  /* If padding is non-zero, batchnorm cannot do hw-blocking */
+  use_hw_blocking_outside_fusion    = false; /* alternative is w blocking ([w, bc] blocks) */
+  spatial_block_size_outside_fusion = ofw / w_block;
+  num_W_blocks_outside_fusion       = W / spatial_block_size_outside_fusion;
+} else {
+  /* If there is no padding, one can choose */
+  if (w_block != 1) {
+    use_hw_blocking_outside_fusion    = false; /* w blocking ([w, bc] blocks) */
+    spatial_block_size_outside_fusion = ofw / w_block;
+    num_W_blocks_outside_fusion       = W / spatial_block_size_outside_fusion;
+  } else {
+    use_hw_blocking_outside_fusion    = true; /* hw-blocking using [hw, bc] blocks */
+    spatial_block_size_outside_fusion = h_in_gemm * W;
+    num_HW_blocks_outside_fusion       = H * W / spatial_block_size_outside_fusion;
+  }
+}
+
+#if 0
 if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out != 0 || w_block != 1) {
   use_hw_blocking    = false; /* alternative is w blocking ([w, bc] blocks) */
-  spatial_block_size = W / num_W_blocks;
+  //spatial_block_size = W / num_W_blocks;
+  spatial_block_size = ofw / w_block;
+  num_W_blocks = W / spatial_block_size;
 } else {
   use_hw_blocking    = true; /* using [hw, bc] blocks */
-  spatial_block_size = H * W / num_HW_blocks;
+  //spatial_block_size = H * W / num_HW_blocks;
+  spatial_block_size = h_in_gemm * W;
+  num_HW_blocks = H * W / spatial_block_size;
 }
+#endif
 
 #ifdef VERBOSE
 std::cout << "BN setup info" << std::endl;
@@ -142,7 +180,9 @@ std::cout << "bn_padding = " << bn_padding << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "bn_output_size = " << bn_output_size << std::endl;
 std::cout << "t_BI sizes = " << t_BI.sizes() << std::endl;
-std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+std::cout << "use_hw_blocking_in_fusion      = " << use_hw_blocking_in_fusion << " and spatial_block_size_in_fusion = " << spatial_block_size_in_fusion  << std::endl;
+std::cout << "use_hw_blocking_outside_fusion = " << use_hw_blocking_outside_fusion << " and spatial_block_size_outside_fusion = " << spatial_block_size_outside_fusion
+          << " and num blocks = " << (use_hw_blocking_outside_fusion ? num_HW_blocks_outside_fusion : num_W_blocks_outside_fusion) << std::endl;
 #endif
 
 #ifdef VERBOSE
@@ -279,9 +319,13 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bk, bk, bk), EW_ADD); /* 1, bc because of row-major for unary */
 
-  auto reduce_beta0_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bk, bk, bk, 1)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+  auto reduce_beta0_fusion_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size_in_fusion, bk, bk, bk, 1)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
 
-  auto reduce_beta1_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size, bk, bk, bk, 0)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+  auto reduce_beta1_fusion_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size_in_fusion, bk, bk, bk, 0)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+
+  auto reduce_beta0_nonfusion_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size_outside_fusion, bk, bk, bk, 1)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
+
+  auto reduce_beta1_nonfusion_tpp = SCOPEIT((ReduceColsTPP<T, float>(spatial_block_size_outside_fusion, bk, bk, bk, 0)), EW_RED); /* spatial_block_size, bc because of row-major for unary */
 
   auto mean_var_tpp = SCOPEIT(MeanVarTPP<float>(bk, scale), EW_MEAN_VAR);
 
@@ -291,7 +335,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   auto zero_wp_tpp = SCOPEIT(SetZeroTPP<T>(bn_pad_w_out, bk, bk), EW_ZERO);          /* pad_w_out, bc because of row-major for unary */
 
-  auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bk, spatial_block_size, relu, eltwise)), NORMALIZE);
+  auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bk, spatial_block_size_outside_fusion, relu, eltwise)), NORMALIZE);
 
   char kb_loop_specs_str[256];
   char nkb_loop_specs_str[256];// = "AB";
@@ -401,6 +445,12 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
+              if (i_h == 0 && i_w == 0)
+                reduce_beta0_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+              else
+                reduce_beta1_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+
+/*
               if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
                 if (i_h == 0 && i_w == 0)
                   reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
@@ -412,6 +462,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                 else
                   reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
               }
+*/
             } /* for computing local stats */
           } else { /* for if avoid_fmas_in_rim == 0 */
 
@@ -450,6 +501,11 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
+              if (i_h == 0 && i_w == 0)
+                reduce_beta0_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+              else
+                reduce_beta1_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
+/*
               if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
                 if (i_h == 0 && i_w == 0)
                   reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
@@ -461,6 +517,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                 else
                   reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
               }
+*/
             } /* for computing local stats */
 
           } /* for if-else avoid_fmas_in_rim == 0 */
@@ -481,7 +538,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   if (training) {
     if (!fuse_stats) {
 #ifdef VERBOSE
-std::cout << "Running the standalone partial stats reduce loops" << std::endl;
+      std::cout << "Running the standalone partial stats reduce loops" << std::endl;
 #endif
       RECORD_SCOPE(fusedbtlnk_bn_fwd_reduce, {});
       {
@@ -492,23 +549,23 @@ std::cout << "Running the standalone partial stats reduce loops" << std::endl;
             DECL_VLA_PTR_PT_EXT(T,     inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
             DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bk],              t_scratch_bn, sum_N_offset);
 
-            if (!use_hw_blocking) {
+            if (!use_hw_blocking_outside_fusion) {
               for (int hi = 0; hi < H; hi++) {
-                for (int w = 0; w < W; w += spatial_block_size) {
+                for (int w = 0; w < W; w += spatial_block_size_outside_fusion) {
                   if (hi == 0 && w == 0)
-                    reduce_beta0_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
+                    reduce_beta0_nonfusion_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
                   else
-                    reduce_beta1_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
+                    reduce_beta1_nonfusion_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
                 }
               }
             } else {
-              for(int hwb=0; hwb < num_HW_blocks; hwb++){
-                int hi = (hwb*(H*W/num_HW_blocks))/W;
-                int w  = (hwb*(H*W/num_HW_blocks))%W;
+              for(int hwb=0; hwb < num_HW_blocks_outside_fusion; hwb++){
+                int hi = (hwb*(H*W/num_HW_blocks_outside_fusion))/W;
+                int w  = (hwb*(H*W/num_HW_blocks_outside_fusion))%W;
                 if (hwb == 0)
-                  reduce_beta0_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
+                  reduce_beta0_nonfusion_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
                 else
-                  reduce_beta1_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
+                  reduce_beta1_nonfusion_tpp(inp[n][kb][hi][w], sums_N[kb][n]);
               }
             }
           },
@@ -519,7 +576,7 @@ std::cout << "Running the standalone partial stats reduce loops" << std::endl;
 
     if (separate_stats_reduction) {
 #ifdef VERBOSE
-std::cout << "Running the separate stats reduction loop" << std::endl;
+      std::cout << "Running the separate stats reduction loop" << std::endl;
 #endif
       RECORD_SCOPE(fusedbtlnk_bn_fwd_stats, {});
       {
@@ -574,7 +631,7 @@ std::cout << "Running the separate stats reduction loop" << std::endl;
 
           coeffs_tpp(mean[kb], var[kb], &s[0], &b[0]);
 
-          if (!use_hw_blocking) {
+          if (!use_hw_blocking_outside_fusion) {
 
             if (bn_pad_h_out != 0) {
               zero_hp_tpp(out[n][kb][0][0]);
@@ -586,11 +643,11 @@ std::cout << "Running the separate stats reduction loop" << std::endl;
                 zero_wp_tpp(out[n][kb][ho][0]);
               }
 
-              for (int wb = 0; wb < num_W_blocks; wb++) {
-                normalize_tpp(inp[n][kb][hi][wb*(W/num_W_blocks)], &s[0], &b[0], gamma[kb], beta[kb],
-                                eltwise ? inp_add[n][kb][hi][wb*(W/num_W_blocks)] : NULL,
-                                out[n][kb][ho][wo_start + wb*(W/num_W_blocks)],
-                                relu ? relumask[n][kb][ho][wo_start + wb*(W/num_W_blocks)] : NULL);
+              for (int wb = 0; wb < num_W_blocks_outside_fusion; wb++) {
+                normalize_tpp(inp[n][kb][hi][wb*(W/num_W_blocks_outside_fusion)], &s[0], &b[0], gamma[kb], beta[kb],
+                                eltwise ? inp_add[n][kb][hi][wb*(W/num_W_blocks_outside_fusion)] : NULL,
+                                out[n][kb][ho][wo_start + wb*(W/num_W_blocks_outside_fusion)],
+                                relu ? relumask[n][kb][ho][wo_start + wb*(W/num_W_blocks_outside_fusion)] : NULL);
               }
               /* zeroing out ending [wo_end, bn_ofwp] x bk block for fixed ho */
               if (bn_pad_w_out != 0) {
@@ -603,10 +660,10 @@ std::cout << "Running the separate stats reduction loop" << std::endl;
             }
 
           } else {
-            for(int hwb = 0; hwb < num_HW_blocks; hwb++){
-              int hi = (hwb*(H*W/num_HW_blocks))/W;
+            for(int hwb = 0; hwb < num_HW_blocks_outside_fusion; hwb++){
+              int hi = (hwb*(H*W/num_HW_blocks_outside_fusion))/W;
               int ho = hi;
-              int w  = (hwb*(H*W/num_HW_blocks))%W;
+              int w  = (hwb*(H*W/num_HW_blocks_outside_fusion))%W;
 
               /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
               normalize_tpp(inp[n][kb][hi][w], &s[0], &b[0], gamma[kb], beta[kb],
