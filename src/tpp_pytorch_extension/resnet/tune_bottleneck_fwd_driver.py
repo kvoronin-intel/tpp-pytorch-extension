@@ -118,7 +118,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             inc = inc + 1
 
     if (stride != 1 or inc != outc * expansion) and has_downsample == False:
-        print("For these stride, inc, outc and expansion has_downsample must be True")
+        print("For these stride, inc, outc and expansion has_downsample must be True", stride, inc, outc, expansion)
         exit()
 
     if [bc_conv1, bc_conv2, bc_conv3, bk_conv3] != [None, None, None, None] and test_module != 'ext_bottleneck':
@@ -255,6 +255,9 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     print("Setting up input vectors took (s) ", time_end - time_start)
     time_start = time.time()
 
+    basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride) + " " + str(has_downsample)
+    print("Bottleneck tuning parameters ", " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))
+
     #logging.debug("running opt bottleneck forward")
     print("running opt bottleneck forward")
     if test_module == 'ext_bottleneck':
@@ -358,7 +361,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
                       opt_bottleneck.bn1.mean, opt_bottleneck.bn2.mean, opt_bottleneck.bn3.mean, opt_bottleneck.dummy_tensor,
                       opt_bottleneck.bn1.var, opt_bottleneck.bn2.var, opt_bottleneck.bn3.var, opt_bottleneck.dummy_tensor]
 
-        warmup_niter = 5
+        warmup_niter = 10
         #logging.info("warmup_niter = ", warmup_niter)
         print("warmup_niter = ", warmup_niter)
 
@@ -373,9 +376,9 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or dummy_tuning_timings is None:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
-                #bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
+                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
                 #bottleneck_cpp.bottleneck_bn_fwd_ext_study1(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
-                bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
+                #bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
 
         time_end = time.time()
         print("Warmup took (s) ", time_end - time_start)
@@ -393,9 +396,9 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or tuning_timings is None:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
-                #bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
+                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
                 #bottleneck_cpp.bottleneck_bn_fwd_ext_study1(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
-                bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
+                #bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 
