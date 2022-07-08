@@ -55,7 +55,7 @@ std::vector<long> conv_output_size{N, Kb, ofhp, ofwp, bk};
 
 /* in T */
 const long conv_fwd_scratch_size = (pack_input == 0 ? 0 : N*ofh*ofw*conv_cfg.C);
-auto t_scratch_conv = at::empty(conv_fwd_scratch_size, torch::TensorOptions().dtype(t_CI.dtype()));
+auto t_scratch_conv = at::empty({conv_fwd_scratch_size}, torch::TensorOptions().dtype(t_CI.dtype()));
 
 #ifdef VERBOSE
 std::cout << "CONV setup info" << std::endl;
@@ -138,7 +138,9 @@ if (fuse_stats == 1) {
     spatial_block_size_in_fusion = ofw / w_block;
   } else {
     use_hw_blocking_in_fusion    = true; /* hw-blocking using [hw, bc] blocks */
-    spatial_block_size_in_fusion = h_in_gemm * W;
+    auto w_gemm_pixels = ofw/w_block; // == ofw
+    spatial_block_size_in_fusion = (w_gemm_pixels +  2 * conv_pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + conv_pad_w);
+    //spatial_block_size_in_fusion = h_in_gemm * W;
   }
 }
 
@@ -155,24 +157,10 @@ if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out !=
     num_W_blocks_outside_fusion       = W / spatial_block_size_outside_fusion;
   } else {
     use_hw_blocking_outside_fusion    = true; /* hw-blocking using [hw, bc] blocks */
-    spatial_block_size_outside_fusion = h_in_gemm * W;
-    num_HW_blocks_outside_fusion       = H * W / spatial_block_size_outside_fusion;
+    spatial_block_size_outside_fusion = h_in_gemm * W; //or set it always to 1 * W ???
+    num_HW_blocks_outside_fusion      = H * W / spatial_block_size_outside_fusion;
   }
 }
-
-#if 0
-if (bn_pad_h_in != 0 || bn_pad_w_in != 0 || bn_pad_h_out != 0 || bn_pad_w_out != 0 || w_block != 1) {
-  use_hw_blocking    = false; /* alternative is w blocking ([w, bc] blocks) */
-  //spatial_block_size = W / num_W_blocks;
-  spatial_block_size = ofw / w_block;
-  num_W_blocks = W / spatial_block_size;
-} else {
-  use_hw_blocking    = true; /* using [hw, bc] blocks */
-  //spatial_block_size = H * W / num_HW_blocks;
-  spatial_block_size = h_in_gemm * W;
-  num_HW_blocks = H * W / spatial_block_size;
-}
-#endif
 
 #ifdef VERBOSE
 std::cout << "BN setup info" << std::endl;
@@ -237,7 +225,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
       //auto l_pack_shape = libxsmm_create_meltw_unary_shape(bc, gemm_n, bc*stride_w, bc, dtype, dtype, dtype);
       //input_pack_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, l_pack_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
       //printf("input_pack_tpp\n");
-      input_pack_tpp = SCOPEIT(CpyTPP<T>(gemm_n, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
+      input_pack_tpp = SCOPEIT(CpyTPP<T>(w_gemm_pixels, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
       //l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc, bk, dtype, dtype, dtype, dtype );
       //l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ofh*ofw*sizeof(DType), Cb_step );
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
@@ -316,6 +304,8 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 #endif
 
   auto zero_bk_tpp = SCOPEIT(SetZeroTPP<float>(bk), EW_ZERO);
+
+  auto zero_padbk_T_tpp = SCOPEIT(SetZeroTPP<T>(2*conv_pad_w_out*bk), EW_ZERO);
 
   auto helper_add_tpp = SCOPEIT(AddTPP<float>(1, bk, bk, bk), EW_ADD); /* 1, bc because of row-major for unary */
 
@@ -445,24 +435,19 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
+              /* Zeroing out the rims which are glued together due to the h_in_gemm != 1 for non 1x1 convs */
+              if (R > 1 && h_in_gemm > 1) {
+                for (int _h = 0; _h < h_in_gemm - 1; _h++) {
+                  zero_padbk_T_tpp(output_off[i_n][i_k][i_h + _h][ofw + 0]);
+                  //zero_bk_T_tpp(output_off[i_n][i_k][i_h + _h][ofw + conv_pad_w_out]);
+                }
+              }
+
               if (i_h == 0 && i_w == 0)
                 reduce_beta0_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
               else
                 reduce_beta1_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
 
-/*
-              if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
-                if (i_h == 0 && i_w == 0)
-                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-                else
-                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-              } else if ( (i_h * h_step * ofwp + (i_w * w_step)) % spatial_block_size == 0) {
-                if (i_h == 0 && i_w == 0)
-                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-                else
-                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-              }
-*/
             } /* for computing local stats */
           } else { /* for if avoid_fmas_in_rim == 0 */
 
@@ -501,23 +486,18 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
+              /* Zeroing out the rims which are glued together due to the h_in_gemm != 1 for non 1x1 convs */
+              if (R > 1 && h_in_gemm > 1) {
+                for (int _h = 0; _h < h_in_gemm - 1; _h++) {
+                  zero_padbk_T_tpp(output_off[i_n][i_k][i_h + _h][ofw + 0]);
+                  //zero_bk_T_tpp(output_off[i_n][i_k][i_h + _h][ofw + conv_pad_w_out]);
+                }
+              }
+
               if (i_h == 0 && i_w == 0)
                 reduce_beta0_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
               else
                 reduce_beta1_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-/*
-              if (!use_hw_blocking && (i_w * w_step) % spatial_block_size == 0) {
-                if (i_h == 0 && i_w == 0)
-                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-                else
-                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-              } else if ( (i_h * h_step * ofwp + (i_w * w_step)) % spatial_block_size == 0) {
-                if (i_h == 0 && i_w == 0)
-                  reduce_beta0_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-                else
-                  reduce_beta1_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
-              }
-*/
             } /* for computing local stats */
 
           } /* for if-else avoid_fmas_in_rim == 0 */
