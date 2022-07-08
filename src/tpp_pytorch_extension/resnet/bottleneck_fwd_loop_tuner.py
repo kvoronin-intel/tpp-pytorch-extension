@@ -190,18 +190,18 @@ eps=1e-7
 nthreads=int(os.getenv("OMP_NUM_THREADS"))
 print("dbg: nthreads = ", nthreads)
 
-for l in [2]: #range(nBottlenecks):
-    #file_path = 'bottleneck_' + str(l) + '_tuning_dbg_0705.txt'
-    #sys.stdout = open(file_path, "w")
+for l in range(nBottlenecks):
+    file_path = 'bottleneck_' + str(l) + '_tuning_dbg_0705.txt'
+    sys.stdout = open(file_path, "w")
 
     # common parameters (potentially overwrite-able)
     N=nthreads
     bs=32
     #bc=32
     #bk=32
-    niters=20
-    hs_in_gemm=[1, 1, 1, 1] # 1 per each conv
-    #pack_input=0 # is an option only for a partivcular 1x1 strided convs
+    niters=100
+    #hs_in_gemm=[1, 1, 1, 1] # 1 per each conv
+    #pack_input=0 # is an option only for a particular 1x1 strided convs
 
     print("l = ", l)
 
@@ -265,12 +265,12 @@ for l in [2]: #range(nBottlenecks):
           WBFS=None #[[1]]
           HBFS=None #[[1]]
           KBFS=None #[[1]] # ??? if extended potentially
-          hs_in_gemm = [1, 2, 1, 2] #h in gemm 2 for all except the first one and 3x3+str2
+          hs_in_gemm = [1, 1, 2, 2] #h in gemm 2 for all except the first one and 3x3+str2
           #1x1 with stride 2 should
           pack_input = 1
           downsample=True
           config_name='bottleneck_notlast'
-          hbfequal = True
+          hbfequal = False
           wbfequal = True
     elif l == 5:
           base_sizes = [N, 14, 14, 1024, 256]
@@ -299,13 +299,14 @@ for l in [2]: #range(nBottlenecks):
           hbfequal = True
           wbfequal = True
     elif l == 7:
-          base_sizes = [N, 7, 7, 1024, 512]
+          base_sizes = [N, 7, 7, 2048, 512]
           stride=1
           CBFS=None #[[1]]
           WBFS=None #[[1]]
           HBFS=None #[[1]]
           KBFS=None #[[1]] # potentially, KBFS for the last one
           hs_in_gemm=[7, 7, 7, 7]
+          pack_input = 0
           downsample=False
           config_name='bottleneck_last'
           hbfequal = True
@@ -334,6 +335,15 @@ for l in [2]: #range(nBottlenecks):
             WBFcount = line.count('e') #$( echo ${lowerline} | tr -d -c 'd' | awk '{ print length; }' )
             print("WBFcount = ", WBFcount)
             nlines = nlines + 1
+
+            if CBFcount > 1 and CBFS == None:
+                continue
+            elif KBFcount > 1 and KBFS == None:
+                continue
+            elif HBFcount > 1 and HBFS == None:
+                continue
+            elif WBFcount > 1 and WBFS == None:
+                continue
 
         #for_recursive(range_list = [range(0,3), range(0,3) , range(1,3)], execute_function = do_whatever , number_of_loops=3)
         for fuse_stats in range(0,2):
@@ -418,17 +428,19 @@ for l in [2]: #range(nBottlenecks):
                 hf_ranges[3] = range(0,1)
                 wf_ranges[3] = range(0,1)
 
+            print("range_list = ", [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges])
+
             for_recursive(range_list = [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges], execute_function = xbf_tester, number_of_loops = nbfloops,
                           cbfs=use_cbfs, wbfs=use_wbfs, hbfs=use_hbfs, kbfs=use_kbfs, hbfequal=hbfequal, wbfequal=wbfequal, hs_in_gemm = hs_in_gemm, fuse_stats = fuse_stats, bs = bs,
-                          nhwck_params=base_sizes, stride = stride, eps = eps, expansion = expansion, has_downsample=downsample,
+                          nhwck_params=base_sizes, stride = stride, eps = eps, expansion = expansion, has_downsample=downsample, niters=niters,
                           opt_dtype = torch.bfloat16,
                           loop_string=line,
                           pack_input=pack_input
                           )
             #ncombinations = ncombinations + sum([len[rangevar] for rangevar in [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges]])
-            print("range_list = ", [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges])
-            print("its tmp list = ", [len(rangevar) for rangevar in [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges]])
-            print("its reduce product = ", reduce(operator.mul, [len(rangevar) for rangevar in [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges]]))
+            #print("range_list = ", [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges])
+            #print("its tmp list = ", [len(rangevar) for rangevar in [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges]])
+            #print("its reduce product = ", reduce(operator.mul, [len(rangevar) for rangevar in [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges]]))
             ncombinations = ncombinations + reduce(operator.mul, [len(rangevar) for rangevar in [*cf_ranges, *kf_ranges, *hf_ranges, *wf_ranges]])
             print("")
 #  common_runline="python -u tune_bottleneck_fwd_driver.py --test-module ext_bottleneck --ref-module pt_native --use-physical-3x3-padding --use-bf16-opt --with-validation "
