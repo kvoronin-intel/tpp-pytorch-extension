@@ -251,7 +251,7 @@ class Bottleneck_base(nn.Module):
 
 class BottleneckApplyBNTPP(Function):
     @staticmethod
-    def forward(ctx, config, training, tuning_params, tuning_strings, tuning_timings, *inputs ):
+    def forward(ctx, config, training, tuning_params, tuning_strings, tuning_timings, tuning_params_d, tuning_strings_d, tuning_timings_d, *inputs ):
 
         #print("dbg: in bottleneck bn apply tpp forward")
 
@@ -467,6 +467,12 @@ class BottleneckApplyBNTPP(Function):
 
         ctx.config = config
 
+        ctx.tuning_params_d  = tuning_params_d
+        ctx.tuning_strings_d = tuning_strings_d
+        ctx.tuning_timings_d = tuning_timings_d
+
+        #print("dbg: in fwd tuning_params_d, tuning_strings_d = ", tuning_params_d, tuning_strings_d)
+
         ctx.save_for_backward(input, c1w, c2w, c3w, c4w, b1w, b2w, b3w, b4w, b1b, b2b, b3b, b4b, b1m, b2m, b3m, b4m, b1n, b2n, b3n, b4n,
                               conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out,
                               bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
@@ -487,14 +493,25 @@ class BottleneckApplyBNTPP(Function):
         # FIXME: Not sure if necessary
         #del ctx.xsmm_handle
 
+        tuning_params_d  = ctx.tuning_params_d
+        tuning_strings_d = ctx.tuning_strings_d
+        tuning_timings_d = ctx.tuning_timings_d
+
+        #print("dbg: in bwd tuning_params_d, tuning_strings_d = ", tuning_params_d, tuning_strings_d)
+
         #for entity in inputs:
         #    print("type of entity = ", type(entity))
 
-
-        (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
-         grad_b1w, grad_b2w, grad_b3w, grad_b4w,
-         grad_b1b, grad_b2b, grad_b3b, grad_b4b,
-         grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd(config, inputs) #_tensors)
+        if tuning_params_d is None or tuning_strings_d is None or len(tuning_params_d) == 0 or len(tuning_strings_d) == 0 or tuning_timings_d is None:
+            (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
+             grad_b1w, grad_b2w, grad_b3w, grad_b4w,
+             grad_b1b, grad_b2b, grad_b3b, grad_b4b,
+             grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd(config, inputs) #_tensors)
+        else:
+            (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
+             grad_b1w, grad_b2w, grad_b3w, grad_b4w,
+             grad_b1b, grad_b2b, grad_b3b, grad_b4b,
+             grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd_ext(config, inputs, tuning_params_d, tuning_strings_d, tuning_timings_d)
 
         #print("dbg: bottleneck_backward_new called")
 
@@ -558,7 +575,8 @@ class BottleneckApplyBNTPP(Function):
 
 
         return (None, None,       # for handle and training arguments in forward
-                None, None, None, # for tuning_params, tuning_scripts and tuning_timings
+                None, None, None, # for tuning_params, tuning_strings and tuning_timings
+                None, None, None, # for tuning_params_d, tuning_strings_d and tuning_timings_d
                 grad_input,
                 grad_c1w, grad_c2w, grad_c3w, grad_c4w,
                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
@@ -649,7 +667,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
     #def set_tuning_strings(self, tuning_strings):
     #    self.tuning_strings = tuning_strings
 
-    def forward(self, input, tuning_params=None, tuning_strings=None, tuning_timings=None):
+    def forward(self, input, tuning_params=None, tuning_strings=None, tuning_timings=None, tuning_params_d=None, tuning_strings_d=None, tuning_timings_d=None):
 
         #print("bn1.running_mean at the start of forward = ", self.bn1.running_mean)
 
@@ -778,7 +796,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         else:
             #output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs, tuning_params=tuning_params, tuning_strings=tuning_strings)
             #output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs, tuning_params, tuning_strings)
-            output = BottleneckApplyBNTPP.apply(self.config, self.training, tuning_params, tuning_strings, tuning_timings, *inputs )
+            output = BottleneckApplyBNTPP.apply(self.config, self.training, tuning_params, tuning_strings, tuning_timings, tuning_params_d, tuning_strings_d, tuning_timings_d, *inputs )
 
         #print("dbg: self.conv1_scratch numel after forward = ", self.conv1_scratch.numel())
         #print("dbg: self.bn1_scratch   numel after forward = ", self.bn1_scratch.numel())

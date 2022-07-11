@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import time
 
-from tune_bottleneck_fwd_driver import run_test_bottleneck
+from bottleneck_tuning_fwd_driver import run_test_bottleneck
 
 script_version='v2'
 

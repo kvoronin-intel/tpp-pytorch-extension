@@ -43,9 +43,10 @@ export OMP_NUM_THREADS=28
 #gdb --args python test_conv_ext.py
 #gdb --args python test_conv_ext.py --test-module ext_tpp #--use-bf16-opt
 #python test_conv_ext.py --test-module ext_tpp #--use-bf16-opt
-#gdb --args python test_conv_ext.py $@ #--use-bf16-opt
+gdb --args python test_conv_ext.py $@ #--use-bf16-opt
 #            python -u test_conv_ext.py $@ #--use-bf16-opt
-#python test_conv_ext.py --use-bf16-opt --with-perf
+#python -u test_conv_ext.py  $@
+exit
 
 set -e
 set -o pipefail

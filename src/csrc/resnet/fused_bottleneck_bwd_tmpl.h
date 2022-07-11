@@ -3,6 +3,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 //return std::vector<at::Tensor>({t_dummy});
 
+#define VERBOSE
+
   auto grad_output  = inputs[0];
   auto conv1_input  = inputs[1];
   auto conv1_weight = inputs[2];
