@@ -86,6 +86,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   long avoid_fmas_in_rim = 0;
   if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
     avoid_fmas_in_rim = 1;
+    cfg.avoid_fmas_in_rim = 1; //??? FIXME
   }
 
   if (R != 1 || S != 1) {
@@ -168,7 +169,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
   std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
-  std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
+  std::cout << "cfg.avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
+  std::cout << "unused but internal avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "pack_input = " << pack_input << std::endl;
 #endif
 

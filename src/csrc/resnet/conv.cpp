@@ -77,10 +77,61 @@ at::Tensor conv_fwd(
   return conv_fwd_ext(cfg, inputs, default_tuning_params, default_tuning_string, default_tuning_timings);
 }
 
+at::Tensor conv_bwd_d_ext(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::string tuning_string,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(BWD);
+
+  const long h_block = tuning_params[0];
+  const long w_block = tuning_params[1];
+  const long c_block = tuning_params[2];
+  const long k_block = tuning_params[3];
+  const long h_in_gemm = tuning_params[4];
+
+  if (inputs[1].dtype() == at::kFloat) {
+    typedef float T;
+#include "conv_bwd_d_tmpl.h"
+  } else {
+    typedef bfloat16 T;
+#include "conv_bwd_d_tmpl.h"
+  }
+}
+
+at::Tensor conv_bwd_d(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs) {
+  int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
+  int h_in_gemm = 1;
+  std::vector<int> default_tuning_params{h_block, w_block, c_block, k_block,
+                                         h_in_gemm};
+  //std::vector<float> default_tuning_timings(0);
+  pybind11::array_t<float> default_tuning_timings(16);
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::string default_tuning_string{"Abcdefg"};
+  return conv_bwd_d_ext(cfg, inputs, default_tuning_params, default_tuning_string, default_tuning_timings);
+}
+
+at::Tensor conv_bwd_w(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs) {
+  GlobalPass _gp(BWD);
+  if (inputs[1].dtype() == at::kFloat) {
+    typedef float T;
+#include "conv_bwd_w_tmpl.h"
+  } else {
+    typedef bfloat16 T;
+#include "conv_bwd_w_tmpl.h"
+  }
+}
+
 std::vector<at::Tensor> conv_bwd(
     conv_config cfg,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
+/*
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
 #include "conv_bwd_tmpl.h"
@@ -88,6 +139,19 @@ std::vector<at::Tensor> conv_bwd(
     typedef bfloat16 T;
 #include "conv_bwd_tmpl.h"
   }
+*/
+  if (inputs[1].dtype() == at::kFloat) {
+    typedef float T;
+    auto t_grad_weight = conv_bwd_w(cfg, inputs);
+    auto t_grad_input  = conv_bwd_d(cfg, inputs);
+    return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
+  } else {
+    typedef bfloat16 T;
+    auto t_grad_weight = conv_bwd_w(cfg, inputs);
+    auto t_grad_input  = conv_bwd_d(cfg, inputs);
+    return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
+  }
+
 }
 
 #define C_BLOCK_SIZE (64) /* hardcoded for now, used in conv_setup() */
@@ -217,5 +281,8 @@ REGISTER_SUBMODULE(_conv, m) {
   m.def("conv_setup_preset", &conv_setup_preset, "Pcl CONV setup (with reset block sizes)");
   m.def("conv_fwd_ext", &conv_fwd_ext, "Pcl CONV forward with extra (tuning) parameters");
   m.def("conv_fwd_get_gflop", &conv_fwd_get_gflop, "Pcl CONV get gflop count for fwd");
+  m.def("conv_bwd_w", &conv_bwd_w, "Pcl CONV backward weight update");
+  m.def("conv_bwd_d", &conv_bwd_d, "Pcl CONV backward input update");
+  m.def("conv_bwd_d_ext", &conv_bwd_d_ext, "Pcl CONV backward input update with extra (tuning) parameters");
 }
 
