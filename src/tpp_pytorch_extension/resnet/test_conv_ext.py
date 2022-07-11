@@ -18,8 +18,6 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--test-module', default='cnn_tpp', type=str,
                     help='module to test against the reference', dest='test_module')
 
-parser.add_argument("--with-perf", action="store_true", default=False, help='if true, measures performance additionally for the opt conv module', dest='with_perf')
-
 parser.add_argument('--use-bf16-opt', action="store_true", default=False, dest='use_bf16_opt')
 parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='use_bf16_ref')
 
@@ -36,7 +34,10 @@ parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N 
 
 parser.add_argument('--niters', type=int, default=10, help='number of timed iterations (warmup hardcoded)')
 
-parser.add_argument("--with-bwd", action="store_true", default=False, help='if true, runs backward', dest='with_backward')
+parser.add_argument("--with-bwd", action="store_true", default=False, help='if true, runs backward (for validation)', dest='with_bwd')
+parser.add_argument("--perf-fwd", action="store_true", default=False, help='if true, runs forward perf', dest='perf_fwd')
+parser.add_argument("--perf-bwd-d", action="store_true", default=False, help='if true, runs backward over data perf', dest='perf_bwd_d')
+parser.add_argument("--perf-bwd-w", action="store_true", default=False, help='if true, runs backward over weights perf', dest='perf_bwd_w')
 
 
 #import pdb
@@ -45,28 +46,45 @@ global_counter = 0
 
 #torch.autograd.set_detect_anomaly(True)
 
-def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, with_backward, test_module, tuning_params, tuning_string, niters):
+def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+                  with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters):
     time_start = time.time()
-    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_perf with_backward test_module niters",
-            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_perf, with_backward, test_module, niters)
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters",
+            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters)
 
     global global_counter
 
     channel_block_sizes = [bc, bk]
 
-    tuning_params_count = 6
+    if tuning_params is not None and test_module != 'ext_tpp':
+        print("Custom tuning params can only be used for ext_tpp test_module")
+        exit()
+
+    if (perf_fwd and perf_bwd_w) or (perf_fwd and perf_bwd_d) or (perf_bwd_d and perf_bwd_w):
+        print("Error: only one of perf-fwd, perf-bwd-w and perf-bwd-d can be active")
+        exit()
+
+    if perf_fwd:
+        tuning_params_count = 6
+    elif perf_bwd_d:
+        tuning_params_count = 5
+    elif perf_bwd_wd:
+        tuning_params_count = -1
+
     if tuning_params is not None and len(tuning_params) != tuning_params_count:
         print("Wrong length of the tuning params (must be " + str(tuning_params_count) + " if present) = " + str(tuning_params) + " " + str(len(tuning_params)))
         exit()
 
     if tuning_params is not None:
-        if test_module != 'ext_tpp':
-            print("Custom tuning params can only be used for ext_tpp test_module")
-            exit()
-        [h_block, w_block, c_block, k_block, h_in_gemm, pack_input_for_1x1_strided ] = tuning_params
-        print("info: tuning params: h_block, w_block, c_block, k_block = ", h_block, w_block, c_block, k_block)
-        print("info: tuning params: h_in_gemm = ", h_in_gemm)
-        print("info: pack input for 1x1 strided = ", pack_input_for_1x1_strided)
+        if perf_fwd:
+            [h_block, w_block, c_block, k_block, h_in_gemm, pack_input_for_1x1_strided ] = tuning_params
+        if perf_bwd_d:
+            [h_block, w_block, c_block, k_block, h_in_gemm ] = tuning_params
+        if perf_fwd or perf_bwd_d:
+            print("info: tuning params: h_block, w_block, c_block, k_block = ", h_block, w_block, c_block, k_block)
+            print("info: tuning params: h_in_gemm = ", h_in_gemm)
+            if perf_fwd:
+                print("info: pack input for 1x1 strided = ", pack_input_for_1x1_strided)
     else:
         tuning_params = None
         print("info: tuning params are empty")
@@ -284,7 +302,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     print("Validating tensors for fwd took (s) ", time_end - time_start)
     time_start = time.time()
 
-    if with_backward == True:
+    if with_bwd:
         z1 = y1.mean()
         z2 = y2.mean()
 
@@ -386,16 +404,15 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     #return
     #exit()
 
-    # Does not work at the moment for bwd
-    if with_perf:
+    conv_cfg = opt_conv.config
 
-        conv_cfg = opt_conv.config
+    blocked_input = opt_conv.get_blocked_tensor(
+        x1,
+        opt_conv.blocked_input_signature,
+        [None, opt_conv.Cblock, None, None],
+    )
 
-        blocked_input = opt_conv.get_blocked_tensor(
-            x1,
-            opt_conv.blocked_input_signature,
-            [None, opt_conv.Cblock, None, None],
-        )
+    if perf_fwd:
 
         inputs = [blocked_input, opt_conv.weight]
 
@@ -453,90 +470,66 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         sum_timings = tuning_timings[1]
         print("timing diff vs conv_fwd_tmpl (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
 
-        if with_backward:
-            print("Error: with_perf is not supported for with_backward = True")
-            exit()
+    if perf_bwd_d:
 
-        return
+        inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
 
-        # Below is the out-dated older perf code
+        warmup_niter = 5
+        #logging.info("warmup_niter = ", warmup_niter)
+        print("warmup_niter = ", warmup_niter)
 
-        # perf part for fwd
-        # warmup
-        for i in range(10):
-            y1 = opt_conv(x1) #(xp)
-
-        # main
-        niter = 100
+        #dummy_tuning_timings = [0.0] * 16
+        dummy_tuning_timings = np.zeros(16, dtype=np.float32)
         time_start = time.time()
-        for i in range(niter):
-            y1 = opt_conv(x1) #(xp)
+
+        for i in range(warmup_niter):
+            if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or dummy_tuning_timings is None:
+                conv_cpp.conv_bwd_d(conv_cfg, inputs)
+            else:
+                conv_cpp.conv_bwd_d_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+
         time_end = time.time()
-        time_per_iter = (time_end - time_start) / niter
+        print("Warmup took (s) ", time_end - time_start)
 
-        time_per_fwd = time_per_iter
-        print("time per fwd = ", time_per_iter)
+        timed_niters = niters
+        #logging.info("timed_niters = ", timed_niters)
+        print("timed_niters = ", timed_niters)
 
-        # perf part for bwd
+        #tuning_timings = [0.0] * 16
+        tuning_timings = np.zeros(16, dtype=np.float32)
+        #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
-        x1.requires_grad=True
-        opt_conv.weight.requires_grad=False
-        if has_bias:
-            opt_conv.bias.requires_grad=False
-        # warmup
-        for i in range(10):
-            #y1 = opt_conv(xp)
-            #z1 = y1.mean() #z1.detach()
-            #print(z1)
-            #z1.backward(retain_graph=True)
-            torch.autograd.backward(tensors=y1, grad_tensors=y1_grad, retain_graph=True)
-
-        #exit()
-
-        # main
-        #y1_grad = y1.grad
-        niter = 100
         time_start = time.time()
-        for i in range(niter):
-            #y1 = opt_conv(xp)
-            #z1 = y1.mean() #z1.detach()
-            z1.backward(retain_graph=True)
-            #torch.autograd.backward(tensors=y1, inputs=x1.grad, grad_tensors = y1_grad, retain_graph=True)
+        for i in range(timed_niters):
+            if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or tuning_timings is None:
+                conv_cpp.conv_bwd_d(conv_cfg, inputs)
+            else:
+                conv_cpp.conv_bwd_d_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings)
         time_end = time.time()
-        time_per_iter = (time_end - time_start) / niter
+        time_per_iter = (time_end - time_start) / timed_niters
 
-        time_per_bwd = time_per_iter #- time_per_fwd
-        print("time per bwd = ", time_per_bwd)
+        #print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
-        # perf part for upd
-        x1.requires_grad=False
-        opt_conv.weight.requires_grad=True
-        if has_bias:
-            opt_conv.bias.requires_grad=False
-        # warmup
-        for i in range(10):
-            #y1 = opt_conv(xp)
-            #z1 = y1.mean() #z1.detach()
-            z1.backward(retain_graph=True)
-            #y1.backward(retain_graph=True)
+        print("Timed loop took (s) ", time_end - time_start)
+        print("Final perf time: ", time_per_iter)
+        gflop = conv_cpp.conv_bwd_d_get_gflop(conv_cfg)
+        basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride)
+        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_string: " + str(tuning_string))
 
-        # main
-        #weight1_grad = opt_weight_grad
-        niter = 100
-        time_start = time.time()
-        for i in range(niter):
-            #y1 = opt_conv(xp)
-            #z1 = y1.mean() #z1.detach()
-            z1.backward(retain_graph=True)
-            #y1.backward(retain_graph=True)
-            #torch.autograd.backward(tensors=y1,inputs=opt_conv.weight, grad_tensors = weight1_grad, retain_graph=True)
-        time_end = time.time()
-        time_per_iter = (time_end - time_start) / niter
+        # Checking the timings
+        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop, gflop / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
 
-        time_per_upd = time_per_iter #- time_per_fwd
-        print("time per upd = ", time_per_upd)
+        sum_timings = tuning_timings[0]
+        print("timing diff vs pure conv (part of conv_fwd_tmpl) (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
 
-    #exit()
+        sum_timings = tuning_timings[2]
+        print("timing diff vs conv_bwd_d_tmpl (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+
+    if perf_bwd_w:
+        print("Error: perf_bwd_w = True is not supported")
+        exit()
+
+    return
 
 def main():
     opt_dtype = torch.float if not args.use_bf16_opt else torch.bfloat16
@@ -565,7 +558,7 @@ def main():
         has_bias = False
         padding_mode='zeros'
         run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
-                      args.with_perf, args.with_backward, args.test_module,
+                      args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
                       args.tuning_params, args.tuning_string, args.niters)
     else:
         with open(args.test_data_file) as f:
@@ -579,7 +572,7 @@ def main():
                 integer_map = map(int, string_list[:10])
                 [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
                 run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
-                              args.with_perf, args.with_backward, args.test_module,
+                              args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
                               args.tuning_params, args.tuning_string, args.niters)
     exit()
 
@@ -601,7 +594,8 @@ def main():
     H=224
     W=224
 
-    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, args.with_perf, args.with_backward, args.test_module)
+    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+                  args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module)
 
 if __name__ == "__main__":
     args = parser.parse_args()
