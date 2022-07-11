@@ -10,7 +10,7 @@ t_start = getTime();
 
 // ( grad_output, input, weight) = inputs
 
-#define VERBOSE
+//#define VERBOSE
 
 auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
 auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
@@ -75,7 +75,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long  pad_h = pad_h_out;
   long  pad_w = pad_w_out;
 
-  long Kb_step = Kb;
+  long Kb_step = Kb / k_block;
 
   long avoid_rim_fmas = 0;
   long non_1x1_with_strides = 0;
@@ -102,10 +102,8 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   else
     wt_trans_tpp = SCOPEIT(XformExtTPP<T>(bc, bk, bk, bc, XformTPP::XFORM_XPOSE_V2V_TPP, false), XPOSE); /* assuming row-major-ness */
 
-  long Cb_step = Cb / c_block;
-
   long n_step = 1;
-  long c_step = Cb_step;
+  long c_step = 1;
   long k_step = Kb_step;
   long h_step = h_in_gemm;
   long w_step = ofw / w_block;
@@ -137,9 +135,6 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_tpp, brgemm2_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>)               zero_rim_tpp, zero_all_pixels_tpp, zero_bc_tpp;
-
-  //decltype(zero_tpp) zero_rim_tpp, zero_all_pixels_tpp, zero_bc_tpp;
-  //decltype(gemm_as_brgemm_tpp) brgemm_tpp, brgemm2_tpp;
 
   //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
   //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
