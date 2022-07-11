@@ -324,46 +324,6 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
   float* ptr = (float*)buf.ptr;
   //if (tuning_timings.size())
   {
-/*
-    timings->time_c1 = time_c1;
-    timings->time_c2 = time_c2;
-    timings->time_c3 = time_c3;
-    timings->time_c4 = time_c4;
-    timings->time_b1 = time_b1;
-    timings->time_b2 = time_b2;
-    timings->time_b3 = time_b3;
-    timings->time_b4 = time_b4;
-    timings->time_c1b1 = time_c1b1;
-    timings->time_c2b2 = time_c2b2;
-    timings->time_c3b3 = time_c3b3;
-    timings->time_c4b4 = time_c4b4;
-    timings->time_c1b1extra = time_c1b1extra;
-    timings->time_c2b2extra = time_c2b2extra;
-    timings->time_c3b3extra = time_c3b3extra;
-    timings->time_c4b4extra = time_c4b4extra;
-    timings->time_b1stats = time_b1stats;
-    timings->time_b2stats = time_b2stats;
-    timings->time_b3stats = time_b3stats;
-    timings->time_b4stats = time_b4stats;
-*/
-/*
-    tuning_timings[0] += time_c1;
-    tuning_timings[1] += time_c2;
-    tuning_timings[2] += time_c3;
-    tuning_timings[3] += time_c4;
-    tuning_timings[4] += time_b1;
-    tuning_timings[5] += time_b2;
-    tuning_timings[6] += time_b3;
-    tuning_timings[7] += time_b4;
-    tuning_timings[8] += time_c1b1;
-    tuning_timings[9] += time_c2b2;
-    tuning_timings[10] += time_c3b3;
-    tuning_timings[11] += time_c4b4;
-    tuning_timings[12] += time_c1b1extra;
-    tuning_timings[13] += time_c2b2extra;
-    tuning_timings[14] += time_c3b3extra;
-    tuning_timings[15] += time_c4b4extra;
-*/
     ptr[0] += time_c1;
     ptr[1] += time_c2;
     ptr[2] += time_c3;

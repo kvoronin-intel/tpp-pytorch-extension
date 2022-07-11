@@ -127,31 +127,39 @@ at::Tensor conv_bwd_w(
   }
 }
 
-std::vector<at::Tensor> conv_bwd(
+std::vector<at::Tensor> conv_bwd_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs) {
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params_d,
+    std::string tuning_string_d,
+    pybind11::array_t<float>& tuning_timings_d) {
   GlobalPass _gp(BWD);
-/*
-  if (inputs[1].dtype() == at::kFloat) {
-    typedef float T;
-#include "conv_bwd_tmpl.h"
-  } else {
-    typedef bfloat16 T;
-#include "conv_bwd_tmpl.h"
-  }
-*/
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
     auto t_grad_weight = conv_bwd_w(cfg, inputs);
-    auto t_grad_input  = conv_bwd_d(cfg, inputs);
+    auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   } else {
     typedef bfloat16 T;
     auto t_grad_weight = conv_bwd_w(cfg, inputs);
-    auto t_grad_input  = conv_bwd_d(cfg, inputs);
+    auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   }
 
+}
+
+std::vector<at::Tensor> conv_bwd(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs) {
+  int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
+  int h_in_gemm = 1;
+  std::vector<int> default_tuning_params_d{h_block, w_block, c_block, k_block,
+                                         h_in_gemm};
+  //std::vector<float> default_tuning_timings(0);
+  pybind11::array_t<float> default_tuning_timings_d(16);
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::string default_tuning_string_d{"Abcdefg"};
+  return conv_bwd_ext(cfg, inputs, default_tuning_params_d, default_tuning_string_d, default_tuning_timings_d);
 }
 
 #define C_BLOCK_SIZE (64) /* hardcoded for now, used in conv_setup() */
@@ -260,6 +268,13 @@ double conv_fwd_get_gflop(conv_config cfg)
   return gflop_conv;
 }
 
+/* Does not count weight transpose at the moment, hence same as fwd */
+double conv_bwd_d_get_gflop(conv_config cfg)
+{
+  return conv_fwd_get_gflop(cfg);
+}
+
+
 REGISTER_SUBMODULE(_conv, m) {
   m.def(
       "conv_fwd",
@@ -284,5 +299,7 @@ REGISTER_SUBMODULE(_conv, m) {
   m.def("conv_bwd_w", &conv_bwd_w, "Pcl CONV backward weight update");
   m.def("conv_bwd_d", &conv_bwd_d, "Pcl CONV backward input update");
   m.def("conv_bwd_d_ext", &conv_bwd_d_ext, "Pcl CONV backward input update with extra (tuning) parameters");
+  m.def("conv_bwd_d_get_gflop", &conv_bwd_d_get_gflop, "Pcl CONV get gflop count for bwd d");
+  m.def("conv_bwd_ext", &conv_bwd_ext, "Pcl CONV backward with extra (tuning) parameters");
 }
 

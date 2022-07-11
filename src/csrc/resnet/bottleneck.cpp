@@ -48,11 +48,16 @@ static int my_rank = guess_mpi_rank();
 
 #include "conv_setup_external.h" /* for conv_config and conv_setup declaration */
 
+extern std::vector<at::Tensor> batchnorm_fwd(bool  training, bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> batchnorm_bwd(bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+
 extern at::Tensor conv_fwd(conv_config cfg, std::vector<at::Tensor> inputs);
 extern std::vector<at::Tensor> conv_bwd(conv_config cfg, std::vector<at::Tensor> inputs);
 
-extern std::vector<at::Tensor> batchnorm_fwd(bool  training, bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
-extern std::vector<at::Tensor> batchnorm_bwd(bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> conv_bwd_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+                                            std::vector<int> tuning_params_d, std::string tuning_string_d, pybind11::array_t<float>& tuning_timings_d);
+extern std::vector<at::Tensor> conv_bwd_d_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+                                              std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
 
 typedef struct bottleneck_bn_config {
   libxsmm_blasint N;
@@ -202,10 +207,15 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
   return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings, default_tuning_timings);
 }
 
-std::vector<at::Tensor> bottleneck_bn_bwd(
+std::vector<at::Tensor> bottleneck_bn_bwd_d_ext(
     bottleneck_bn_config cfg,
-    std::vector<at::Tensor> inputs) {
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::vector<std::string> tuning_strings,
+    pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(BWD);
+
+#define BWD_D_ONLY
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #ifdef FUSED_BOTTLENECK
@@ -221,6 +231,49 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
 #   include "bottleneck_bwd_tmpl.h"
 #endif
   }
+#undef BWD_D_ONLY
+}
+
+std::vector<at::Tensor> bottleneck_bn_bwd_ext(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::vector<std::string> tuning_strings,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(BWD);
+
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_bwd_tmpl.h"
+#else
+#   include "bottleneck_bwd_tmpl.h"
+#endif
+  } else {
+    typedef bfloat16 T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_bwd_tmpl.h"
+#else
+#   include "bottleneck_bwd_tmpl.h"
+#endif
+  }
+}
+
+std::vector<at::Tensor> bottleneck_bn_bwd(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs) {
+  int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
+  int c1_block = 1, k1_block = 1, c2_block = 1, k2_block = 1, c3_block = 1, k3_block = 1, c4_block = 1, k4_block = 1;
+  int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;
+  std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
+                                         c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
+                                         h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm};
+  //std::vector<float> default_tuning_timings(0);
+  pybind11::array_t<float> default_tuning_timings(16);
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+
+  return bottleneck_bn_bwd_ext(cfg, inputs, default_tuning_params, default_tuning_strings, default_tuning_timings);
 }
 
 bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inplanes, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint planes, libxsmm_blasint stride,
@@ -423,5 +476,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_fwd_get_gflop_details", &bottleneck_bn_fwd_get_gflop_details, "Pcl BOTTLENECK BN forward gflop counts for various components");
   m.def("bottleneck_bn_fwd_ext_study1", &bottleneck_bn_fwd_ext_study1, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
   m.def("bottleneck_bn_fwd_ext_study2", &bottleneck_bn_fwd_ext_study2, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
+  m.def("bottleneck_bn_bwd_ext", &bottleneck_bn_bwd_ext, "Pcl BOTTLENECK BN backward with tuning params");
+  m.def("bottleneck_bn_bwd_d_ext", &bottleneck_bn_bwd_d_ext, "Pcl BOTTLENECK BN backward over data with tuning params");
 }
 
