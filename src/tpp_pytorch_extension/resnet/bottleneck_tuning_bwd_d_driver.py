@@ -260,7 +260,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("ext_bottleneck forward is called with tuning_params and tuning_strings")
         #dummy_tuning_timings = [0.0]*16
         dummy_tuning_timings = np.zeros(16, dtype=np.float32)
-        y1 = opt_bottleneck(x1, tuning_params_d=tuning_params, tuning_strings_d=tuning_strings, tuning_timings_d=dummy_tuning_timings)
+        y1 = opt_bottleneck(x1, tuning_params_d=tuning_params, tuning_strings_d=tuning_strings, tuning_timings_bwd=dummy_tuning_timings)
     else:
         y1 = opt_bottleneck(x1)
 
@@ -459,7 +459,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         #tuning_timings = [0.0] * 16
         tuning_timings = np.zeros(16, dtype=np.float32)
-        #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+        print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
         time_start = time.time()
         for i in range(timed_niters):
@@ -470,7 +470,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 
-        #print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+        print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
         print("Timed loop took (s) ", time_end - time_start)
         print("Final perf time: ", time_per_iter)

@@ -49,31 +49,40 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto bn3_scratch   = inputs[36];
   auto bn4_scratch   = inputs[37];
 
-  const long h1_block = tuning_params[0];
-  const long w1_block = tuning_params[1];
-  const long h2_block = tuning_params[2];
-  const long w2_block = tuning_params[3];
-  const long h3_block = tuning_params[4];
-  const long w3_block = tuning_params[5];
-  const long h4_block = tuning_params[6];
-  const long w4_block = tuning_params[7];
-  const long c1_block = tuning_params[8];
-  const long k1_block = tuning_params[9];
-  const long c2_block = tuning_params[10];
-  const long k2_block = tuning_params[11];
-  const long c3_block = tuning_params[12];
-  const long k3_block = tuning_params[13];
-  const long c4_block = tuning_params[14];
-  const long k4_block = tuning_params[15];
-  const long h1_in_gemm = tuning_params[16];
-  const long h2_in_gemm = tuning_params[17];
-  const long h3_in_gemm = tuning_params[18];
-  const long h4_in_gemm = tuning_params[19];
+#ifndef BWD_W_ONLY
+  const long h1_block = tuning_params_d[0];
+  const long w1_block = tuning_params_d[1];
+  const long h2_block = tuning_params_d[2];
+  const long w2_block = tuning_params_d[3];
+  const long h3_block = tuning_params_d[4];
+  const long w3_block = tuning_params_d[5];
+  const long h4_block = tuning_params_d[6];
+  const long w4_block = tuning_params_d[7];
+  const long c1_block = tuning_params_d[8];
+  const long k1_block = tuning_params_d[9];
+  const long c2_block = tuning_params_d[10];
+  const long k2_block = tuning_params_d[11];
+  const long c3_block = tuning_params_d[12];
+  const long k3_block = tuning_params_d[13];
+  const long c4_block = tuning_params_d[14];
+  const long k4_block = tuning_params_d[15];
+  const long h1_in_gemm = tuning_params_d[16];
+  const long h2_in_gemm = tuning_params_d[17];
+  const long h3_in_gemm = tuning_params_d[18];
+  const long h4_in_gemm = tuning_params_d[19];
 
-  const std::string c1_string = tuning_strings[0];
-  const std::string c2_string = tuning_strings[1];
-  const std::string c3_string = tuning_strings[2];
-  const std::string c4_string = tuning_strings[3];
+  const std::string cd1_string = tuning_strings_d[0];
+  const std::string cd2_string = tuning_strings_d[1];
+  const std::string cd3_string = tuning_strings_d[2];
+  const std::string cd4_string = tuning_strings_d[3];
+#endif
+
+#ifndef BWD_D_ONLY
+  const std::string cw1_string = tuning_strings_w[0];
+  const std::string cw2_string = tuning_strings_w[1];
+  const std::string cw3_string = tuning_strings_w[2];
+  const std::string cw4_string = tuning_strings_w[3];
+#endif
 
 #ifdef TIMING
   double t_start = 0.0;
@@ -85,6 +94,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto dummy_return = at::zeros(dummy_size, conv1_input.options());
 
   pybind11::array_t<float> tuning_timings_d1(3), tuning_timings_d2(3), tuning_timings_d3(3), tuning_timings_d4(3);
+  pybind11::array_t<float> tuning_timings_w1(3), tuning_timings_w2(3), tuning_timings_w3(3), tuning_timings_w4(3);
   {
     float *ptr_d1 = tuning_timings_d1.mutable_data();
     for (int i = 0; i < 3; i++)
@@ -98,6 +108,18 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     float *ptr_d4 = tuning_timings_d4.mutable_data();
     for (int i = 0; i < 3; i++)
         ptr_d4[i] = 0.0;
+    float *ptr_w1 = tuning_timings_w1.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_w1[i] = 0.0;
+    float *ptr_w2 = tuning_timings_w2.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_w2[i] = 0.0;
+    float *ptr_w3 = tuning_timings_w3.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_w3[i] = 0.0;
+    float *ptr_w4 = tuning_timings_w4.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_w4[i] = 0.0;
     //printf("dbg:in fused btlnk bwd initial values are %f %f %f %f (c1 to c4)\n", ptr_d1[0], ptr_d2[0], ptr_d3[0], ptr_d4[0]);
   }
 
@@ -133,10 +155,15 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
   bn2_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv3_grad_input = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
+  auto conv3_grad_input = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, cd3_string, tuning_timings_d3);
   conv3_grad_weight = dummy_return;
+#elif defined(BWD_W_ONLY)
+  auto conv3_grad_input = dummy_return;
+  conv3_grad_weight = conv_bwd_w_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {}, cw3_string, tuning_timings_d3);
 #else
-  auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
+  auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
+                                       {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, cd3_string, tuning_timings_d3,
+                                       {}, cw3_string, tuning_timings_w3);
   //conv_backward_new(cfg.conv3, bn3_grad_input /*grad_output*/, bn2_out, conv3_weight);
   auto conv3_grad_input = conv3_grad_ret[0];
   conv3_grad_weight     = conv3_grad_ret[1];
@@ -167,10 +194,15 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
   bn1_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv2_grad_input = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, c2_string, tuning_timings_d2);
+  auto conv2_grad_input = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, cd2_string, tuning_timings_d2);
   conv2_grad_weight = dummy_return;
+#elif defined(BWD_W_ONLY)
+  auto conv2_grad_input = dummy_return;
+  conv2_grad_weight = conv_bwd_w_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {}, cw2_string, tuning_timings_d2);
 #else
-  auto conv2_grad_ret   = conv_bwd_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, c2_string, tuning_timings_d2);
+  auto conv2_grad_ret   = conv_bwd_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
+                                       {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, cd2_string, tuning_timings_d2,
+                                       {}, cw2_string, tuning_timings_w2);
   //conv_backward_new(cfg.conv2, bn2_grad_input /*grad_output*/, bn1_out, conv2_weight);
   auto conv2_grad_input = conv2_grad_ret[0];
   conv2_grad_weight     = conv2_grad_ret[1];
@@ -201,10 +233,15 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
   conv1_input.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  conv1_grad_input = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, c1_string, tuning_timings_d1);
+  conv1_grad_input = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, cd1_string, tuning_timings_d1);
   conv1_grad_weight = dummy_return;
+#elif defined(BWD_W_ONLY)
+  conv1_grad_input = dummy_return;
+  conv1_grad_weight = conv_bwd_w_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {}, cw1_string, tuning_timings_d1);
 #else
-  auto conv1_grad_ret = conv_bwd_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, c1_string, tuning_timings_d1);
+  auto conv1_grad_ret = conv_bwd_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
+                                     {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, cd1_string, tuning_timings_d1,
+                                     {}, cw1_string, tuning_timings_w1);
   //conv_backward_new(cfg.conv1, bn1_grad_input /*grad_output*/, conv1_input, conv1_weight);
   conv1_grad_input    = conv1_grad_ret[0];
   conv1_grad_weight   = conv1_grad_ret[1];
@@ -237,10 +274,15 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
     conv1_input.requires_grad_(true);
 #ifdef BWD_D_ONLY
-    auto conv4_grad_input = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, c4_string, tuning_timings_d4);
+    auto conv4_grad_input = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4);
     conv4_grad_weight = dummy_return;
+#elif defined(BWD_W_ONLY)
+    auto conv4_grad_input = dummy_return;
+    conv4_grad_weight = conv_bwd_w_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {}, cw4_string, tuning_timings_d4);
 #else
-    auto conv4_grad_ret = conv_bwd_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, c4_string, tuning_timings_d4);
+    auto conv4_grad_ret = conv_bwd_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
+                                       {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4,
+                                       {}, cw4_string, tuning_timings_w4);
     //conv_backward_new(cfg.conv4, bn4_grad_input /*grad_output*/, conv1_input, conv4_weight);
     conv4_grad_input    = conv4_grad_ret[0];
     conv4_grad_weight   = conv4_grad_ret[1];
@@ -259,6 +301,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   float* ptr = (float*)buf.ptr;
   //if (tuning_timings.size())
   {
+#ifndef BWD_W_ONLY
     auto buf_d1 = tuning_timings_d1.request();
     float* ptr_d1 = (float*)buf_d1.ptr;
     auto buf_d2 = tuning_timings_d2.request();
@@ -271,11 +314,26 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     ptr[1] += ptr_d2[0];
     ptr[2] += ptr_d3[0];
     ptr[3] += ptr_d4[0];
+#endif
     //printf("in fused btlnk bwd adding %f %f %f %f (c1 to c4)\n", ptr_d1[0], ptr_d2[0], ptr_d3[0], ptr_d4[0]);
     ptr[4] += time_b1;
     ptr[5] += time_b2;
     ptr[6] += time_b3;
     ptr[7] += time_b4;
+#ifndef BWD_D_ONLY
+    auto buf_w1 = tuning_timings_w1.request();
+    float* ptr_w1 = (float*)buf_w1.ptr;
+    auto buf_w2 = tuning_timings_w2.request();
+    float* ptr_w2 = (float*)buf_w2.ptr;
+    auto buf_w3 = tuning_timings_w3.request();
+    float* ptr_w3 = (float*)buf_w3.ptr;
+    auto buf_w4 = tuning_timings_w4.request();
+    float* ptr_w4 = (float*)buf_w4.ptr;
+    ptr[8] += ptr_w1[0];
+    ptr[9] += ptr_w2[0];
+    ptr[10] += ptr_w3[0];
+    ptr[11] += ptr_w4[0];
+#endif
   }
 
   //printf("dbg: tuning_timings at the end of bf_fwd_ext = %f %f %f (time_c1 - c3 = %f %f %f)", ptr[0], ptr[1], ptr[2], time_c1, time_c2, time_c3);

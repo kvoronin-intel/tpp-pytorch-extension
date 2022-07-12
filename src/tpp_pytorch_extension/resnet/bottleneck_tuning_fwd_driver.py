@@ -264,7 +264,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("ext_bottleneck forward is called with tuning_params and tuning_strings")
         #dummy_tuning_timings = [0.0]*16
         dummy_tuning_timings = np.zeros(16, dtype=np.float32)
-        y1 = opt_bottleneck(x1, tuning_params=tuning_params, tuning_strings=tuning_strings, tuning_timings=dummy_tuning_timings)
+        y1 = opt_bottleneck(x1, tuning_params=tuning_params, tuning_strings=tuning_strings, tuning_timings_fwd=dummy_tuning_timings)
     else:
         y1 = opt_bottleneck(x1)
 

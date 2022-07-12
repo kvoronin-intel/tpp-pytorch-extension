@@ -55,8 +55,11 @@ extern at::Tensor conv_fwd(conv_config cfg, std::vector<at::Tensor> inputs);
 extern std::vector<at::Tensor> conv_bwd(conv_config cfg, std::vector<at::Tensor> inputs);
 
 extern std::vector<at::Tensor> conv_bwd_ext(conv_config cfg, std::vector<at::Tensor> inputs,
-                                            std::vector<int> tuning_params_d, std::string tuning_string_d, pybind11::array_t<float>& tuning_timings_d);
+                                            std::vector<int> tuning_params_d, std::string tuning_string_d, pybind11::array_t<float>& tuning_timings_d,
+                                            std::vector<int> tuning_params_w, std::string tuning_string_w, pybind11::array_t<float>& tuning_timings_w);
 extern at::Tensor conv_bwd_d_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+                                 std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
+extern at::Tensor conv_bwd_w_ext(conv_config cfg, std::vector<at::Tensor> inputs,
                                  std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
 
 typedef struct bottleneck_bn_config {
@@ -200,18 +203,48 @@ std::vector<at::Tensor> bottleneck_bn_fwd(
                                          h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm,
                                          pack_input_for_1x1_strided,
                                          fuse_stats};
-  //std::vector<float> default_tuning_timings(0);
   pybind11::array_t<float> default_tuning_timings(16);
+  float *ptr = default_tuning_timings.mutable_data();
+  for (int i = 0; i < 16; i++)
+      ptr[i] = 0.0;
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
   return bottleneck_bn_fwd_ext(cfg, training, inputs, default_tuning_params, default_tuning_strings, default_tuning_timings);
 }
 
+std::vector<at::Tensor> bottleneck_bn_bwd_w_ext(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params_w,
+    std::vector<std::string> tuning_strings_w,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(BWD);
+
+#define BWD_W_ONLY
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_bwd_tmpl.h"
+#else
+#   include "bottleneck_bwd_tmpl.h"
+#endif
+  } else {
+    typedef bfloat16 T;
+#ifdef FUSED_BOTTLENECK
+#   include "fused_bottleneck_bwd_tmpl.h"
+#else
+#   include "bottleneck_bwd_tmpl.h"
+#endif
+  }
+#undef BWD_W_ONLY
+}
+
+
 std::vector<at::Tensor> bottleneck_bn_bwd_d_ext(
     bottleneck_bn_config cfg,
     std::vector<at::Tensor> inputs,
-    std::vector<int> tuning_params,
-    std::vector<std::string> tuning_strings,
+    std::vector<int> tuning_params_d,
+    std::vector<std::string> tuning_strings_d,
     pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(BWD);
 
@@ -237,8 +270,10 @@ std::vector<at::Tensor> bottleneck_bn_bwd_d_ext(
 std::vector<at::Tensor> bottleneck_bn_bwd_ext(
     bottleneck_bn_config cfg,
     std::vector<at::Tensor> inputs,
-    std::vector<int> tuning_params,
-    std::vector<std::string> tuning_strings,
+    std::vector<int> tuning_params_d,
+    std::vector<std::string> tuning_strings_d,
+    std::vector<int> tuning_params_w,
+    std::vector<std::string> tuning_strings_w,
     pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(BWD);
 
@@ -265,15 +300,21 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
   int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
   int c1_block = 1, k1_block = 1, c2_block = 1, k2_block = 1, c3_block = 1, k3_block = 1, c4_block = 1, k4_block = 1;
   int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;
-  std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
+  std::vector<int> default_tuning_params_d{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
                                          c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
                                          h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm};
-  //std::vector<float> default_tuning_timings(0);
-  pybind11::array_t<float> default_tuning_timings(16);
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
-  std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+  std::vector<std::string> default_tuning_strings_d{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
 
-  return bottleneck_bn_bwd_ext(cfg, inputs, default_tuning_params, default_tuning_strings, default_tuning_timings);
+  std::vector<int> default_tuning_params_w{};
+  std::vector<std::string> default_tuning_strings_w{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+
+  pybind11::array_t<float> default_tuning_timings(16);
+  float *ptr = default_tuning_timings.mutable_data();
+  for (int i = 0; i < 16; i++)
+      ptr[i] = 0.0;
+
+  return bottleneck_bn_bwd_ext(cfg, inputs, default_tuning_params_d, default_tuning_strings_d, default_tuning_params_w, default_tuning_strings_w, default_tuning_timings);
 }
 
 bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inplanes, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint planes, libxsmm_blasint stride,
@@ -491,5 +532,8 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_bwd_d_ext", &bottleneck_bn_bwd_d_ext, "Pcl BOTTLENECK BN backward over data with tuning params");
   m.def("bottleneck_bn_bwd_d_get_gflop", &bottleneck_bn_bwd_d_get_gflop, "Pcl BOTTLENECK BN bwd_d gflop count");
   m.def("bottleneck_bn_bwd_d_get_gflop_details", &bottleneck_bn_bwd_d_get_gflop_details, "Pcl BOTTLENECK BN bwd_d gflop counts for various components");
+  m.def("bottleneck_bn_bwd_w_ext", &bottleneck_bn_bwd_w_ext, "Pcl BOTTLENECK BN backward over weights with tuning params");
+//  m.def("bottleneck_bn_bwd_w_get_gflop", &bottleneck_bn_bwd_w_get_gflop, "Pcl BOTTLENECK BN bwd_w gflop count");
+//  m.def("bottleneck_bn_bwd_w_get_gflop_details", &bottleneck_bn_bwd_w_get_gflop_details, "Pcl BOTTLENECK BN bwd_w gflop counts for various components");
 }
 

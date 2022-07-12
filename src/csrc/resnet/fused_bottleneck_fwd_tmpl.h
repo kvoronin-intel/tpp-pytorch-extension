@@ -117,6 +117,11 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 
   double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+  #undef CONV_OUT
+  #undef BN_OUT
+  #undef BN_RELU_OUT
+  #undef BN_SCRATCH_OUT
+  #undef BN_IN
 #ifdef TIMING
   time_c1        = t_conv_end - t_conv_start;
   time_b1        = t_bn_end - t_conv_end;
@@ -188,6 +193,11 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
   double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+  #undef CONV_OUT
+  #undef BN_OUT
+  #undef BN_RELU_OUT
+  #undef BN_SCRATCH_OUT
+  #undef BN_IN
 #ifdef TIMING
   time_c2        = t_conv_end - t_conv_start;
   time_b2        = t_bn_end - t_conv_end;
@@ -254,6 +264,11 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
   double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+  #undef CONV_OUT
+  #undef BN_OUT
+  #undef BN_RELU_OUT
+  #undef BN_SCRATCH_OUT
+  #undef BN_IN
 #ifdef TIMING
   time_c4        = t_conv_end - t_conv_start;
   time_b4        = t_bn_end - t_conv_end;
@@ -310,6 +325,11 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
   double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
   #include "fused_conv_bn_fwd.h"
+  #undef CONV_OUT
+  #undef BN_OUT
+  #undef BN_RELU_OUT
+  #undef BN_SCRATCH_OUT
+  #undef BN_IN
 #ifdef TIMING
   time_c3        = t_conv_end - t_conv_start;
   time_b3        = t_bn_end - t_conv_end;
