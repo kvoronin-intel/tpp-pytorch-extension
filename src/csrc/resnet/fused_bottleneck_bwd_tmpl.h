@@ -118,7 +118,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
   bn2_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv3_grad_input   = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
+  auto conv3_grad_input = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
   conv3_grad_weight = dummy_return;
 #else
   auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);

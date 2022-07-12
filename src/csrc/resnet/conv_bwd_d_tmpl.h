@@ -138,7 +138,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 
   //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
   //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-  zero_rim_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp), EW_ZERO);
+  zero_rim_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp/w_block), EW_ZERO);
   //l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp*ifhp, 1, bc*ifwp*ifhp, bc*ifwp*ifhp, dtype, dtype, dtype);
   //zero_kernel_all_pixels = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);  
   zero_all_pixels_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp*ifhp), EW_ZERO);
@@ -226,8 +226,8 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 
   auto conv_bwd_d_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},// true},
-      LoopSpecs{0, Cb, c_step},
-      LoopSpecs{0, Kb, k_step, {k_block}},//, true},
+      LoopSpecs{0, Cb, c_step, {c_block}},
+      LoopSpecs{0, Kb, k_step},//, true},
       LoopSpecs{0, ofh, h_step, {h_block}},
       LoopSpecs{0, ofw, w_step},
       LoopSpecs{0, R, r_step},
@@ -315,7 +315,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
                 }
               }
             } /* else-if for non_1x1_with_strides == 0 */
-          } else { /* avoid_rim_fmas == 0 */
+          } else { /* else for if avoid_rim_fmas == 0 */
             if (i_k == 0 && i_r == 0 && i_s == 0) {
               zero_rim_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
             }

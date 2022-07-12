@@ -137,11 +137,13 @@ std::vector<at::Tensor> conv_bwd_ext(
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
     auto t_grad_weight = conv_bwd_w(cfg, inputs);
+    //auto t_grad_input  = conv_bwd_d(cfg, inputs);
     auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   } else {
     typedef bfloat16 T;
     auto t_grad_weight = conv_bwd_w(cfg, inputs);
+    //auto t_grad_input  = conv_bwd_d(cfg, inputs);
     auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   }
