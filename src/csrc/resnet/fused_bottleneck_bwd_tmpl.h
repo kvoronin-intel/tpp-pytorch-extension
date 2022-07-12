@@ -5,7 +5,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
 #define TIMING
 
-#define VERBOSE
+//#define VERBOSE
 
   auto grad_output  = inputs[0];
   auto conv1_input  = inputs[1];

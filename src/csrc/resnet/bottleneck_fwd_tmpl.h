@@ -1,6 +1,6 @@
 RECORD_FUNCTION("bottleneck_bn_fwd", std::vector<c10::IValue>());
 
-#define VERBOSE
+//#define VERBOSE
 
   auto input        = inputs[0];
   auto conv1_weight = inputs[1];
