@@ -343,39 +343,112 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             [None, opt_bottleneck.conv1.Cblock, None, None],
         )
 
+        time_end = time.time()
+        print("Reference forward took (s) ", time_end - time_start)
+        time_start = time.time()
+
+        conv1_out = torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
+        bn1_out   = torch.nn.functional.pad(conv1_out, [1, 1, 1, 1], mode='constant', value=0.0) #torch.randn(N, outc, H+2, W+2, requires_grad=False, dtype=opt_dtype)
+        conv2_out = bn1_out.clone()
+        bn2_out   = conv1_out.clone()#torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
+        conv3_out = torch.randn(N, inc*expansion, H, W, requires_grad=False, dtype=opt_dtype)
+        bn3_out   = conv3_out.clone() #torch.randn_like(conv3_out)
+        conv4_out = conv3_out.clone() #torch.randn_like(conv3_out)
+        bn4_out   = conv3_out.clone() #torch.randn_like(conv3_out)
+
+        #bn1_relu_out   = torch.randint(bn1_out.shape, dtype=torch.int32, low=0, high=1)
+        bn1_relu_out = bn1_out.to(torch.uint8)
+        bn2_relu_out = bn2_out.to(torch.uint8)
+        bn3_relu_out = bn3_out.to(torch.uint8)
+        bn4_relu_out = bn4_out.to(torch.uint8)
+        #bn2_relu_out   = torch.randint(bn2_out.shape, dtype=torch.int32, low=0, high=1)
+        #bn3_relu_out   = torch.randint(bn3_out.shape, dtype=torch.int32, low=0, high=1)
+        #bn4_relu_out   = torch.randint(bn4_out.shape, dtype=torch.int32, low=0, high=1)
+
+        bn1_scratch    = torch.empty(10, N, outc, requires_grad=False, dtype=torch.float32)
+        bn2_scratch    = torch.empty(10, N, outc, requires_grad=False, dtype=torch.float32)
+        bn3_scratch    = torch.empty(10, N, inc*expansion, requires_grad=False, dtype=torch.float32)
+        bn4_scratch    = torch.empty(10, N, inc*expansion, requires_grad=False, dtype=torch.float32)
+
+        artificial_tensors = []
+        for t in [conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out]:
+            blocked_t = opt_bottleneck.get_blocked_tensor(
+                t,
+                opt_bottleneck.blocked_input_signature,
+                [None, opt_bottleneck.conv1.Cblock, None, None],
+            )
+            artificial_tensors.append(blocked_t)
+
+        artificial_tensors += [bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
+                              bn1_scratch, bn2_scratch, bn3_scratch, bn4_scratch]
+
+        #artificial_tensors = [conv1_out]
+
+        """
+        auto conv1_out    = inputs[22];
+        auto bn1_out      = inputs[23];
+        auto conv2_out    = inputs[24];
+        auto bn2_out      = inputs[25];
+        auto conv3_out    = inputs[26];
+        auto bn3_out      = inputs[27];
+        auto conv4_out    = inputs[28];
+        auto bn4_out      = inputs[29];
+
+        auto bn1_relu_out = inputs[30];
+        auto bn2_relu_out = inputs[31];
+        auto bn3_relu_out = inputs[32];
+        auto bn4_relu_out = inputs[33];
+
+        auto bn1_scratch   = inputs[34];
+        auto bn2_scratch   = inputs[35];
+        auto bn3_scratch   = inputs[36];
+        auto bn4_scratch   = inputs[37];
+        """
+
+        time_end = time.time()
+        print("Creating artifical tensors for bwd took (s) ", time_end - time_start)
+
+        print("y1.blocked_tensor() shape = ", y1.blocked_tensor().shape)
+        print("y1.unblocked_tensor() shape = ", y1.unblocked_tensor().shape)
+
         if opt_bottleneck.has_residual_conv:
-            inputs = [blocked_input,
+            inputs = [y1.blocked_tensor(), blocked_input,
                       opt_bottleneck.conv1.weight, opt_bottleneck.conv2.weight, opt_bottleneck.conv3.weight, opt_bottleneck.downsample1.weight,
                       opt_bottleneck.bn1.weight, opt_bottleneck.bn2.weight, opt_bottleneck.bn3.weight, opt_bottleneck.downsample2.weight,
                       opt_bottleneck.bn1.bias, opt_bottleneck.bn2.bias, opt_bottleneck.bn3.bias, opt_bottleneck.downsample2.bias,
                       opt_bottleneck.bn1.mean, opt_bottleneck.bn2.mean, opt_bottleneck.bn3.mean, opt_bottleneck.downsample2.mean,
-                      opt_bottleneck.bn1.var, opt_bottleneck.bn2.var, opt_bottleneck.bn3.var, opt_bottleneck.downsample2.var]
+                      opt_bottleneck.bn1.var, opt_bottleneck.bn2.var, opt_bottleneck.bn3.var, opt_bottleneck.downsample2.var, *artificial_tensors]
         else:
-            inputs = [blocked_input,
+            inputs = [y1.blocked_tensor(), blocked_input,
                       opt_bottleneck.conv1.weight, opt_bottleneck.conv2.weight, opt_bottleneck.conv3.weight, opt_bottleneck.dummy_tensor,
                       opt_bottleneck.bn1.weight, opt_bottleneck.bn2.weight, opt_bottleneck.bn3.weight, opt_bottleneck.dummy_tensor,
                       opt_bottleneck.bn1.bias, opt_bottleneck.bn2.bias, opt_bottleneck.bn3.bias, opt_bottleneck.dummy_tensor,
                       opt_bottleneck.bn1.mean, opt_bottleneck.bn2.mean, opt_bottleneck.bn3.mean, opt_bottleneck.dummy_tensor,
-                      opt_bottleneck.bn1.var, opt_bottleneck.bn2.var, opt_bottleneck.bn3.var, opt_bottleneck.dummy_tensor]
+                      opt_bottleneck.bn1.var, opt_bottleneck.bn2.var, opt_bottleneck.bn3.var, opt_bottleneck.dummy_tensor, *artificial_tensors]
+
+        #for t in inputs:
+        #    print("type of t = ", type(t))
 
         warmup_niter = 10
         #logging.info("warmup_niter = ", warmup_niter)
         print("warmup_niter = ", warmup_niter)
 
-        time_end = time.time()
-        print("Reference forward took (s) ", time_end - time_start)
 
         #dummy_tuning_timings = [0.0] * 16
         dummy_tuning_timings = np.zeros(16, dtype=np.float32)
         time_start = time.time()
 
+        print("type of bottleneck_cfg = ", type(bottleneck_cfg))
+        print("type of inputs = ", type(inputs))
+        print("tuning_params = ", type(tuning_params))
+        print("tuning_strings = ", type(tuning_strings))
+        print("dummy_tuning_timings = ", type(dummy_tuning_timings))
+
         for i in range(warmup_niter):
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or dummy_tuning_timings is None:
-                bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
+                bottleneck_cpp.bottleneck_bn_bwd(bottleneck_cfg, inputs)
             else:
-                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
-                #bottleneck_cpp.bottleneck_bn_fwd_ext_study1(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
-                #bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
+                bottleneck_cpp.bottleneck_bn_bwd_d_ext(bottleneck_cfg, inputs, tuning_params, tuning_strings, dummy_tuning_timings)
 
         time_end = time.time()
         print("Warmup took (s) ", time_end - time_start)
@@ -391,11 +464,9 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         time_start = time.time()
         for i in range(timed_niters):
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or tuning_timings is None:
-                bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
+                bottleneck_cpp.bottleneck_bn_bwd(bottleneck_cfg, inputs)
             else:
-                bottleneck_cpp.bottleneck_bn_fwd_ext(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
-                #bottleneck_cpp.bottleneck_bn_fwd_ext_study1(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
-                #bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
+                bottleneck_cpp.bottleneck_bn_bwd_d_ext(bottleneck_cfg, inputs, tuning_params, tuning_strings, tuning_timings)
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 
@@ -403,12 +474,12 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         print("Timed loop took (s) ", time_end - time_start)
         print("Final perf time: ", time_per_iter)
-        gflop = bottleneck_cpp.bottleneck_bn_fwd_get_gflop(bottleneck_cfg)
+        gflop = bottleneck_cpp.bottleneck_bn_bwd_d_get_gflop(bottleneck_cfg)
         basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride) + " " + str(has_downsample)
         print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))
 
         # Checking the timings
-        gflop_details = bottleneck_cpp.bottleneck_bn_fwd_get_gflop_details(bottleneck_cfg)
+        gflop_details = bottleneck_cpp.bottleneck_bn_bwd_d_get_gflop_details(bottleneck_cfg)
         #print("timings c1 gflop_c1 c2 gflop_c2 c3 gflop_c3 c4 gflop_c4: ", tuning_timings[0], gflop_details[0], tuning_timings[1], gflop_details[1], tuning_timings[2], gflop_details[2], tuning_timings[3], gflop_details[3])
         print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop_details[0], gflop_details[0] / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
         print("timings: c2 gflop_c2 gflops_c2: ", tuning_timings[1], gflop_details[1], gflop_details[1] / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)

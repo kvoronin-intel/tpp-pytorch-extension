@@ -3,6 +3,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 //return std::vector<at::Tensor>({t_dummy});
 
+#define TIMING
+
 #define VERBOSE
 
   auto grad_output  = inputs[0];
@@ -73,6 +75,11 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   const std::string c3_string = tuning_strings[2];
   const std::string c4_string = tuning_strings[3];
 
+#ifdef TIMING
+  double t_start = 0.0;
+  double time_b1 = 0.0, time_b2 = 0.0, time_b3 = 0.0, time_b4 = 0.0;
+#endif
+
   std::vector<long> dummy_size{0};
   auto dummy_add    = at::zeros(dummy_size, conv1_input.options());
   auto dummy_return = at::zeros(dummy_size, conv1_input.options());
@@ -88,6 +95,10 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   printf("running bn3 bwd\n");
 #endif
 
+#ifdef TIMING
+  t_start = getTime();
+#endif
+
   bool bn3_relu = true, bn3_eltwise = true;
   auto residual           = bn4_out; // FIXME: Hopefully an alias and not a memory leak
   auto bn3_grad_ret       = batchnorm_bwd(bn3_relu, bn3_eltwise, cfg.bn_eps, {0, 0, 0, 0}, {grad_output, conv3_out, bn3_weight, bn3_mean, bn3_var, bn3_relu_out, bn3_scratch});
@@ -97,22 +108,31 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   bn3_grad_gamma          = bn3_grad_ret[2];
   bn3_grad_beta           = bn3_grad_ret[3];
 
+#ifdef TIMING
+  time_b3 = getTime() - t_start;
+#endif
+
 #ifdef VERBOSE
   printf("running conv3 bwd\n");
 #endif
 
   bn2_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv3_grad_ret   = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
+  auto conv3_grad_input   = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
+  conv3_grad_weight = dummy_return;
 #else
   auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, c3_string, tuning_timings_d3);
-#endif
   //conv_backward_new(cfg.conv3, bn3_grad_input /*grad_output*/, bn2_out, conv3_weight);
   auto conv3_grad_input = conv3_grad_ret[0];
   conv3_grad_weight     = conv3_grad_ret[1];
+#endif
 
 #ifdef VERBOSE
   printf("running bn2 bwd\n");
+#endif
+
+#ifdef TIMING
+  t_start = getTime();
 #endif
 
   bool bn2_relu = true, bn2_eltwise = false;
@@ -122,22 +142,31 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   bn2_grad_gamma      = bn2_grad_ret[1];
   bn2_grad_beta       = bn2_grad_ret[2];
 
+#ifdef TIMING
+  time_b2 = getTime() - t_start;
+#endif
+
 #ifdef VERBOSE
   printf("running conv2 bwd\n");
 #endif
 
   bn1_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv2_grad_ret   = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, c2_string, tuning_timings_d2);
+  auto conv2_grad_input = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, c2_string, tuning_timings_d2);
+  conv2_grad_weight = dummy_return;
 #else
   auto conv2_grad_ret   = conv_bwd_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, c2_string, tuning_timings_d2);
-#endif
   //conv_backward_new(cfg.conv2, bn2_grad_input /*grad_output*/, bn1_out, conv2_weight);
   auto conv2_grad_input = conv2_grad_ret[0];
   conv2_grad_weight     = conv2_grad_ret[1];
+#endif
 
 #ifdef VERBOSE
   printf("running bn1 bwd\n");
+#endif
+
+#ifdef TIMING
+  t_start = getTime();
 #endif
 
   bool bn1_relu = true, bn1_eltwise = false;
@@ -147,24 +176,33 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   bn1_grad_gamma      = bn1_grad_ret[1];
   bn1_grad_beta       = bn1_grad_ret[2];
 
+#ifdef TIMING
+  time_b1 = getTime() - t_start;
+#endif
+
 #ifdef VERBOSE
   printf("running conv1 bwd\n");
 #endif
 
   conv1_input.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv1_grad_ret = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, c1_string, tuning_timings_d1);
+  conv1_grad_input = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, c1_string, tuning_timings_d1);
+  conv1_grad_weight = dummy_return;
 #else
   auto conv1_grad_ret = conv_bwd_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, c1_string, tuning_timings_d1);
-#endif
   //conv_backward_new(cfg.conv1, bn1_grad_input /*grad_output*/, conv1_input, conv1_weight);
   conv1_grad_input    = conv1_grad_ret[0];
   conv1_grad_weight   = conv1_grad_ret[1];
+#endif
 
   if (cfg.has_residual_conv) {
 
 #ifdef VERBOSE
     printf("running bn4 bwd\n");
+#endif
+
+#ifdef TIMING
+    t_start = getTime();
 #endif
 
     bool bn4_relu = false, bn4_eltwise = false;
@@ -174,19 +212,24 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     bn4_grad_gamma      = bn4_grad_ret[1];
     bn4_grad_beta       = bn4_grad_ret[2];
 
+#ifdef TIMING
+    time_b4 = getTime() - t_start;
+#endif
+
 #ifdef VERBOSE
     printf("running conv4 bwd\n");
 #endif
 
     conv1_input.requires_grad_(true);
 #ifdef BWD_D_ONLY
-    auto conv4_grad_ret = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, c4_string, tuning_timings_d4);
+    auto conv4_grad_input = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, c4_string, tuning_timings_d4);
+    conv4_grad_weight = dummy_return;
 #else
     auto conv4_grad_ret = conv_bwd_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, c4_string, tuning_timings_d4);
-#endif
     //conv_backward_new(cfg.conv4, bn4_grad_input /*grad_output*/, conv1_input, conv4_weight);
     conv4_grad_input    = conv4_grad_ret[0];
     conv4_grad_weight   = conv4_grad_ret[1];
+#endif
 
   } else {
     conv4_grad_weight = dummy_return;
@@ -213,6 +256,10 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     ptr[1] += ptr_d2[0];
     ptr[2] += ptr_d3[0];
     ptr[3] += ptr_d4[0];
+    ptr[4] += time_b1;
+    ptr[5] += time_b2;
+    ptr[6] += time_b3;
+    ptr[7] += time_b4;
   }
 
   //printf("dbg: tuning_timings at the end of bf_fwd_ext = %f %f %f (time_c1 - c3 = %f %f %f)", ptr[0], ptr[1], ptr[2], time_c1, time_c2, time_c3);

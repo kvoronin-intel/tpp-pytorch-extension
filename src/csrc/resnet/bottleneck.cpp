@@ -56,8 +56,8 @@ extern std::vector<at::Tensor> conv_bwd(conv_config cfg, std::vector<at::Tensor>
 
 extern std::vector<at::Tensor> conv_bwd_ext(conv_config cfg, std::vector<at::Tensor> inputs,
                                             std::vector<int> tuning_params_d, std::string tuning_string_d, pybind11::array_t<float>& tuning_timings_d);
-extern std::vector<at::Tensor> conv_bwd_d_ext(conv_config cfg, std::vector<at::Tensor> inputs,
-                                              std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
+extern at::Tensor conv_bwd_d_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+                                 std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
 
 typedef struct bottleneck_bn_config {
   libxsmm_blasint N;
@@ -429,6 +429,13 @@ double bottleneck_bn_fwd_get_gflop(bottleneck_bn_config cfg)
   return gflop_convs + gflop_bns;
 }
 
+/* Ignores transpose for now */
+double bottleneck_bn_bwd_d_get_gflop(bottleneck_bn_config cfg)
+{
+  std::cout << "Warning: bottleneck_bn_bwd_d_get_gflop ignores transpose for now\n";
+  return bottleneck_bn_fwd_get_gflop(cfg);
+}
+
 std::vector<float> bottleneck_bn_fwd_get_gflop_details(bottleneck_bn_config cfg)
 {
   std::vector<float> gflop_details(16);
@@ -455,6 +462,10 @@ std::vector<float> bottleneck_bn_fwd_get_gflop_details(bottleneck_bn_config cfg)
   return gflop_details;
 }
 
+std::vector<float> bottleneck_bn_bwd_d_get_gflop_details(bottleneck_bn_config cfg) {
+  std::cout << "Warning: bottleneck_bn_bwd_d_get_gflop_details ignores transpose for now\n";
+  return bottleneck_bn_fwd_get_gflop_details(cfg);
+}
 
 
 REGISTER_SUBMODULE(_bottleneck, m) {
@@ -478,5 +489,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_fwd_ext_study2", &bottleneck_bn_fwd_ext_study2, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
   m.def("bottleneck_bn_bwd_ext", &bottleneck_bn_bwd_ext, "Pcl BOTTLENECK BN backward with tuning params");
   m.def("bottleneck_bn_bwd_d_ext", &bottleneck_bn_bwd_d_ext, "Pcl BOTTLENECK BN backward over data with tuning params");
+  m.def("bottleneck_bn_bwd_d_get_gflop", &bottleneck_bn_bwd_d_get_gflop, "Pcl BOTTLENECK BN bwd_d gflop count");
+  m.def("bottleneck_bn_bwd_d_get_gflop_details", &bottleneck_bn_bwd_d_get_gflop_details, "Pcl BOTTLENECK BN bwd_d gflop counts for various components");
 }
 
