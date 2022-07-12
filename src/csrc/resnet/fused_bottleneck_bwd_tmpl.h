@@ -84,7 +84,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto dummy_add    = at::zeros(dummy_size, conv1_input.options());
   auto dummy_return = at::zeros(dummy_size, conv1_input.options());
 
-  pybind11::array_t<float> tuning_timings_d1(3), tuning_timings_d2(3), tuning_timings_d3(3), tuning_timings_d4(3);
+  pybind11::array_t<float> tuning_timings_d1{0, 0, 0}, tuning_timings_d2{0, 0, 0}, tuning_timings_d3{0, 0, 0}, tuning_timings_d4{0, 0, 0};
 
   at::Tensor  conv1_grad_weight, conv2_grad_weight, conv3_grad_weight, conv4_grad_weight,
               bn1_grad_gamma, bn2_grad_gamma, bn3_grad_gamma, bn4_grad_gamma,
