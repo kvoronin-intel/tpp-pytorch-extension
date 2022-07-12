@@ -84,7 +84,22 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto dummy_add    = at::zeros(dummy_size, conv1_input.options());
   auto dummy_return = at::zeros(dummy_size, conv1_input.options());
 
-  pybind11::array_t<float> tuning_timings_d1{0, 0, 0}, tuning_timings_d2{0, 0, 0}, tuning_timings_d3{0, 0, 0}, tuning_timings_d4{0, 0, 0};
+  pybind11::array_t<float> tuning_timings_d1(3), tuning_timings_d2(3), tuning_timings_d3(3), tuning_timings_d4(3);
+  {
+    float *ptr_d1 = tuning_timings_d1.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_d1[i] = 0.0;
+    float *ptr_d2 = tuning_timings_d2.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_d2[i] = 0.0;
+    float *ptr_d3 = tuning_timings_d3.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_d3[i] = 0.0;
+    float *ptr_d4 = tuning_timings_d4.mutable_data();
+    for (int i = 0; i < 3; i++)
+        ptr_d4[i] = 0.0;
+    //printf("dbg:in fused btlnk bwd initial values are %f %f %f %f (c1 to c4)\n", ptr_d1[0], ptr_d2[0], ptr_d3[0], ptr_d4[0]);
+  }
 
   at::Tensor  conv1_grad_weight, conv2_grad_weight, conv3_grad_weight, conv4_grad_weight,
               bn1_grad_gamma, bn2_grad_gamma, bn3_grad_gamma, bn4_grad_gamma,
@@ -256,6 +271,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     ptr[1] += ptr_d2[0];
     ptr[2] += ptr_d3[0];
     ptr[3] += ptr_d4[0];
+    //printf("in fused btlnk bwd adding %f %f %f %f (c1 to c4)\n", ptr_d1[0], ptr_d2[0], ptr_d3[0], ptr_d4[0]);
     ptr[4] += time_b1;
     ptr[5] += time_b2;
     ptr[6] += time_b3;

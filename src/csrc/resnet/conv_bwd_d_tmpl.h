@@ -359,6 +359,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 #ifdef TIMING
   auto buf = tuning_timings.request();
   float* ptr = (float*)buf.ptr;
+  //printf("dbg: in conv_bwd_d_tmpl.h adding %f to current %f timer \n", (t_end - t_conv_start), ptr[0]);
   ptr[0] += t_end - t_conv_start;
   ptr[1] += t_wt_trans_end - t_conv_start;
   ptr[2] += t_end - t_start;
