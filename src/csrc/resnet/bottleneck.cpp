@@ -187,8 +187,6 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext_study2(
 #undef EXT_STUDY2
 }
 
-
-
 std::vector<at::Tensor> bottleneck_bn_fwd(
     bottleneck_bn_config cfg,
     bool training,
@@ -508,6 +506,19 @@ std::vector<float> bottleneck_bn_bwd_d_get_gflop_details(bottleneck_bn_config cf
   return bottleneck_bn_fwd_get_gflop_details(cfg);
 }
 
+double bottleneck_bn_bwd_w_get_gflop(bottleneck_bn_config cfg)
+{
+  std::cout << "Warning: bottleneck_bn_bwd_w_get_gflop returns a dummy one for now\n";
+  return 1.0;
+}
+
+std::vector<float> bottleneck_bn_bwd_w_get_gflop_details(bottleneck_bn_config cfg) {
+  std::cout << "Warning: bottleneck_bn_bwd_w_get_gflop_details returns a vector of dummy ones for now\n";
+  std::vector<float> gflop_details(16);
+  for (int i = 0; i < 16; i++)
+    gflop_details[i] = 1.0;
+  return gflop_details;
+}
 
 REGISTER_SUBMODULE(_bottleneck, m) {
   m.def(
@@ -533,7 +544,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_bwd_d_get_gflop", &bottleneck_bn_bwd_d_get_gflop, "Pcl BOTTLENECK BN bwd_d gflop count");
   m.def("bottleneck_bn_bwd_d_get_gflop_details", &bottleneck_bn_bwd_d_get_gflop_details, "Pcl BOTTLENECK BN bwd_d gflop counts for various components");
   m.def("bottleneck_bn_bwd_w_ext", &bottleneck_bn_bwd_w_ext, "Pcl BOTTLENECK BN backward over weights with tuning params");
-//  m.def("bottleneck_bn_bwd_w_get_gflop", &bottleneck_bn_bwd_w_get_gflop, "Pcl BOTTLENECK BN bwd_w gflop count");
-//  m.def("bottleneck_bn_bwd_w_get_gflop_details", &bottleneck_bn_bwd_w_get_gflop_details, "Pcl BOTTLENECK BN bwd_w gflop counts for various components");
+  m.def("bottleneck_bn_bwd_w_get_gflop", &bottleneck_bn_bwd_w_get_gflop, "Pcl BOTTLENECK BN bwd_w gflop count");
+  m.def("bottleneck_bn_bwd_w_get_gflop_details", &bottleneck_bn_bwd_w_get_gflop_details, "Pcl BOTTLENECK BN bwd_w gflop counts for various components");
 }
 
