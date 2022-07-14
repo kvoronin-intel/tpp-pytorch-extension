@@ -508,19 +508,6 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   long _s_step = 1;
 
 #ifdef VERBOSE
-  printf("bf16_use_nchw_format     = %d \n", bf16_use_nchw_format);
-  printf("bf16_fuse_upd_transposes = %d \n", bf16_fuse_upd_transposes);
-  printf("    bf16_acc_nw          = %d \n", bf16_acc_nw);
-  printf("    par_over_h_pixels    = %d \n", par_over_h_pixels);
-  printf("    pack_input_upfront   = %d \n", pack_input_upfront);
-  printf("    use_intermediate_f32_wt_tensor = %d \n",  use_intermediate_f32_wt_tensor);
-  printf("      use_hybrid_imgfm_parallelization = %d \n", use_hybrid_imgfm_parallelization);
-  printf("      n_img_teams                     = %d \n", n_img_teams);
-  printf("      n_ofm_teams                     = %d \n", n_ofm_teams);
-  printf("      use_f32_wt_reduction_and_external_wt_vnni = %d \n", use_f32_wt_reduction_and_external_wt_vnni);
-  printf("      compute_full_wt_output_block    = %d \n", compute_full_wt_output_block);
-
-
   std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
 
   std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "
@@ -618,6 +605,29 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
       LoopSpecs{0, S, _s_step, true}},
       bf16_conv_spec_string);
 
+
+  /* Extra restrictions introduced when auto-tuning */
+  if (R == 3 && S == 3 && stride_h != 1 && stride_w != 1 && bf16_use_nchw_format == 0)
+  {
+#ifdef VERBOSE
+    printf("Turning off bf16_acc_nw for strided 3x3 convolutions\n");
+#endif
+    bf16_acc_nw = 0;
+  }
+
+#ifdef VERBOSE
+  printf("bf16_use_nchw_format     = %d \n", bf16_use_nchw_format);
+  printf("bf16_fuse_upd_transposes = %d \n", bf16_fuse_upd_transposes);
+  printf("    bf16_acc_nw          = %d \n", bf16_acc_nw);
+  printf("    par_over_h_pixels    = %d \n", par_over_h_pixels);
+  printf("    pack_input_upfront   = %d \n", pack_input_upfront);
+  printf("    use_intermediate_f32_wt_tensor = %d \n",  use_intermediate_f32_wt_tensor);
+  printf("      use_hybrid_imgfm_parallelization = %d \n", use_hybrid_imgfm_parallelization);
+  printf("      n_img_teams                     = %d \n", n_img_teams);
+  printf("      n_ofm_teams                     = %d \n", n_ofm_teams);
+  printf("      use_f32_wt_reduction_and_external_wt_vnni = %d \n", use_f32_wt_reduction_and_external_wt_vnni);
+  printf("      compute_full_wt_output_block    = %d \n", compute_full_wt_output_block);
+#endif
 //  std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
 //  std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
 //  std::cout << "bf16_upfront_trans = " << bf16_upfront_trans << std::endl;
