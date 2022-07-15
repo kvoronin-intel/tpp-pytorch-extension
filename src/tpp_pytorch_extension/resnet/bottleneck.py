@@ -503,16 +503,31 @@ class BottleneckApplyBNTPP(Function):
         #for entity in inputs:
         #    print("type of entity = ", type(entity))
 
-        if tuning_params_d is None or tuning_strings_d is None or len(tuning_params_d) == 0 or len(tuning_strings_d) == 0 or tuning_params_w is None or tuning_strings_w is None or len(tuning_params_w) == 0 or len(tuning_strings_w) == 0 or tuning_timings_bwd is None:
-            (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
-             grad_b1w, grad_b2w, grad_b3w, grad_b4w,
-             grad_b1b, grad_b2b, grad_b3b, grad_b4b,
-             grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd(config, inputs) #_tensors)
+        if (tuning_params_d is None or tuning_strings_d is None or len(tuning_params_d) == 0 or len(tuning_strings_d) == 0):
+            if (tuning_params_w is None or tuning_strings_w is None or len(tuning_params_w) == 0 or len(tuning_strings_w) == 0):
+                if tuning_timings_bwd is None:
+                    (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
+                     grad_b1w, grad_b2w, grad_b3w, grad_b4w,
+                     grad_b1b, grad_b2b, grad_b3b, grad_b4b,
+                     grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd(config, inputs) #_tensors)
+                else:
+                    printf("Unsupported mode with tuning params for both w and d empty but non-empty tuning_timings")
+            else:
+                (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
+                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
+                 grad_b1b, grad_b2b, grad_b3b, grad_b4b,
+                 grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd_defaultd_ext(config, inputs, tuning_params_w, tuning_strings_w, tuning_timings_bwd)
         else:
-            (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
-             grad_b1w, grad_b2w, grad_b3w, grad_b4w,
-             grad_b1b, grad_b2b, grad_b3b, grad_b4b,
-             grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd_ext(config, inputs, tuning_params_d, tuning_strings_d, tuning_params_w, tuning_strings_w, tuning_timings_bwd)
+            if (tuning_params_w is None or tuning_strings_w is None or len(tuning_params_w) == 0 or len(tuning_strings_w) == 0):
+                (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
+                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
+                 grad_b1b, grad_b2b, grad_b3b, grad_b4b,
+                 grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd_defaultw_ext(config, inputs, tuning_params_d, tuning_strings_d, tuning_timings_bwd)
+            else:
+                (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
+                 grad_b1w, grad_b2w, grad_b3w, grad_b4w,
+                 grad_b1b, grad_b2b, grad_b3b, grad_b4b,
+                 grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd_ext(config, inputs, tuning_params_d, tuning_strings_d, tuning_params_w, tuning_strings_w, tuning_timings_bwd)
 
         #print("dbg: bottleneck_backward_new called")
 

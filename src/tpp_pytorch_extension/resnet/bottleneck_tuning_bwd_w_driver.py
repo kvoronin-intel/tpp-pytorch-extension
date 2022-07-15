@@ -73,7 +73,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters)
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
-    tuning_params_count = 20
+    tuning_params_count = 17
     if tuning_params is not None and len(tuning_params) != tuning_params_count:
         print("Wrong length of the tuning params (must be " + str(tuning_params_count) + " if present) = " + str(tuning_params) + " " + str(len(tuning_params)))
         exit()
@@ -82,12 +82,18 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         if test_module != 'ext_bottleneck':
             print("Custom tuning params can only be used for ext_bottleneck test_module")
             exit()
-        [h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
-         c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
-         h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm ] = tuning_params
-        print("info: tuning params: h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block = ", h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block)
-        print("info: tuning params: c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block = ", c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block)
-        print("info: tuning params: h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm                                 = ", h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm)
+
+        [p1_block, p2_block, p3_block, p4_block,
+          c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format,
+          pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+          acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+          hybrid, n_img_teams, n_ofm_teams
+          ] = tuning_params
+        print("info: tuning params: p1_block, p2_block, p3_block, p4_block = ", p1_block, p2_block, p3_block, p4_block)
+        print("info: tuning params: c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format = ", c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format)
+        print("info: tuning params: pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni = ", pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni)
+        print("info: tuning params: acc_nw, par_over_h_pixels, compute_full_wt_output_block = ", acc_nw, par_over_h_pixels, compute_full_wt_output_block)
+        print("info: tuning params: hybrid, n_img_teams, n_ofm_teams = ", hybrid, n_img_teams, n_ofm_teams)
     else:
         tuning_params = None
         print("info: tuning params are empty")
@@ -434,7 +440,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         #tuning_timings = [0.0] * 16
         tuning_timings = np.zeros(16, dtype=np.float32)
-        print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+        print("dbg:tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
         time_start = time.time()
         for i in range(timed_niters):
@@ -445,7 +451,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 
-        print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+        print("dbg:tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
         print("Timed loop took (s) ", time_end - time_start)
         print("Final perf time: ", time_per_iter)
@@ -456,17 +462,17 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         # Checking the timings
         gflop_details = bottleneck_cpp.bottleneck_bn_bwd_w_get_gflop_details(bottleneck_cfg)
         #print("timings c1 gflop_c1 c2 gflop_c2 c3 gflop_c3 c4 gflop_c4: ", tuning_timings[0], gflop_details[0], tuning_timings[1], gflop_details[1], tuning_timings[2], gflop_details[2], tuning_timings[3], gflop_details[3])
-        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop_details[0], gflop_details[0] / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
-        print("timings: c2 gflop_c2 gflops_c2: ", tuning_timings[1], gflop_details[1], gflop_details[1] / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
-        print("timings: c3 gflop_c3 gflops_c3: ", tuning_timings[2], gflop_details[2], gflop_details[2] / (tuning_timings[2] / timed_niters) if tuning_timings[2] != 0.0 else 0.0)
-        print("timings: c4 gflop_c4 gflops_c4: ", tuning_timings[3], gflop_details[3], gflop_details[3] / (tuning_timings[3] / timed_niters) if tuning_timings[3] != 0.0 else 0.0)
+        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[8], gflop_details[0], gflop_details[0] / (tuning_timings[8] / timed_niters) if tuning_timings[8] != 0.0 else 0.0)
+        print("timings: c2 gflop_c2 gflops_c2: ", tuning_timings[9], gflop_details[1], gflop_details[1] / (tuning_timings[9] / timed_niters) if tuning_timings[9] != 0.0 else 0.0)
+        print("timings: c3 gflop_c3 gflops_c3: ", tuning_timings[10], gflop_details[2], gflop_details[2] / (tuning_timings[10] / timed_niters) if tuning_timings[10] != 0.0 else 0.0)
+        print("timings: c4 gflop_c4 gflops_c4: ", tuning_timings[11], gflop_details[3], gflop_details[3] / (tuning_timings[11] / timed_niters) if tuning_timings[11] != 0.0 else 0.0)
         #print("timings b1 gflop_b1 b2 gflop_b2 b3 gflop_b3 b4 gflop_b4: ", tuning_timings[4], gflop_details[4], tuning_timings[5], gflop_details[5], tuning_timings[6], gflop_details[6], tuning_timings[7], gflop_details[7])
         print("timings: b1 gflop_b1 gflops_b1: ", tuning_timings[4], gflop_details[4], gflop_details[4] / (tuning_timings[4] / timed_niters) if tuning_timings[4] != 0.0 else 0.0)
         print("timings: b2 gflop_b2 gflops_b2: ", tuning_timings[5], gflop_details[5], gflop_details[5] / (tuning_timings[5] / timed_niters) if tuning_timings[5] != 0.0 else 0.0)
         print("timings: b3 gflop_b3 gflops_b3: ", tuning_timings[6], gflop_details[6], gflop_details[6] / (tuning_timings[6] / timed_niters) if tuning_timings[6] != 0.0 else 0.0)
         print("timings: b4 gflop_b4 gflops_b4: ", tuning_timings[7], gflop_details[7], gflop_details[7] / (tuning_timings[7] / timed_niters) if tuning_timings[7] != 0.0 else 0.0)
 
-        sum_timings = tuning_timings[0] + tuning_timings[1] + tuning_timings[2] + tuning_timings[3] + tuning_timings[4] + tuning_timings[5] + tuning_timings[6] + tuning_timings[7]
+        sum_timings = tuning_timings[8] + tuning_timings[9] + tuning_timings[10] + tuning_timings[11] + tuning_timings[4] + tuning_timings[5] + tuning_timings[6] + tuning_timings[7]
         print("timing diff (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
 
         #print("Error: performance part is not implemented for this test!")

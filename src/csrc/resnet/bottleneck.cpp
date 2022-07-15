@@ -292,6 +292,51 @@ std::vector<at::Tensor> bottleneck_bn_bwd_ext(
   }
 }
 
+std::vector<at::Tensor> bottleneck_bn_bwd_defaultd_ext(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params_w,
+    std::vector<std::string> tuning_strings_w,
+    pybind11::array_t<float>& tuning_timings) {
+  int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
+  int c1_block = 1, k1_block = 1, c2_block = 1, k2_block = 1, c3_block = 1, k3_block = 1, c4_block = 1, k4_block = 1;
+  int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;
+  std::vector<int> default_tuning_params_d{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
+                                         c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
+                                         h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm};
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::vector<std::string> default_tuning_strings_d{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+
+  return bottleneck_bn_bwd_ext(cfg, inputs, default_tuning_params_d, default_tuning_strings_d, tuning_params_w, tuning_strings_w, tuning_timings);
+}
+
+std::vector<at::Tensor> bottleneck_bn_bwd_defaultw_ext(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params_d,
+    std::vector<std::string> tuning_strings_d,
+    pybind11::array_t<float>& tuning_timings) {
+  int p1_block = 1, p2_block = 1, p3_block = 1, p4_block = 1;
+  int c1_use_nchw_format = -1, c2_use_nchw_format = -1, c3_use_nchw_format = -1, c4_use_nchw_format = -1;
+  int pack_input_upfront                        = -1;
+  int fuse_upd_transposes                       = -1;
+  int par_over_h_pixels                         = -1;
+  int use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int bf16_acc_nw                               = -1;
+  int compute_full_wt_output_block              = -1;
+  int use_hybrid_imgfm_parallelization          = -1;
+  int n_img_teams                               = -1;
+  int n_ofm_teams                               = -1;
+  std::vector<int> default_tuning_params_w{p1_block, p2_block, p3_block, p4_block,
+                                           c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format,
+                                           pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                           use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
+  std::vector<std::string> default_tuning_strings_w{"Abcdef", "Abcdef", "Abcdef", "Abcdef"};
+
+  return bottleneck_bn_bwd_ext(cfg, inputs, tuning_params_d, tuning_strings_d, default_tuning_params_w, default_tuning_strings_w, tuning_timings);
+}
+
 std::vector<at::Tensor> bottleneck_bn_bwd(
     bottleneck_bn_config cfg,
     std::vector<at::Tensor> inputs) {
@@ -304,8 +349,23 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings_d{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
 
-  std::vector<int> default_tuning_params_w{};
-  std::vector<std::string> default_tuning_strings_w{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+  int p1_block = 1, p2_block = 1, p3_block = 1, p4_block = 1;
+  int c1_use_nchw_format = -1, c2_use_nchw_format = -1, c3_use_nchw_format = -1, c4_use_nchw_format = -1;
+  int pack_input_upfront                        = -1;
+  int fuse_upd_transposes                       = -1;
+  int par_over_h_pixels                         = -1;
+  int use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int bf16_acc_nw                               = -1;
+  int compute_full_wt_output_block              = -1;
+  int use_hybrid_imgfm_parallelization          = -1;
+  int n_img_teams                               = -1;
+  int n_ofm_teams                               = -1;
+  std::vector<int> default_tuning_params_w{p1_block, p2_block, p3_block, p4_block,
+                                           c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format,
+                                           pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                           use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
+  std::vector<std::string> default_tuning_strings_w{"Abcdef", "Abcdef", "Abcdef", "Abcdef"};
 
   pybind11::array_t<float> default_tuning_timings(16);
   float *ptr = default_tuning_timings.mutable_data();
@@ -508,16 +568,22 @@ std::vector<float> bottleneck_bn_bwd_d_get_gflop_details(bottleneck_bn_config cf
 
 double bottleneck_bn_bwd_w_get_gflop(bottleneck_bn_config cfg)
 {
-  std::cout << "Warning: bottleneck_bn_bwd_w_get_gflop returns a dummy one for now\n";
-  return 1.0;
+  std::cout << "Warning: bottleneck_bn_bwd_d_get_gflop ignores transpose for now\n";
+  return bottleneck_bn_fwd_get_gflop(cfg);
+//  std::cout << "Warning: bottleneck_bn_bwd_w_get_gflop returns a dummy one for now\n";
+//  return 1.0;
 }
 
 std::vector<float> bottleneck_bn_bwd_w_get_gflop_details(bottleneck_bn_config cfg) {
+  std::cout << "Warning: bottleneck_bn_bwd_w_get_gflop_details ignores transpose for now\n";
+  return bottleneck_bn_fwd_get_gflop_details(cfg);
+/*
   std::cout << "Warning: bottleneck_bn_bwd_w_get_gflop_details returns a vector of dummy ones for now\n";
   std::vector<float> gflop_details(16);
   for (int i = 0; i < 16; i++)
     gflop_details[i] = 1.0;
   return gflop_details;
+*/
 }
 
 REGISTER_SUBMODULE(_bottleneck, m) {
@@ -540,6 +606,8 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_fwd_ext_study1", &bottleneck_bn_fwd_ext_study1, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
   m.def("bottleneck_bn_fwd_ext_study2", &bottleneck_bn_fwd_ext_study2, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
   m.def("bottleneck_bn_bwd_ext", &bottleneck_bn_bwd_ext, "Pcl BOTTLENECK BN backward with tuning params");
+  m.def("bottleneck_bn_bwd_defaultd_ext", &bottleneck_bn_bwd_defaultd_ext, "Pcl BOTTLENECK BN backward with tuning params for w and default d");
+  m.def("bottleneck_bn_bwd_defaultw_ext", &bottleneck_bn_bwd_defaultw_ext, "Pcl BOTTLENECK BN backward with tuning params for d and default w");
   m.def("bottleneck_bn_bwd_d_ext", &bottleneck_bn_bwd_d_ext, "Pcl BOTTLENECK BN backward over data with tuning params");
   m.def("bottleneck_bn_bwd_d_get_gflop", &bottleneck_bn_bwd_d_get_gflop, "Pcl BOTTLENECK BN bwd_d gflop count");
   m.def("bottleneck_bn_bwd_d_get_gflop_details", &bottleneck_bn_bwd_d_get_gflop_details, "Pcl BOTTLENECK BN bwd_d gflop counts for various components");

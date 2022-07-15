@@ -34,11 +34,11 @@ def for_recursive(number_of_loops, range_list, execute_function, current_index=0
 #for_recursive(range_list = [range(0,1), range(0,2), range(0,1)], execute_function = do_whatever, number_of_loops=3)
 #exit()
 
-def xbf_tester(index_list, pbfs=None, pbfequal=None, has_downsample=None, loop_string_c1c3c4=None, loop_string_c2=None,
+def xbf_tester(index_list, pbfs=None, pbfequal=None, has_downsample=None, loop_string_c1c3c4=None, loop_string_c2=None, use_nchw_formats = None,
                 nhwck_params=None, bs=None, stride=None, eps=None, expansion=None, use_physical_3x3_padding=True, use_groupnorm=False,
-                pack_input_upfront=None, fuse_upd_transpose=None, use_f32_wt_reduction_and_external_wt_vnni=None,
+                pack_input_upfront=None, fuse_upd_transposes=None, use_f32_wt_reduction_and_external_wt_vnni=None,
                 acc_nw=None, par_over_h=None, compute_full_wt_output_block=None,
-                hybrid=None,
+                hybrid=None, n_img_teams=None, n_ofm_teams=None,
                 opt_dtype=torch.float, ref_dtype=torch.float, with_perf=True, with_validation=True, test_module='ext_bottleneck', ref_module='pt_native', niters=20): # **kwargs):
     #print("dbg: index_list = ", index_list)
 
@@ -56,9 +56,10 @@ def xbf_tester(index_list, pbfs=None, pbfequal=None, has_downsample=None, loop_s
     #print("dbg: p_blocks = ", p_blocks)
 
     tuning_params = [ *p_blocks,
-                      pack_input_upfront, fuse_upd_transpose, use_f32_wt_reduction_and_external_wt_vnni,
+                      *use_nchw_formats,
+                      pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
                       acc_nw, par_over_h, compute_full_wt_output_block,
-                      hybrid
+                      hybrid, n_img_teams, n_ofm_teams
                     ]
 
     tuning_strings = [ loop_string_c1c3c4, loop_string_c2, loop_string_c1c3c4, loop_string_c1c3c4 ]
@@ -68,11 +69,12 @@ def xbf_tester(index_list, pbfs=None, pbfequal=None, has_downsample=None, loop_s
 
     #print("run_test_bottleneck is called", flush=True)
     #exit()
-    """
+    
     run_test_bottleneck(*nhwck_params, bs, bs, bs, bs, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm,
                          opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module,
                          tuning_params, tuning_strings, niters)
-    """
+    
+    exit()
     return print(index_list)
 
 #for_recursive(range_list = [range(0,1), range(0,2) , range(0,1)], execute_function = xbf_tester, number_of_loops=3)
@@ -155,7 +157,8 @@ for l in range(nBottlenecks):
     par_over_h_limit=1
     compute_full_wt_output_block_limit=1
     hybrid=0
-
+    n_img_teams=1
+    n_ofm_teams=1
     print("l = ", l)
 
     if l == 0:
@@ -258,6 +261,11 @@ for l in range(nBottlenecks):
 
     first_non_skipped_c1c3c4_line = None
 
+    use_nchw_formats = [1, 1, 1, 1]
+
+    if config_name_c2 == 'bottleneck_chwn':
+        use_nchw_formats[1] = 0
+
     for line_c1c3c4 in loop_lines[config_name_c1c3c4]:
         # Simple restrictions are here, but more could be applied below
         if   config_name_c1c3c4 == 'bottleneck_nchw_1x1' and not line_c1c3c4.startswith('Aef'):
@@ -342,11 +350,11 @@ for l in range(nBottlenecks):
                                     for_recursive(range_list = [*pf_ranges], execute_function = xbf_tester, number_of_loops = nbfloops,
                                                   pbfs=use_pbfs, pbfequal=pbfequal, bs = bs,
                                                   nhwck_params=base_sizes, stride = stride, eps = eps, expansion = expansion, has_downsample=downsample, niters=niters,
-                                                  pack_input_upfront=pack_input_upfront, fuse_upd_transpose=fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni=use_f32_wt_reduction_and_external_wt_vnni_limit,
+                                                  pack_input_upfront=pack_input_upfront, fuse_upd_transposes=fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni=use_f32_wt_reduction_and_external_wt_vnni_limit,
                                                   acc_nw=acc_nw, par_over_h=par_over_h, compute_full_wt_output_block=compute_full_wt_output_block,
-                                                  hybrid=hybrid,
+                                                  hybrid=hybrid, n_img_teams=n_img_teams, n_ofm_teams=n_ofm_teams,
                                                   opt_dtype = torch.bfloat16,
-                                                  loop_string_c1c3c4=line_c1c3c4, loop_string_c2=line_c2 )
+                                                  loop_string_c1c3c4=line_c1c3c4, loop_string_c2=line_c2, use_nchw_formats=use_nchw_formats )
                                     ncombinations = ncombinations + reduce(operator.mul, [len(rangevar) for rangevar in [*pf_ranges]])
                                     print("")
     print("script version, l, config_names, nlines_c1c3c4, nlines_c2, nlinecombs, ncombinations = ", script_version, l, config_name_c1c3c4, config_name_c2, nlines_c1c3c4, nlines_c2, nlinecombs, ncombinations)

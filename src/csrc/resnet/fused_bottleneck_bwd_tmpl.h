@@ -5,7 +5,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
 #define TIMING
 
-//#define VERBOSE
+#define VERBOSE
 
   auto grad_output  = inputs[0];
   auto conv1_input  = inputs[1];
@@ -78,6 +78,27 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 #endif
 
 #ifndef BWD_D_ONLY
+  const long p1_block = tuning_params_w[0];
+  const long p2_block = tuning_params_w[1];
+  const long p3_block = tuning_params_w[2];
+  const long p4_block = tuning_params_w[3];
+
+  const long c1_use_nchw_format = tuning_params_w[4];
+  const long c2_use_nchw_format = tuning_params_w[5];
+  const long c3_use_nchw_format = tuning_params_w[6];
+  const long c4_use_nchw_format = tuning_params_w[7];
+
+  const long pack_input_upfront                         = tuning_params_w[8];
+  const long fuse_upd_transposes                        = tuning_params_w[9];
+  const long use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[10];
+  const long bf16_acc_nw                                = tuning_params_w[11];
+  const long par_over_h_pixels                          = tuning_params_w[12];
+  const long compute_full_wt_output_block               = tuning_params_w[13];
+
+  const long use_hybrid_imgfm_parallelization           = tuning_params_w[14];
+  const long n_img_teams                                = tuning_params_w[15];
+  const long n_ofm_teams                                = tuning_params_w[16];
+
   const std::string cw1_string = tuning_strings_w[0];
   const std::string cw2_string = tuning_strings_w[1];
   const std::string cw3_string = tuning_strings_w[2];
@@ -159,11 +180,18 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   conv3_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
   auto conv3_grad_input = at::empty(bn3_grad_input.sizes(), torch::TensorOptions().dtype(bn3_grad_input.dtype()));//dummy_return;
-  conv3_grad_weight = conv_bwd_w_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {}, cw3_string, tuning_timings_d3);
+  conv3_grad_weight = conv_bwd_w_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
+                                      {p3_block, c3_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                      cw3_string, tuning_timings_w3);
 #else
   auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
                                        {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, cd3_string, tuning_timings_d3,
-                                       {}, cw3_string, tuning_timings_w3);
+                                       {p3_block, c3_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                       cw3_string, tuning_timings_w3);
   //conv_backward_new(cfg.conv3, bn3_grad_input /*grad_output*/, bn2_out, conv3_weight);
   auto conv3_grad_input = conv3_grad_ret[0];
   conv3_grad_weight     = conv3_grad_ret[1];
@@ -198,11 +226,18 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   conv2_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
   auto conv2_grad_input = at::empty(bn2_grad_input.sizes(), torch::TensorOptions().dtype(bn2_grad_input.dtype()));//dummy_return;
-  conv2_grad_weight = conv_bwd_w_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {}, cw2_string, tuning_timings_d2);
+  conv2_grad_weight = conv_bwd_w_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
+                                     {p2_block, c2_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                     cw2_string, tuning_timings_w2);
 #else
   auto conv2_grad_ret   = conv_bwd_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
                                        {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, cd2_string, tuning_timings_d2,
-                                       {}, cw2_string, tuning_timings_w2);
+                                       {p2_block, c2_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                       cw2_string, tuning_timings_w2);
   //conv_backward_new(cfg.conv2, bn2_grad_input /*grad_output*/, bn1_out, conv2_weight);
   auto conv2_grad_input = conv2_grad_ret[0];
   conv2_grad_weight     = conv2_grad_ret[1];
@@ -237,11 +272,18 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   conv1_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
   conv1_grad_input = at::empty(bn1_grad_input.sizes(), torch::TensorOptions().dtype(bn1_grad_input.dtype()));//dummy_return;
-  conv1_grad_weight = conv_bwd_w_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {}, cw1_string, tuning_timings_d1);
+  conv1_grad_weight = conv_bwd_w_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
+                                     {p1_block, c1_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                     cw1_string, tuning_timings_w1);
 #else
   auto conv1_grad_ret = conv_bwd_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
                                      {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, cd1_string, tuning_timings_d1,
-                                     {}, cw1_string, tuning_timings_w1);
+                                     {p1_block, c1_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                     cw1_string, tuning_timings_w1);
   //conv_backward_new(cfg.conv1, bn1_grad_input /*grad_output*/, conv1_input, conv1_weight);
   conv1_grad_input    = conv1_grad_ret[0];
   conv1_grad_weight   = conv1_grad_ret[1];
@@ -278,11 +320,18 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     conv4_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
     auto conv4_grad_input = at::empty(bn4_grad_input.sizes(), torch::TensorOptions().dtype(bn4_grad_input.dtype()));//dummy_return;
-    conv4_grad_weight = conv_bwd_w_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {}, cw4_string, tuning_timings_d4);
+    conv4_grad_weight = conv_bwd_w_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
+                                       {p4_block, c4_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                        cw4_string, tuning_timings_w4);
 #else
     auto conv4_grad_ret = conv_bwd_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
-                                       {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4,
-                                       {}, cw4_string, tuning_timings_w4);
+                                         {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4,
+                                         {p4_block, c4_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                            bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                              use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                         cw4_string, tuning_timings_w4);
     //conv_backward_new(cfg.conv4, bn4_grad_input /*grad_output*/, conv1_input, conv4_weight);
     conv4_grad_input    = conv4_grad_ret[0];
     conv4_grad_weight   = conv4_grad_ret[1];

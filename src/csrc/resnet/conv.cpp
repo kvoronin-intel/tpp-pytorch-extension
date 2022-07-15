@@ -126,13 +126,20 @@ at::Tensor conv_bwd_w_ext(
     std::string tuning_string,
     pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(BWD);
-/*
-  const long h_block = tuning_params[0];
-  const long w_block = tuning_params[1];
-  const long c_block = tuning_params[2];
-  const long k_block = tuning_params[3];
-  const long h_in_gemm = tuning_params[4];
-*/
+
+  int p_block = tuning_params[0];
+
+  int bf16_use_nchw_format                       = tuning_params[1];
+  int pack_input_upfront                         = tuning_params[2];
+  int fuse_upd_transposes                        = tuning_params[3];
+  int use_f32_wt_reduction_and_external_wt_vnni  = tuning_params[4];
+  int bf16_acc_nw                                = tuning_params[5];
+  int par_over_h_pixels                          = tuning_params[6];
+  int compute_full_wt_output_block               = tuning_params[7];
+  int use_hybrid_imgfm_parallelization           = tuning_params[8];
+  int n_img_teams                                = tuning_params[9];
+  int n_ofm_teams                                = tuning_params[10];
+
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
 #include "conv_bwd_w_tmpl.h"
@@ -145,19 +152,35 @@ at::Tensor conv_bwd_w_ext(
 at::Tensor conv_bwd_w(
     conv_config cfg,
     std::vector<at::Tensor> inputs) {
-/*
-  int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
-  int h_in_gemm = 1;
-  std::vector<int> default_tuning_params{h_block, w_block, c_block, k_block,
-                                         h_in_gemm};
-*/
-  std::vector<int> default_tuning_params{};
+
+  int p_block = 1;
+  int bf16_use_nchw_format                      = -1;
+  int pack_input_upfront                        = -1;
+  int fuse_upd_transposes                       = -1;
+  int par_over_h_pixels                         = -1;
+  int use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int bf16_acc_nw                               = -1;
+  int compute_full_wt_output_block              = -1;
+  int use_hybrid_imgfm_parallelization          = -1;
+  int n_img_teams                               = -1;
+  int n_ofm_teams                               = -1;
+  std::vector<int> default_tuning_params{p_block,
+                                         bf16_use_nchw_format,
+                                         pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                         bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                         use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
+
   pybind11::array_t<float> default_tuning_timings(16);
   float *ptr = default_tuning_timings.mutable_data();
   for (int i = 0; i < 16; i++)
       ptr[i] = 0.0;
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
-  std::string default_tuning_string{"Abcdefg"};
+  std::string default_tuning_string;
+  if (inputs[1].dtype() == at::kFloat)
+    default_tuning_string = "Abcdefg";
+  else
+    default_tuning_string = "Abcdef";
+  //std::string default_tuning_string{"Abcdefg"};
   return conv_bwd_w_ext(cfg, inputs, default_tuning_params, default_tuning_string, default_tuning_timings);
 }
 
@@ -200,12 +223,32 @@ std::vector<at::Tensor> conv_bwd(
       ptr_d[i] = 0.0;
   std::string default_tuning_string_d{"Abcdefg"};
 
-  std::vector<int> default_tuning_params_w{};
+  int p_block = 1;
+  int bf16_use_nchw_format                      = -1;
+  int pack_input_upfront                        = -1;
+  int fuse_upd_transposes                       = -1;
+  int par_over_h_pixels                         = -1;
+  int use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int bf16_acc_nw                               = -1;
+  int compute_full_wt_output_block              = -1;
+  int use_hybrid_imgfm_parallelization          = -1;
+  int n_img_teams                               = -1;
+  int n_ofm_teams                               = -1;
+  std::vector<int> default_tuning_params_w{p_block,
+                                           bf16_use_nchw_format,
+                                           pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                           use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
+
   pybind11::array_t<float> default_tuning_timings_w(16);
   float *ptr_w = default_tuning_timings_w.mutable_data();
   for (int i = 0; i < 16; i++)
       ptr_w[i] = 0.0;
-  std::string default_tuning_string_w{"Abcdefg"};
+  std::string default_tuning_string_w;
+  if (inputs[1].dtype() == at::kFloat)
+    default_tuning_string_w = "Abcdefg";
+  else
+    default_tuning_string_w = "Abcdef";
   return conv_bwd_ext(cfg, inputs,
                       default_tuning_params_d, default_tuning_string_d, default_tuning_timings_d,
                       default_tuning_params_w, default_tuning_string_w, default_tuning_timings_w);
@@ -323,6 +366,11 @@ double conv_bwd_d_get_gflop(conv_config cfg)
   return conv_fwd_get_gflop(cfg);
 }
 
+/* Loosely uses the ballpark esitmate of fwd */
+double conv_bwd_w_get_gflop(conv_config cfg)
+{
+  return conv_fwd_get_gflop(cfg);
+}
 
 REGISTER_SUBMODULE(_conv, m) {
   m.def(
@@ -347,7 +395,7 @@ REGISTER_SUBMODULE(_conv, m) {
   m.def("conv_fwd_get_gflop", &conv_fwd_get_gflop, "Pcl CONV get gflop count for fwd");
   m.def("conv_bwd_w", &conv_bwd_w, "Pcl CONV backward weight update");
   m.def("conv_bwd_w_ext", &conv_bwd_w_ext, "Pcl CONV backward weight update with extra (tuning) parameters");
-  //m.def("conv_bwd_w_get_gflop", &conv_bwd_w_get_gflop, "Pcl CONV get gflop count for bwd w");
+  m.def("conv_bwd_w_get_gflop", &conv_bwd_w_get_gflop, "Pcl CONV get gflop count for bwd w");
   m.def("conv_bwd_d", &conv_bwd_d, "Pcl CONV backward input update");
   m.def("conv_bwd_d_ext", &conv_bwd_d_ext, "Pcl CONV backward input update with extra (tuning) parameters");
   m.def("conv_bwd_d_get_gflop", &conv_bwd_d_get_gflop, "Pcl CONV get gflop count for bwd d");

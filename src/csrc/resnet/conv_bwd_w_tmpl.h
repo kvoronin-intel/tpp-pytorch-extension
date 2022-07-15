@@ -2,11 +2,66 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 
 // ( grad_output, input, weight) = inputs
 
-//#define VERBOSE
+#define VERBOSE
+
+#ifdef TIMING
+  double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0;
+#endif
+
+#ifdef TIMING
+t_start = getTime();
+#endif
+
+// Parameters:
+// p_block,  bf16_use_nchw_format,
+// pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+// bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+// use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams
+// MUST be defined outside
 
 auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
 auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
 auto t_W  = inputs[2];
+
+int is_fixed_bf16_use_nchw_format = 1;
+if (bf16_use_nchw_format == -1)
+  is_fixed_bf16_use_nchw_format = 0;
+
+int is_fixed_pack_input_upfront = 1;
+if (pack_input_upfront == -1)
+  is_fixed_pack_input_upfront = 0;
+
+int is_fixed_fuse_upd_transposes = 1;
+if (fuse_upd_transposes == -1)
+  is_fixed_fuse_upd_transposes = 0;
+
+int is_fixed_use_f32_wt_reduction_and_external_wt_vnni = 1;
+if (use_f32_wt_reduction_and_external_wt_vnni == -1)
+  is_fixed_use_f32_wt_reduction_and_external_wt_vnni = 0;
+
+int is_fixed_bf16_acc_nw = 1;
+if (bf16_acc_nw == -1)
+  is_fixed_bf16_acc_nw = 0;
+
+int is_fixed_par_over_h_pixels = 1;
+if (par_over_h_pixels == -1)
+  is_fixed_par_over_h_pixels = 0;
+
+int is_fixed_compute_full_wt_output_block = 1;
+if (compute_full_wt_output_block == -1)
+  is_fixed_compute_full_wt_output_block = 0;
+
+int is_fixed_use_hybrid_imgfm_parallelization = 1;
+if (use_hybrid_imgfm_parallelization == -1)
+  is_fixed_use_hybrid_imgfm_parallelization = 0;
+
+int is_fixed_n_img_teams = 1;
+if (n_img_teams == -1)
+  is_fixed_n_img_teams = 0;
+
+int is_fixed_n_ofm_teams = 1;
+if (n_ofm_teams == -1)
+  is_fixed_n_ofm_teams = 0;
 
 auto sizes = t_I.sizes();
 
@@ -67,17 +122,25 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long use_mb_par_f32 = 1; //1; FIXME back
 
   /* Fuse bf16 necessary transposes */
-  long bf16_use_nchw_format = 1;//1; // FIXME back!
+  if (!is_fixed_bf16_use_nchw_format)
+    bf16_use_nchw_format = 1;//1; // FIXME back!
   long bf16_use_chwn_format = 1;
-  long bf16_fuse_upd_transposes = 1;//1; FIXME back!
+  long bf16_fuse_upd_transposes = 1; //1; FIXME back!
+  if (!is_fixed_fuse_upd_transposes)
+    bf16_fuse_upd_transposes = 1;//1; FIXME back!
+  else
+    bf16_fuse_upd_transposes = fuse_upd_transposes;
 
   /* Control variants for chwn format */
-  long bf16_acc_nw = 1;
-  long par_over_h_pixels = 1;
+  if (!is_fixed_bf16_acc_nw)
+    bf16_acc_nw = 1;
+  if (!is_fixed_par_over_h_pixels)
+    par_over_h_pixels = 1;
   long use_private_trans = 0;
 
   /* Control variants for nchw format */
-  long pack_input_upfront = 0;
+  if (!is_fixed_pack_input_upfront)
+    pack_input_upfront = 0;
   long compute_pixels = 0;
   long remainder_pixels = 0;
   long upd_remaining_pixels = 0;
@@ -89,26 +152,38 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long pixel_blocking = 0;
   long n_used_pixels = 0;
   long use_intermediate_f32_wt_tensor = 0;
-  long use_hybrid_imgfm_parallelization = 0; //0; FIXME back
-  long n_img_teams = 7;
-  long n_ofm_teams = 4;
+  if (!is_fixed_use_hybrid_imgfm_parallelization)
+    use_hybrid_imgfm_parallelization = 0; //0; FIXME back
+  if (!is_fixed_n_img_teams)
+    n_img_teams = 7;
+  if (!is_fixed_n_ofm_teams)
+    n_ofm_teams = 4;
   long weight_copies = 0;
   long multiple_target = 2;
   long max_compute_offset_input = 0;
-  long use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
-  long compute_full_wt_output_block = 0; // 0; FIXME back
+  if (!is_fixed_use_f32_wt_reduction_and_external_wt_vnni)
+    use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
+  if (!is_fixed_compute_full_wt_output_block)
+    compute_full_wt_output_block = 0; // 0; FIXME back
 
-  long pixels_blocking_factor = 1;
+  long pixels_blocking_factor = p_block;//1;
 
   if(R == 3 && S == 3 && (stride_w != 1 || stride_h != 1)) {
+    if (!is_fixed_bf16_use_nchw_format && !is_fixed_compute_full_wt_output_block && !is_fixed_n_img_teams && !is_fixed_n_ofm_teams  ) {
 #ifdef VERBOSE
-    printf("Tweaking the setup for 3x3 strided convs: nchw = 0, compute_full_wt_output_block = 0\n");
+      printf("Tweaking the setup for 3x3 strided convs: nchw = 0, compute_full_wt_output_block = 0\n");
 #endif
-    bf16_use_nchw_format = 0;
-    compute_full_wt_output_block = 0;
-    n_img_teams = 1;
-    n_ofm_teams = 1;
+      bf16_use_nchw_format = 0;
+      compute_full_wt_output_block = 0;
+      n_img_teams = 1;
+      n_ofm_teams = 1;
+    } else {
+#ifdef VERBOSE
+      printf("Critical: if not fixed tuning params, would tweak the setup for 3x3 strided convs: nchw = 0, compute_full_wt_output_block = 0\n");
+#endif
+    }
   }
+
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
   use_private_trans = bf16_fuse_upd_transposes;
 
@@ -154,20 +229,60 @@ if (sizeof(T) == 2) {
     if (bf16_use_nchw_format > 0) {
       int do_not_reset_use_intermediate_f32_wt_tensor = 0;
       if (R == 1 && S == 1 && (stride_w != 1 || stride_h != 1)) {
-        pack_input_upfront = 1;
+        if (!is_fixed_pack_input_upfront) {
+#ifdef VERBOSE
+          printf("Tweaking the setup for 1x1 strided convs: pack_input_upfront = 1\n");
+#endif
+          pack_input_upfront = 1;
+        } else {
+#ifdef VERBOSE
+          printf("Critical: if noit fixed tuning params, would tweak the setup for 1x1 strided convs: pack_input_upfront = 1\n");
+#endif
+        }
         /* FIXME: Heuristic to fix cases like  28 14 14 1024 2048 1 1 2 2 0 0 64 64 (autotuner cmd input line) */
         if (stride_w == 2 || stride_h == 2) {
+          if (use_hybrid_imgfm_parallelization) {
+            if (!is_fixed_n_img_teams && !is_fixed_n_ofm_teams) {
 #ifdef VERBOSE
-          printf("Tweaking the setup for 1x1 strided convs: teams = 1, upd_transpose = 0, f32_intermediate = 1\n");
+              printf("Tweaking the setup for 1x1 strided convs: teams = 1\n");
 #endif
-          n_img_teams = 1;
-          n_ofm_teams = 1;
-          bf16_fuse_upd_transposes = 0;
+              n_img_teams = 1;
+              n_ofm_teams = 1;
+            } else {
+#ifdef VERBOSE
+              printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs: teams = 1\n");
+#endif
+            }
+          }
+
+          if (!is_fixed_fuse_upd_transposes) {
+#ifdef VERBOSE
+            printf("Tweaking the setup for 1x1 strided convs: upd_transpose = 0\n");
+#endif
+            bf16_fuse_upd_transposes = 0;
+          } else {
+#ifdef VERBOSE
+              printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs: upd_transpose = 0\n");
+#endif
+          }
+#ifdef VERBOSE
+          printf("Tweaking the setup for 1x1 strided convs: f32_intermediate = 1\n");
+#endif
+          //bf16_fuse_upd_transposes = 0;
           use_intermediate_f32_wt_tensor = 1;
           do_not_reset_use_intermediate_f32_wt_tensor = 1;
         }
       } else {
-        pack_input_upfront = 0;
+        if (!is_fixed_pack_input_upfront) {
+#ifdef VERBOSE
+          printf("Tweaking the setup for 1x1 strided convs with stride != 2: pack_input_upfront = 0\n");
+#endif
+          pack_input_upfront = 0;
+        } else {
+#ifdef VERBOSE
+          printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs with stride != 2: pack_input_upfront = 0\n");
+#endif
+        }
       }
       compute_pixels = ofw * ofh + 2 * pad_w * (ofh-1);
       remainder_pixels = (compute_pixels % multiple_target == 0) ? 0 : (compute_pixels/multiple_target+1)*multiple_target - compute_pixels;
@@ -238,15 +353,19 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 #endif
     sprintf(fp32_conv_spec_string, "abcdefg"); // specifically for checking the case use_mb_par_f32 = 0
   } else
-    sprintf(fp32_conv_spec_string, "Abcdefg");
+    sprintf(fp32_conv_spec_string, tuning_string.c_str());// "Abcdefg");
 
+#if 0
   if (R == 3 && S == 3 && (stride_w != 1 || stride_h != 1)) {
+
 #ifdef VERBOSE
     printf("Tweaking the setup for 3x3 strided convs: abcdef loop string\n");
 #endif
     sprintf(bf16_conv_spec_string, "abcdef"); /* can't have parallelism in N */
-  } else {
-    sprintf(bf16_conv_spec_string, "Abcdef");
+  } else
+#endif
+  {
+    sprintf(bf16_conv_spec_string, tuning_string.c_str());// "Abcdef");
   }
   //sprintf(bf16_conv_spec_string, "A{C:7}bC{R:4}def");//specifically to test the code path with col_id = ind[9]
 
@@ -254,7 +373,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 #ifdef VERBOSE
     printf("Tweaking the setup for hybrid: upd_transpose = 0\n");
 #endif
-    bf16_fuse_upd_transposes = 0;
+    bf16_fuse_upd_transposes = 0; // should be moved into the auto-tuner script as a condition
     weight_copies = n_img_teams;
   } else {
     weight_copies = nThreads;
@@ -555,7 +674,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     h_step = 1;
   }
 
-  auto conv_loop_bf16 = ThreadedLoop<6>({
+  auto conv_loop_bf16_chwn = ThreadedLoop<6>({
       LoopSpecs{0, Cb, c_step, false},//true},
       LoopSpecs{0, Kb, k_step, false},//true},
       LoopSpecs{0, ofh, h_step},
@@ -628,12 +747,17 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   printf("      use_f32_wt_reduction_and_external_wt_vnni = %d \n", use_f32_wt_reduction_and_external_wt_vnni);
   printf("      compute_full_wt_output_block    = %d \n", compute_full_wt_output_block);
 #endif
-//  std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
-//  std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
-//  std::cout << "bf16_upfront_trans = " << bf16_upfront_trans << std::endl;
-//  std::cout << "use_private_trans = " << use_private_trans << std::endl;
-//  std::cout << "use_mb_par = " << use_mb_par << std::endl;
-//  std::cout << "par_over_h_pixels = " << par_over_h_pixels << std::endl;
+
+#ifdef VERBOSE
+  std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+  std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
+  std::cout << "use_private_trans = " << use_private_trans << std::endl;
+  std::cout << "use_mb_par_f32 = " << use_mb_par_f32 << std::endl;
+#endif
+
+#ifdef TIMING
+  t_conv_start = getTime();
+#endif
 
   {
     RECORD_SCOPE(conv_bwd_upd, {});
@@ -1032,7 +1156,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
             memset(trans_tracker.get(), 0, trans_tracker_size*nThreads*sizeof(int));
           }
 
-          conv_loop_bf16(
+          conv_loop_bf16_chwn(
             [&](int* ind) {
               int i_c = ind[0], i_k = ind[1], i_h = ind[2], i_w = ind[3], i_r = ind[4], i_s = ind[5];
               int tid = omp_get_thread_num();
@@ -1146,6 +1270,19 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 //return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
 
 } /* end of the dummy scope */
+
+#ifdef TIMING
+  t_end = getTime();
+#endif
+
+#ifdef TIMING
+  auto buf = tuning_timings.request();
+  float* ptr = (float*)buf.ptr;
+  //printf("dbg: in conv_bwd_w_tmpl.h adding %f to current %f timer \n", (t_end - t_conv_start), ptr[0]);
+  ptr[0] += t_end - t_conv_start;
+  ptr[1] += 0.0;
+  ptr[2] += t_end - t_start;
+#endif
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 return t_grad_weight;
