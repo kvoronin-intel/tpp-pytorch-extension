@@ -236,7 +236,7 @@ if (sizeof(T) == 2) {
           pack_input_upfront = 1;
         } else {
 #ifdef VERBOSE
-          printf("Critical: if noit fixed tuning params, would tweak the setup for 1x1 strided convs: pack_input_upfront = 1\n");
+          printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs: pack_input_upfront = 1\n");
 #endif
         }
         /* FIXME: Heuristic to fix cases like  28 14 14 1024 2048 1 1 2 2 0 0 64 64 (autotuner cmd input line) */
@@ -273,16 +273,16 @@ if (sizeof(T) == 2) {
           do_not_reset_use_intermediate_f32_wt_tensor = 1;
         }
       } else {
-        if (!is_fixed_pack_input_upfront) {
+//        if (!is_fixed_pack_input_upfront) {
 #ifdef VERBOSE
           printf("Tweaking the setup for 1x1 strided convs with stride != 2: pack_input_upfront = 0\n");
 #endif
           pack_input_upfront = 0;
-        } else {
-#ifdef VERBOSE
-          printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs with stride != 2: pack_input_upfront = 0\n");
-#endif
-        }
+//        } else {
+//#ifdef VERBOSE
+//          printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs with stride != 2: pack_input_upfront = 0\n");
+//#endif
+//        }
       }
       compute_pixels = ofw * ofh + 2 * pad_w * (ofh-1);
       remainder_pixels = (compute_pixels % multiple_target == 0) ? 0 : (compute_pixels/multiple_target+1)*multiple_target - compute_pixels;

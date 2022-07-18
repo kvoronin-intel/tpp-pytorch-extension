@@ -179,7 +179,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto conv3_grad_input = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, cd3_string, tuning_timings_d3);
   conv3_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
-  auto conv3_grad_input = at::empty(bn3_grad_input.sizes(), torch::TensorOptions().dtype(bn3_grad_input.dtype()));//dummy_return;
+  auto conv3_grad_input = at::empty(bn2_out.sizes(), torch::TensorOptions().dtype(bn2_out.dtype()));//dummy_return;
   conv3_grad_weight = conv_bwd_w_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
                                       {p3_block, c3_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
@@ -225,7 +225,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto conv2_grad_input = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, cd2_string, tuning_timings_d2);
   conv2_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
-  auto conv2_grad_input = at::empty(bn2_grad_input.sizes(), torch::TensorOptions().dtype(bn2_grad_input.dtype()));//dummy_return;
+  auto conv2_grad_input = at::empty(bn1_out.sizes(), torch::TensorOptions().dtype(bn1_out.dtype()));//dummy_return;
   conv2_grad_weight = conv_bwd_w_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
                                      {p2_block, c2_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
@@ -271,7 +271,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   conv1_grad_input = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, cd1_string, tuning_timings_d1);
   conv1_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
-  conv1_grad_input = at::empty(bn1_grad_input.sizes(), torch::TensorOptions().dtype(bn1_grad_input.dtype()));//dummy_return;
+  conv1_grad_input = at::empty(conv1_input.sizes(), torch::TensorOptions().dtype(conv1_input.dtype()));//dummy_return;
   conv1_grad_weight = conv_bwd_w_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
                                      {p1_block, c1_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
@@ -319,7 +319,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     auto conv4_grad_input = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4);
     conv4_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
-    auto conv4_grad_input = at::empty(bn4_grad_input.sizes(), torch::TensorOptions().dtype(bn4_grad_input.dtype()));//dummy_return;
+    auto conv4_grad_input = at::empty(conv1_input.sizes(), torch::TensorOptions().dtype(conv1_input.dtype()));//dummy_return;
     conv4_grad_weight = conv_bwd_w_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
                                        {p4_block, c4_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,

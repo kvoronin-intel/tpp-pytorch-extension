@@ -94,7 +94,8 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
 
 #ifdef VERBOSE
   std::cout << "padding = " << padding << std::endl;
-  std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+  std::cout << "t_GO sizes = " << t_GO.sizes() << std::endl;
+  std::cout << "t_I  sizes = " << t_I.sizes() << std::endl;
   std::cout << "use_hw_blocking spatial_block_size = " << use_hw_blocking << " " << spatial_block_size << std::endl;
   std::cout << "relu eltwise = " << relu << " " << eltwise << std::endl;
 #endif
