@@ -68,8 +68,8 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         tuning_params_count = 6
     elif perf_bwd_d:
         tuning_params_count = 5
-    elif perf_bwd_wd:
-        tuning_params_count = -1
+    elif perf_bwd_w:
+        tuning_params_count = 11
 
     if tuning_params is not None and len(tuning_params) != tuning_params_count:
         print("Wrong length of the tuning params (must be " + str(tuning_params_count) + " if present) = " + str(tuning_params) + " " + str(len(tuning_params)))
@@ -85,6 +85,17 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
             print("info: tuning params: h_in_gemm = ", h_in_gemm)
             if perf_fwd:
                 print("info: pack input for 1x1 strided = ", pack_input_for_1x1_strided)
+        if perf_bwd_w:
+            [p_block,
+               bf16_use_nchw_format,
+               pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+               bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+               use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams ] = tuning_params
+            print("info: tuning params: p_block = ", p_block)
+            print("info: tuning params: bf16_use_nchw_format = ", bf16_use_nchw_format)
+            print("info: tuning params: pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni = ", pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni)
+            print("info: tuning params: bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block = ", bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block)
+            print("info: tuning params: use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams = ", use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams)
     else:
         tuning_params = None
         print("info: tuning params are empty")
@@ -254,7 +265,15 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     print("Setting up the data for the modules took (s) ", time_end - time_start)
     time_start = time.time()
 
-    y1 = opt_conv(x1) #xp)
+    dummy_tuning_timings = np.zeros(16, dtype=np.float32)
+    if perf_fwd:
+        y1 = opt_conv(x1, tuning_params=tuning_params, tuning_string=tuning_string, tuning_timings_fwd=dummy_tuning_timings)
+    elif perf_bwd_d:
+        y1 = opt_conv(x1, tuning_params_d=tuning_params, tuning_string_d=tuning_string, tuning_timings_d=dummy_tuning_timings)
+    elif perf_bwd_w:
+        y1 = opt_conv(x1, tuning_params_w=tuning_params, tuning_string_w=tuning_string, tuning_timings_w=dummy_tuning_timings)
+
+    #y1 = opt_conv(x1) #xp)
 
     time_end = time.time()
     print("First forward took (s) ", time_end - time_start)
@@ -294,9 +313,13 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     #    print("i y1 y2 = ", i, y1.view(-1)[i].item(), y2.view(-1)[i].item())
     #for i in range(10):
     #    print("i y1 y2 = ", -i-1, y1.view(-1)[-i-1].item(), y2.view(-1)[-i-1].item())
-    
+
+    # Very loose tolerances to check only obvious errors
+    rtol=1.5e-1
+    atol=1e+0
+
     # Output (fwd)
-    compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", outW, output_hw_padding, zero_rim_for_opt = True)
+    validation_check_fwd_failed = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", outW, output_hw_padding, zero_rim_for_opt = True, rtol=rtol, atol=atol)
 
     time_end = time.time()
     print("Validating tensors for fwd took (s) ", time_end - time_start)
@@ -368,19 +391,37 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         time_start = time.time()
 
         # X gradient
-        compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, zero_rim_for_opt = True)
+        validation_check_bwd_d_failed = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, zero_rim_for_opt = True, rtol=rtol, atol=atol)
 
         # Bias gradient
         if has_bias:
-          compare_padded_tensors(opt_conv.bias.grad, torch_conv.bias.grad, "Bias Grad")
+          validation_check_bwd_bias_failed = not compare_padded_tensors(opt_conv.bias.grad, torch_conv.bias.grad, "Bias Grad", rtol=rtol, atol=atol)
+        else:
+          validation_check_bwd_bias_failed = False
 
         # Weight gradient
-        compare_weight_grads( opt_conv.weight.grad, torch_conv.weight.grad, "conv")
+        validation_check_bwd_w_failed = not compare_weight_grads( opt_conv.weight.grad, torch_conv.weight.grad, "W Grad", rtol=rtol, atol=atol)
+
+        validation_checks_failed = validation_check_fwd_failed or validation_check_bwd_d_failed or validation_check_bwd_bias_failed or validation_check_bwd_w_failed
+        print("validation_check_fwd_failed      = ", validation_check_fwd_failed)
+        print("validation_check_bwd_d_failed    = ", validation_check_bwd_d_failed)
+        print("validation_check_bwd_bias_failed = ", validation_check_bwd_bias_failed)
+        print("validation_check_bwd_w_failed    = ", validation_check_bwd_w_failed)
 
         time_end = time.time()
         print("Validating tensors for backward took (s) ", time_end - time_start)
         time_start = time.time()
 
+        if validation_checks_failed:
+            print("Validation FAILED")
+        else:
+            print("Validation PASSED")
+    else:
+        if validation_checks_fwd_failed:
+            print("Validation FAILED")
+        else:
+            print("Validation PASSED")
+    #exit()
     """
     counter = 0
     counter_reldiff = 0
@@ -526,8 +567,61 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("timing diff vs conv_bwd_d_tmpl (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
 
     if perf_bwd_w:
-        print("Error: perf_bwd_w = True is not supported")
-        exit()
+        inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
+
+        warmup_niter = 5
+        #logging.info("warmup_niter = ", warmup_niter)
+        print("warmup_niter = ", warmup_niter)
+
+        #dummy_tuning_timings = [0.0] * 16
+        dummy_tuning_timings = np.zeros(16, dtype=np.float32)
+        time_start = time.time()
+
+        for i in range(warmup_niter):
+            if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or dummy_tuning_timings is None:
+                conv_cpp.conv_bwd_w(conv_cfg, inputs)
+            else:
+                conv_cpp.conv_bwd_w_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+
+        time_end = time.time()
+        print("Warmup took (s) ", time_end - time_start)
+
+        timed_niters = niters
+        #logging.info("timed_niters = ", timed_niters)
+        print("timed_niters = ", timed_niters)
+
+        #tuning_timings = [0.0] * 16
+        tuning_timings = np.zeros(16, dtype=np.float32)
+        #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+
+        time_start = time.time()
+        for i in range(timed_niters):
+            if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or tuning_timings is None:
+                conv_cpp.conv_bwd_w(conv_cfg, inputs)
+            else:
+                conv_cpp.conv_bwd_w_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings)
+        time_end = time.time()
+        time_per_iter = (time_end - time_start) / timed_niters
+
+        #print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+
+        print("Timed loop took (s) ", time_end - time_start)
+        print("Final perf time: ", time_per_iter)
+        gflop = conv_cpp.conv_bwd_w_get_gflop(conv_cfg)
+        basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride)
+        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_string: " + str(tuning_string))
+
+        # Checking the timings
+        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop, gflop / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
+
+        sum_timings = tuning_timings[0]
+        print("timing diff vs pure conv (part of conv_bwd_w_tmpl) (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+
+        sum_timings = tuning_timings[2]
+        print("timing diff vs conv_bwd_w_tmpl (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+
+        #print("Error: perf_bwd_w = True is not supported")
+        #exit()
 
     return
 

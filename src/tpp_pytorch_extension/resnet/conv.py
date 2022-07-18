@@ -16,7 +16,7 @@ from contextlib import contextmanager
 
 class DummyConvTPP(Function):
     @staticmethod
-    def forward(ctx, param_struct, *inputs):
+    def forward(ctx, param_struct, tuning_params, tuning_string, tuning_timings_fwd, tuning_params_d, tuning_string_d, tuning_timings_d, tuning_params_w, tuning_string_w, tuning_timings_w, *inputs):
 
         output = conv_cpp.conv_fwd(param_struct, inputs)
 
@@ -24,6 +24,13 @@ class DummyConvTPP(Function):
 
         ctx.save_for_backward(input, weight)
         ctx.param_struct = param_struct
+
+        ctx.tuning_params_d    = tuning_params_d
+        ctx.tuning_string_d    = tuning_string_d
+        ctx.tuning_timings_d   = tuning_timings_d
+        ctx.tuning_params_w    = tuning_params_w
+        ctx.tuning_string_w    = tuning_string_w
+        ctx.tuning_timings_w   = tuning_timings_w
 
         """
         print("debug: conv input shape = ",  input.shape)
@@ -54,6 +61,13 @@ class DummyConvTPP(Function):
         grad_output, = grad_outs
         param_struct = ctx.param_struct
 
+        tuning_params_d    = ctx.tuning_params_d
+        tuning_string_d   = ctx.tuning_string_d
+        tuning_timings_d   = ctx.tuning_timings_d
+        tuning_params_w    = ctx.tuning_params_w
+        tuning_string_w   = ctx.tuning_string_w
+        tuning_timings_w   = ctx.tuning_timings_w
+
         """
         for i in range(10):
             ind = i + 0 #shift_weight
@@ -61,10 +75,25 @@ class DummyConvTPP(Function):
         """
 
         if input.requires_grad:
+            if (tuning_params_d is None or tuning_string_d is None or len(tuning_params_d) == 0 or len(tuning_string_d) == 0 or tuning_timings_d is None):
+                grad_input = conv_cpp.conv_bwd_d(param_struct, inputs) #handle.handle, grad_output, input, weight)
+            else:
+                grad_input = conv_cpp.conv_bwd_d_ext(param_struct, inputs, tuning_params_d, tuning_string_d, tuning_timings_d) #handle.handle, grad_output, input, weight)
+        else:
+            grad_input    = None
+
+        if (tuning_params_w is None or tuning_string_w is None or len(tuning_params_w) == 0 or len(tuning_string_w) == 0 or tuning_timings_w is None):
+            grad_weight = conv_cpp.conv_bwd_w(param_struct, inputs) #handle.handle, grad_output, input, weight)
+        else:
+            grad_weight = conv_cpp.conv_bwd_w_ext(param_struct, inputs, tuning_params_w, tuning_string_w, tuning_timings_w) #handle.handle, grad_output, input, weight)
+
+        """
+        if input.requires_grad:
           grad_input, grad_weight = conv_cpp.conv_bwd(param_struct, inputs) #grad_output, input, weight)
         else:
           grad_input    = None
           [grad_weight] = conv_cpp.conv_bwd(param_struct, inputs) #handle.handle, grad_output, input, weight)
+        """
 
         """
         print("debug: pad_h = ", param_struct.pad_h)
@@ -99,7 +128,11 @@ class DummyConvTPP(Function):
             print("debug: i bwd grad weight  = ", ind, grad_weight.view(-1)[ind].item())
         """
 
-        return (None, grad_input, grad_weight)
+        return (None, # for param_struct
+                None, None, None, # for tuning_params, tuning_string and tuning_timings_fwd
+                None, None, None, # for tuning_params_d, tuning_string_d, tuning_timings_d
+                None, None, None, # for tuning_params_w, tuning_string_w and tuning_timings_w
+                grad_input, grad_weight)
 
 class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
     r"""PCL Conv2d module for using libxsmm Conv TPP"""
@@ -185,7 +218,10 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         self.weight.block()
         #self.bias.block()
 
-    def forward(self, input):
+    def forward(self, input,
+                      tuning_params=None, tuning_string=None, tuning_timings_fwd=None,
+                      tuning_params_d=None, tuning_string_d=None, tuning_timings_d=None,
+                      tuning_params_w=None, tuning_string_w=None, tuning_timings_w=None):
         #print('Conv Input {} Padding:{} Stride:{}'.format(input.shape, self.padding, self.stride))
         self.maybe_block_params()
 
@@ -235,7 +271,9 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
 
         inputs = [blocked_input, self.weight]
 
-        output = DummyConvTPP.apply(self.config, *inputs) #blocked_input, self.weight, self.xsmm_handle, output_size)
+        output = DummyConvTPP.apply(self.config, tuning_params, tuning_string, tuning_timings_fwd,
+                                                tuning_params_d, tuning_string_d, tuning_timings_d,
+                                                tuning_params_w, tuning_string_w, tuning_timings_w, *inputs ) #blocked_input, self.weight, self.xsmm_handle, output_size)
 
         blocked_output = BlockedTensor(output, self.blocked_output_signature)
 
