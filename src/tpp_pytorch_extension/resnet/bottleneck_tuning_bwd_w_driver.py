@@ -278,7 +278,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     time_start = time.time()
 
     if with_validation:
-        rtol=1e-2
+        rtol=1.5e-1
         atol=1e+0
 
         #logging.debug("running ref bottleneck forward")
@@ -299,39 +299,50 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         # Y (Out)
 
-        validation_check_failed1 = compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
+        validation_check_failed1 = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
 
         z1.backward(retain_graph=True)
         z2.backward(retain_graph=True)
 
         # X gradient
 
-        validation_check_failed2 = compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
+        validation_check_failed2 = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
 
         # Weight gradients for batchnorms
 
-        validation_check_failed3 = compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
-        validation_check_failed4 = compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
-        validation_check_failed5 = compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
+        validation_check_failed3 = not compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
+        validation_check_failed4 = not compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
+        validation_check_failed5 = not compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
         if has_downsample:
-            validation_check_failed6 = compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
+            validation_check_failed6 = not compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
         else:
             validation_check_failed6 = False
 
         # Weight gradients for convs
 
-        validation_check_failed7 = compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
-        validation_check_failed8 = compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
-        validation_check_failed9 = compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
+        validation_check_failed7 = not compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
+        validation_check_failed8 = not compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
+        validation_check_failed9 = not compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
         if has_downsample:
-            validation_check_failed10 = compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
+            validation_check_failed10 = not compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
         else:
             validation_check_failed10 = False
 
-        validation_checks_failed = validation_check_failed1 and validation_check_failed2 and validation_check_failed3 and validation_check_failed4 and validation_check_failed5 and validation_check_failed6 and validation_check_failed7 and validation_check_failed8 and validation_check_failed9 and validation_check_failed10
+        validation_checks_failed = validation_check_failed1 or validation_check_failed2 or validation_check_failed3 or validation_check_failed4 or validation_check_failed5 or validation_check_failed6 or validation_check_failed7 or validation_check_failed8 or validation_check_failed9 or validation_check_failed10
+
+        print("validation_check_failed1 = ", validation_check_failed1)
+        print("validation_check_failed2 = ", validation_check_failed2)
+        print("validation_check_failed3 = ", validation_check_failed3)
+        print("validation_check_failed4 = ", validation_check_failed4)
+        print("validation_check_failed5 = ", validation_check_failed5)
+        print("validation_check_failed6 = ", validation_check_failed6)
+        print("validation_check_failed7 = ", validation_check_failed7)
+        print("validation_check_failed8 = ", validation_check_failed8)
+        print("validation_check_failed9 = ", validation_check_failed9)
+        print("validation_check_failed10 = ", validation_check_failed10)
 
         #validation_checks_failed = validation_check_failed1
-        if not validation_checks_failed:
+        if validation_checks_failed:
             print("Validation FAILED")
         else:
             print("Validation PASSED")
@@ -355,26 +366,29 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         conv1_out = torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
         bn1_out   = torch.nn.functional.pad(conv1_out, [1, 1, 1, 1], mode='constant', value=0.0) #torch.randn(N, outc, H+2, W+2, requires_grad=False, dtype=opt_dtype)
-        conv2_out = bn1_out.clone()
-        bn2_out   = conv1_out.clone()#torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
-        conv3_out = torch.randn(N, inc*expansion, H, W, requires_grad=False, dtype=opt_dtype)
+        if stride == 1:
+            conv2_out = bn1_out.clone()
+        else:
+            tmp = torch.randn(N, outc, H//stride, W//stride, requires_grad=False, dtype=opt_dtype)
+            conv2_out = torch.nn.functional.pad(tmp, [1, 1, 1, 1], mode='constant', value=0.0)
+        if stride == 1:
+            bn2_out = conv1_out.clone()#torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
+        else:
+            bn2_out = torch.randn(N, outc, H//stride, W//stride, requires_grad=False, dtype=opt_dtype)
+        conv3_out = torch.randn(N, outc*expansion, H//stride, W//stride, requires_grad=False, dtype=opt_dtype)
         bn3_out   = conv3_out.clone() #torch.randn_like(conv3_out)
         conv4_out = conv3_out.clone() #torch.randn_like(conv3_out)
         bn4_out   = conv3_out.clone() #torch.randn_like(conv3_out)
 
-        #bn1_relu_out   = torch.randint(bn1_out.shape, dtype=torch.int32, low=0, high=1)
         bn1_relu_out = bn1_out.to(torch.uint8)
         bn2_relu_out = bn2_out.to(torch.uint8)
         bn3_relu_out = bn3_out.to(torch.uint8)
         bn4_relu_out = bn4_out.to(torch.uint8)
-        #bn2_relu_out   = torch.randint(bn2_out.shape, dtype=torch.int32, low=0, high=1)
-        #bn3_relu_out   = torch.randint(bn3_out.shape, dtype=torch.int32, low=0, high=1)
-        #bn4_relu_out   = torch.randint(bn4_out.shape, dtype=torch.int32, low=0, high=1)
 
         bn1_scratch    = torch.empty(10, N, outc, requires_grad=False, dtype=torch.float32)
         bn2_scratch    = torch.empty(10, N, outc, requires_grad=False, dtype=torch.float32)
-        bn3_scratch    = torch.empty(10, N, inc*expansion, requires_grad=False, dtype=torch.float32)
-        bn4_scratch    = torch.empty(10, N, inc*expansion, requires_grad=False, dtype=torch.float32)
+        bn3_scratch    = torch.empty(10, N, outc*expansion, requires_grad=False, dtype=torch.float32)
+        bn4_scratch    = torch.empty(10, N, outc*expansion, requires_grad=False, dtype=torch.float32)
 
         artificial_tensors = []
         for t in [conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out]:
