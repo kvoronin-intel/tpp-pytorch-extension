@@ -106,6 +106,7 @@ std::cout << "R = " << R << " S = " << S << std::endl;
 std::cout << "stride_h = " << stride_h << " stride_w = " << stride_w << std::endl;
 std::cout << "pad_h_in = " << pad_h_in << " pad_w_in = " << pad_w_in << std::endl;
 std::cout << "Cb Kb bc Kb bk = " << Cb << " " << Kb << " " << bc << " " << Kb << " " << bk << std::endl;
+std::cout << "tuning_string = " << tuning_string << std::endl;
 //std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
 #endif
 
@@ -633,6 +634,8 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                                                                                                 << Kb << " " << k_step << " " << ofh << " " << h_step << " "
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
+  std::cout << "bf16_conv_spec_string = " << bf16_conv_spec_string << std::endl;
+  std::cout << "fp32_conv_spec_string = " << fp32_conv_spec_string << std::endl;
 #endif
 
   auto zero_wt_loop = ThreadedLoop<5>({
@@ -643,7 +646,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
       LoopSpecs{0, S, s_step}},
       "Abcde");
 
-  auto conv_bwd_upd_loop = ThreadedLoop<7>({
+  auto conv_loop_f32 = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step},//, true},
       LoopSpecs{0, Cb, c_step},//, true},
       LoopSpecs{0, Kb, k_step},//, true},
@@ -766,7 +769,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         if (use_mb_par_f32 == 0) {
           //printf("Case use_mb_par_f32 == 0 is untested so far!\n"); exit(-1);
 
-          conv_bwd_upd_loop(
+          conv_loop_f32(
             [&](int* ind) {
               int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
 
@@ -800,7 +803,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
             [&]() {},
             [&]() {});
 
-          conv_bwd_upd_loop(
+          conv_loop_f32(
             [&](int* ind) {
               int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
               int tid = omp_get_thread_num();
