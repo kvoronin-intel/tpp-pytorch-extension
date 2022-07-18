@@ -11,7 +11,7 @@ import time
 
 from bottleneck_tuning_bwd_w_driver import run_test_bottleneck
 
-script_version='v3'
+script_version='v4'
 
 # A helper
 def for_recursive(number_of_loops, range_list, execute_function, current_index=0, iter_list = [], **kwargs):
@@ -133,7 +133,7 @@ for name in loop_names:
 
 #exit()
 
-nBottlenecks = 6 #6 #8
+nBottlenecks = 8 #6 #8
 
 # fixed defaults for all bottlenecks (non-tunable)
 expansion=4
@@ -142,7 +142,7 @@ eps=1e-7
 nthreads=int(os.getenv("OMP_NUM_THREADS"))
 print("dbg: nthreads = ", nthreads)
 
-for l in [2, 3, 4, 5]: #range(nBottlenecks):
+for l in [6, 7]: #[2, 3, 4, 5]: #range(nBottlenecks):
     #file_path = 'bottleneck_' + str(l) + '_tuning_dbg.txt'
     #sys.stdout = open(file_path, "w")
 
@@ -291,6 +291,11 @@ for l in [2, 3, 4, 5]: #range(nBottlenecks):
             range_for_pack = range(0, pack_input_upfront_limit + 1)
         for pack_input_upfront in range_for_pack:
             for fuse_upd_transposes in range (0, fuse_upd_transposes_limit + 1):
+
+                # Only while debugging
+                if stride == 2 and pack_input_upfront == 1 and fuse_upd_transposes == 1:
+                    continue
+
                 for use_f32_wt_reduction_and_external_wt_vnni in range (0, use_f32_wt_reduction_and_external_wt_vnni_limit + 1):
 
                     for line_c2 in loop_lines[config_name_c2]:
@@ -358,7 +363,8 @@ for l in [2, 3, 4, 5]: #range(nBottlenecks):
                                 if par_over_h == 1 and not "C" in line_c2:
                                     continue
                                 # Do we need to have necessarily "c" if par_over_h == 0?
-                                for compute_full_wt_output_block in range(0, compute_full_wt_output_block_limit + 1):
+                                # Just while debugging, disabling the option compute_full_wt_output_block = 1
+                                for compute_full_wt_output_block in range(0,1): #range(0, compute_full_wt_output_block_limit + 1):
                                     if compute_full_wt_output_block == 1 and par_over_h != 0:
                                         continue
 
