@@ -297,7 +297,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         # Y (Out)
 
-        validation_check_failed1 = compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
+        validation_check_failed1 = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
 
         """
         # X gradient
@@ -322,7 +322,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         """
 
         validation_checks_failed = validation_check_failed1
-        if not validation_checks_failed:
+        if validation_checks_failed:
             print("Validation FAILED")
         else:
             print("Validation PASSED")
