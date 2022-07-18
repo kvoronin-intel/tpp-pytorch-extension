@@ -11,7 +11,7 @@ import time
 
 from bottleneck_tuning_bwd_w_driver import run_test_bottleneck
 
-script_version='v2'
+script_version='v3'
 
 # A helper
 def for_recursive(number_of_loops, range_list, execute_function, current_index=0, iter_list = [], **kwargs):
@@ -34,7 +34,7 @@ def for_recursive(number_of_loops, range_list, execute_function, current_index=0
 #for_recursive(range_list = [range(0,1), range(0,2), range(0,1)], execute_function = do_whatever, number_of_loops=3)
 #exit()
 
-def xbf_tester(index_list, pbfs=None, pbfequal=None, has_downsample=None, loop_string_c1c3c4=None, loop_string_c2=None, use_nchw_formats = None,
+def xbf_tester(index_list, pbfs=None, pbfequal=None, pbfequal_c1c3c4=None, has_downsample=None, loop_string_c1c3c4=None, loop_string_c2=None, use_nchw_formats = None,
                 nhwck_params=None, bs=None, stride=None, eps=None, expansion=None, use_physical_3x3_padding=True, use_groupnorm=False,
                 pack_input_upfront=None, fuse_upd_transposes=None, use_f32_wt_reduction_and_external_wt_vnni=None,
                 acc_nw=None, par_over_h=None, compute_full_wt_output_block=None,
@@ -74,7 +74,7 @@ def xbf_tester(index_list, pbfs=None, pbfequal=None, has_downsample=None, loop_s
                          opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module,
                          tuning_params, tuning_strings, niters)
     
-    exit()
+    #exit()
     return print(index_list)
 
 #for_recursive(range_list = [range(0,1), range(0,2) , range(0,1)], execute_function = xbf_tester, number_of_loops=3)
@@ -85,9 +85,11 @@ loop_specs = []
 for i in range(1,2):
     for j in range(1,2):
         loop_names.append('bottleneck_nchw_1x1')
-        loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + ('d_' + str(j) +'_K,') + 'e_0_K,' + 'f_0_K')
+        #loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + ('d_' + str(j) +'_K,') + 'e_0_K,' + 'f_0_K')
+        loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + 'd_0_K,' + 'e_0_K,' + 'f_0_K')
         loop_names.append('bottleneck_nchw_3x3') # will use different skipping condition potentially than 1x1
-        loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + ('d_' + str(j) +'_K,') + 'e_0_K,' + 'f_0_K')
+        #loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + ('d_' + str(j) +'_K,') + 'e_0_K,' + 'f_0_K')
+        loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + 'd_0_K,' + 'e_0_K,' + 'f_0_K')
         loop_names.append('bottleneck_chwn')
         loop_specs.append('A_0_M,' + 'B_0_M,' + 'c_0_K,' + 'd_0_K,' + 'e_0_M,' + 'f_0_M')
         loop_names.append('bottleneck_hybrid') # only for 7x7? # AC is a must with 2d parallelization A{C:X} + C{R:Y}
@@ -140,7 +142,7 @@ eps=1e-7
 nthreads=int(os.getenv("OMP_NUM_THREADS"))
 print("dbg: nthreads = ", nthreads)
 
-for l in range(nBottlenecks):
+for l in [2, 3, 4, 5]: #range(nBottlenecks):
     #file_path = 'bottleneck_' + str(l) + '_tuning_dbg.txt'
     #sys.stdout = open(file_path, "w")
 
@@ -149,7 +151,7 @@ for l in range(nBottlenecks):
     bs=32
     #bc=32
     #bk=32
-    niters=400
+    niters=10
 
     fuse_upd_transposes_limit=1
     use_f32_wt_reduction_and_external_wt_vnni_limit=1
@@ -159,6 +161,7 @@ for l in range(nBottlenecks):
     hybrid=0
     n_img_teams=1
     n_ofm_teams=1
+    pbfequal_c1c3c4=True
     print("l = ", l)
 
     if l == 0:
@@ -167,7 +170,7 @@ for l in range(nBottlenecks):
           downsample=True
           CBFS=None #[[1]]
           KBFS=None #[[1]]
-          PBFS=[[2, 4], [2, 4], [2, 4], [2, 4]] # ???
+          PBFS=[[2, 4], [1], [2, 4], [2, 4]] # ???
           pack_input_upfront_limit=0
           config_name_c1c3c4='bottleneck_nchw_1x1'
           config_name_c2='bottleneck_nchw_3x3'
@@ -178,7 +181,7 @@ for l in range(nBottlenecks):
           downsample=False
           KBFS=None #[[1]]
           CBFS=None #[[1]]
-          PBFS=[[2, 4], [2, 4], [2, 4], [2, 4]] # ???
+          PBFS=[[2, 4], [1], [2, 4], [2, 4]] # ???
           pack_input_upfront_limit=0
           config_name_c1c3c4='bottleneck_nchw_1x1'
           config_name_c2='bottleneck_nchw_3x3'
@@ -281,7 +284,12 @@ for l in range(nBottlenecks):
 
         nlines_c1c3c4 = nlines_c1c3c4 + 1
 
-        for pack_input_upfront in range(0, pack_input_upfront_limit + 1):
+        # For strided 1x1 convolutions, specifically, pack_input must be allowed to be 1
+        if stride == 2:
+            range_for_pack = range(1, 2)
+        else:
+            range_for_pack = range(0, pack_input_upfront_limit + 1)
+        for pack_input_upfront in range_for_pack:
             for fuse_upd_transposes in range (0, fuse_upd_transposes_limit + 1):
                 for use_f32_wt_reduction_and_external_wt_vnni in range (0, use_f32_wt_reduction_and_external_wt_vnni_limit + 1):
 
@@ -307,6 +315,14 @@ for l in range(nBottlenecks):
                             use_pbfs = None
                         else:
                             use_pbfs = PBFS if len(PBFS) == 4 else [PBFS[0]]*4
+                            if PBFcount_c1c3c4 == 1:
+                                use_pbfs[0] = [1]
+                                use_pbfs[2] = [1]
+                                use_pbfs[3] = [1]
+                                pbfequal = False
+                            if PBFcount_c2 == 1:
+                                use_pbfs[1] = [1]
+                                pbfequal = False
                         nbfloops = nbfloops + 4
 
                         if PBFS is not None and len(PBFS) != 1 and len(PBFS) != 4:
@@ -316,6 +332,8 @@ for l in range(nBottlenecks):
                         if use_pbfs is not None:
                             if pbfequal == True:
                                 pf_ranges = [range(0, len(use_pbfs[0])), range(0,1), range(0,1), range(0,1)]
+                            elif pbfequal_c1c3c4 == True:
+                                pf_ranges = [range(0, len(use_pbfs[0])), range(0,1), range(0, len(use_pbfs[0])), range(0, len(use_pbfs[0]))]
                             else:
                                 pf_ranges = [range(0, len(i)) for i in use_pbfs]
                         else:
@@ -348,7 +366,7 @@ for l in range(nBottlenecks):
                                         nlinecombs = nlinecombs + 1
 
                                     for_recursive(range_list = [*pf_ranges], execute_function = xbf_tester, number_of_loops = nbfloops,
-                                                  pbfs=use_pbfs, pbfequal=pbfequal, bs = bs,
+                                                  pbfs=use_pbfs, pbfequal=pbfequal, pbfequal_c1c3c4=pbfequal_c1c3c4, bs = bs,
                                                   nhwck_params=base_sizes, stride = stride, eps = eps, expansion = expansion, has_downsample=downsample, niters=niters,
                                                   pack_input_upfront=pack_input_upfront, fuse_upd_transposes=fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni=use_f32_wt_reduction_and_external_wt_vnni_limit,
                                                   acc_nw=acc_nw, par_over_h=par_over_h, compute_full_wt_output_block=compute_full_wt_output_block,

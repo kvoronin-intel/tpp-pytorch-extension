@@ -26,7 +26,7 @@ def compare_weight_grads( opt_weight_grad, ref_weight_grad, label_string, rtol=1
     #print("opt_tensor_grad_unblocked shape = ", opt_tensor_grad_unblocked.shape)
     wgrad_rel_norm_diff = (opt_tensor_grad_unblocked - ref_tensor_grad).norm(2) / ref_tensor_grad.norm(2)
     if wgrad_rel_norm_diff > rtol:
-        print("warning, wgrad_rel_norm diff is too large, ", wgrad_rel_norm_diff)
+        print("warning, wgrad_rel_norm diff is too large (for rtol), rtol", wgrad_rel_norm_diff, rtol)
         valid=False
     #for i in range(10):
     #    print("i opt_tensor_grad_unblocked ref_tensor_grad = ", i, opt_tensor_grad_unblocked.view(-1)[i].item(), ref_tensor_grad.view(-1)[i].item())
