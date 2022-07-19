@@ -92,8 +92,6 @@ for i in range(1,2):
         loop_specs.append('A_0_M,' + 'b_0_K,' + 'c_0_K,' + 'd_0_K,' + 'e_0_K,' + 'f_0_K')
         loop_names.append('bottleneck_chwn')
         loop_specs.append('A_0_M,' + 'B_0_M,' + 'c_0_K,' + 'd_0_K,' + 'e_0_M,' + 'f_0_M')
-        loop_names.append('bottleneck_hybrid') # only for 7x7? # AC is a must with 2d parallelization A{C:X} + C{R:Y}
-        loop_specs.append('A_0_M,' + 'b_0_M,' + 'C_0_K,' + ('d_' + str(j) +'_K,') + 'e_0_M,' + 'f_0_M')
 
 print("dbg: loop_names: ", loop_names)
 print("dbg: loop_specs: ", loop_specs)
@@ -270,7 +268,7 @@ for l in [6, 7]: #[2, 3, 4, 5]: #range(nBottlenecks):
         use_nchw_formats[1] = 0
 
     for line_c1c3c4 in loop_lines[config_name_c1c3c4]:
-        # Simple restrictions are here, but more could be applied below
+        # Simple restrictions are here, but more are applied below
         if   config_name_c1c3c4 == 'bottleneck_nchw_1x1' and not line_c1c3c4.startswith('Aef'):
             continue
 
@@ -289,12 +287,14 @@ for l in [6, 7]: #[2, 3, 4, 5]: #range(nBottlenecks):
             range_for_pack = range(1, 2)
         else:
             range_for_pack = range(0, pack_input_upfront_limit + 1)
+
         for pack_input_upfront in range_for_pack:
             for fuse_upd_transposes in range (0, fuse_upd_transposes_limit + 1):
 
+                # Moved this to the conv cpp code (disabling fused_upd_transposes for (1x1) strided convolutions with pack_input = 1)
                 # Only while debugging
-                if stride == 2 and pack_input_upfront == 1 and fuse_upd_transposes == 1:
-                    continue
+                #if stride == 2 and pack_input_upfront == 1 and fuse_upd_transposes == 1:
+                #    continue
 
                 for use_f32_wt_reduction_and_external_wt_vnni in range (0, use_f32_wt_reduction_and_external_wt_vnni_limit + 1):
 
@@ -362,7 +362,10 @@ for l in [6, 7]: #[2, 3, 4, 5]: #range(nBottlenecks):
                             for par_over_h in range(0, par_over_h_limit + 1):
                                 if par_over_h == 1 and not "C" in line_c2:
                                     continue
-                                # Do we need to have necessarily "c" if par_over_h == 0?
+                                # Do we need to have necessarily "c" if par_over_h == 0? Answer: Yes
+                                if par_over_h == 0 and "C" in line_c2:
+                                    continue
+
                                 # Just while debugging, disabling the option compute_full_wt_output_block = 1
                                 for compute_full_wt_output_block in range(0,1): #range(0, compute_full_wt_output_block_limit + 1):
                                     if compute_full_wt_output_block == 1 and par_over_h != 0:
