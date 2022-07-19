@@ -122,6 +122,8 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 
   auto w_gemm_pixels = ofw / w_block;
   auto gemm_n = (w_gemm_pixels +  2 * conv_pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + conv_pad_w);
+  auto w_zero_pixels = ifw / w_block;
+  auto zero_n = (w_zero_pixels +  2 * pad_w) * (h_in_gemm - 2) + 2 * (w_zero_pixels + pad_w);
 
   //long gemm_n = ofw;
   long gemm_m = bc;
@@ -134,11 +136,12 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_tpp, brgemm2_tpp;
-  SCOPEIT_DECL(SetZeroTPP<T>)               zero_rim_tpp, zero_all_pixels_tpp, zero_bc_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)               zero_initial_pixels_tpp, zero_all_pixels_tpp, zero_bc_tpp;
 
   //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
   //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-  zero_rim_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp/w_block), EW_ZERO);
+  //zero_initial_pixels_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp/w_block), EW_ZERO);
+  zero_initial_pixels_tpp = SCOPEIT(SetZeroTPP<T>(bc*zero_n), EW_ZERO);
   //l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp*ifhp, 1, bc*ifwp*ifhp, bc*ifwp*ifhp, dtype, dtype, dtype);
   //zero_kernel_all_pixels = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);  
   zero_all_pixels_tpp = SCOPEIT(SetZeroTPP<T>(bc*ifwp*ifhp), EW_ZERO);
@@ -276,7 +279,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
                     zero_all_pixels_tpp(dinp[i_n][i_c][0][0]);
                   }
                 } else {
-                  zero_rim_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
+                  zero_initial_pixels_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
                 }
               }
 
@@ -293,7 +296,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
                     zero_all_pixels_tpp(dinp[i_n][i_c][0][0]);
                   }
                 } else {
-                  zero_rim_tpp(dinp[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
+                  zero_initial_pixels_tpp(dinp[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
                 }
               }
 
@@ -317,7 +320,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
             } /* else-if for non_1x1_with_strides == 0 */
           } else { /* else for if avoid_rim_fmas == 0 */
             if (i_k == 0 && i_r == 0 && i_s == 0) {
-              zero_rim_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
+              zero_initial_pixels_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
             }
             if (i_r == 0 && i_h == 0) {
               /* Do no FLOPS  */
