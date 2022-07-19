@@ -265,7 +265,7 @@ if (sizeof(T) == 2) {
 //#ifdef VERBOSE
 //              printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs: upd_transpose = 0\n");
 //#endif
-          }
+//          }
 #ifdef VERBOSE
           printf("Tweaking the setup for 1x1 strided convs: f32_intermediate = 1\n");
 #endif
