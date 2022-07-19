@@ -306,7 +306,7 @@ for l in range(nBottlenecks):
             elif WBFcount > 1 and WBFS == None:
                 continue
 
-        if stride == 2 and pack_input_var == 0 and hs_in_gemm[3] != 1:
+        if stride == 2 and hs_in_gemm[3] != 1:
             continue
         nbfloops = 0
 
