@@ -360,26 +360,29 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         conv1_out = torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
         bn1_out   = torch.nn.functional.pad(conv1_out, [1, 1, 1, 1], mode='constant', value=0.0) #torch.randn(N, outc, H+2, W+2, requires_grad=False, dtype=opt_dtype)
-        conv2_out = bn1_out.clone()
-        bn2_out   = conv1_out.clone()#torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
-        conv3_out = torch.randn(N, inc*expansion, H, W, requires_grad=False, dtype=opt_dtype)
+        if stride == 1:
+            conv2_out = bn1_out.clone()
+        else:
+            tmp = torch.randn(N, outc, H//stride, W//stride, requires_grad=False, dtype=opt_dtype)
+            conv2_out = torch.nn.functional.pad(tmp, [1, 1, 1, 1], mode='constant', value=0.0)
+        if stride == 1:
+            bn2_out = conv1_out.clone()#torch.randn(N, outc, H, W, requires_grad=False, dtype=opt_dtype)
+        else:
+            bn2_out = torch.randn(N, outc, H//stride, W//stride, requires_grad=False, dtype=opt_dtype)
+        conv3_out = torch.randn(N, outc*expansion, H//stride, W//stride, requires_grad=False, dtype=opt_dtype)
         bn3_out   = conv3_out.clone() #torch.randn_like(conv3_out)
         conv4_out = conv3_out.clone() #torch.randn_like(conv3_out)
         bn4_out   = conv3_out.clone() #torch.randn_like(conv3_out)
 
-        #bn1_relu_out   = torch.randint(bn1_out.shape, dtype=torch.int32, low=0, high=1)
         bn1_relu_out = bn1_out.to(torch.uint8)
         bn2_relu_out = bn2_out.to(torch.uint8)
         bn3_relu_out = bn3_out.to(torch.uint8)
         bn4_relu_out = bn4_out.to(torch.uint8)
-        #bn2_relu_out   = torch.randint(bn2_out.shape, dtype=torch.int32, low=0, high=1)
-        #bn3_relu_out   = torch.randint(bn3_out.shape, dtype=torch.int32, low=0, high=1)
-        #bn4_relu_out   = torch.randint(bn4_out.shape, dtype=torch.int32, low=0, high=1)
 
         bn1_scratch    = torch.empty(10, N, outc, requires_grad=False, dtype=torch.float32)
         bn2_scratch    = torch.empty(10, N, outc, requires_grad=False, dtype=torch.float32)
-        bn3_scratch    = torch.empty(10, N, inc*expansion, requires_grad=False, dtype=torch.float32)
-        bn4_scratch    = torch.empty(10, N, inc*expansion, requires_grad=False, dtype=torch.float32)
+        bn3_scratch    = torch.empty(10, N, outc*expansion, requires_grad=False, dtype=torch.float32)
+        bn4_scratch    = torch.empty(10, N, outc*expansion, requires_grad=False, dtype=torch.float32)
 
         artificial_tensors = []
         for t in [conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out]:
@@ -392,29 +395,6 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
 
         artificial_tensors += [bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
                               bn1_scratch, bn2_scratch, bn3_scratch, bn4_scratch]
-
-        #artificial_tensors = [conv1_out]
-
-        """
-        auto conv1_out    = inputs[22];
-        auto bn1_out      = inputs[23];
-        auto conv2_out    = inputs[24];
-        auto bn2_out      = inputs[25];
-        auto conv3_out    = inputs[26];
-        auto bn3_out      = inputs[27];
-        auto conv4_out    = inputs[28];
-        auto bn4_out      = inputs[29];
-
-        auto bn1_relu_out = inputs[30];
-        auto bn2_relu_out = inputs[31];
-        auto bn3_relu_out = inputs[32];
-        auto bn4_relu_out = inputs[33];
-
-        auto bn1_scratch   = inputs[34];
-        auto bn2_scratch   = inputs[35];
-        auto bn3_scratch   = inputs[36];
-        auto bn4_scratch   = inputs[37];
-        """
 
         time_end = time.time()
         print("Creating artifical tensors for bwd took (s) ", time_end - time_start)
