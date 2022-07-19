@@ -256,15 +256,15 @@ if (sizeof(T) == 2) {
             }
           }
 
-          if (!is_fixed_fuse_upd_transposes) {
+//          if (!is_fixed_fuse_upd_transposes) {
 #ifdef VERBOSE
             printf("Tweaking the setup for 1x1 strided convs: upd_transpose = 0\n");
 #endif
             bf16_fuse_upd_transposes = 0;
-          } else {
-#ifdef VERBOSE
-              printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs: upd_transpose = 0\n");
-#endif
+//          } else {
+//#ifdef VERBOSE
+//              printf("Critical: if not fixed tuning params, would tweak the setup for 1x1 strided convs: upd_transpose = 0\n");
+//#endif
           }
 #ifdef VERBOSE
           printf("Tweaking the setup for 1x1 strided convs: f32_intermediate = 1\n");
