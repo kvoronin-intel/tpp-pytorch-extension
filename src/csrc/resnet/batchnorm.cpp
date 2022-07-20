@@ -51,11 +51,13 @@ std::vector<at::Tensor> batchnorm_fwd(
   }
 }
 
-std::vector<at::Tensor> batchnorm_bwd(
+std::vector<at::Tensor> batchnorm_bwd_ext(
     bool  relu,
     bool  eltwise,
     float eps,
     std::vector<long> padding,
+    std::string tuning_string_ncp,
+    std::string tuning_string_cp,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat) {
@@ -65,6 +67,17 @@ std::vector<at::Tensor> batchnorm_bwd(
     typedef bfloat16 T;
 #include "batchnorm_bwd_tmpl.h"
   }
+}
+
+std::vector<at::Tensor> batchnorm_bwd(
+    bool  relu,
+    bool  eltwise,
+    float eps,
+    std::vector<long> padding,
+    std::vector<at::Tensor> inputs) {
+  std::string default_string_ncp{"AB"};
+  std::string default_string_cp {"A"};
+  return batchnorm_bwd_ext(relu, eltwise, eps, padding, default_string_ncp, default_string_cp, inputs);
 }
 
 #define CHANNEL_BLOCK_SIZE 64
@@ -92,5 +105,6 @@ REGISTER_SUBMODULE(_batchnorm, m) {
       "batchnorm_get_c_block",
       &batchnorm_get_c_block,
       "Pcl BN get_c_block");
+  m.def("batchnorm_bwd_ext", &batchnorm_bwd_ext, "Pcl BN backward with tuning parameters (strings)");
 }
 

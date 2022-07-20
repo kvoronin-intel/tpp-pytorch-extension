@@ -48,8 +48,10 @@ static int my_rank = guess_mpi_rank();
 
 #include "conv_setup_external.h" /* for conv_config and conv_setup declaration */
 
-extern std::vector<at::Tensor> batchnorm_fwd(bool  training, bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
-extern std::vector<at::Tensor> batchnorm_bwd(bool  relu, bool  eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> batchnorm_fwd(bool training, bool relu, bool eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> batchnorm_bwd(bool relu, bool eltwise, float eps, std::vector<long> padding, std::vector<at::Tensor> inputs);
+extern std::vector<at::Tensor> batchnorm_bwd_ext(bool  relu, bool  eltwise, float eps, std::vector<long> padding,
+                                                  std::string tuning_string_ncp, std::string tuning_string_cp, std::vector<at::Tensor> inputs);
 
 extern at::Tensor conv_fwd(conv_config cfg, std::vector<at::Tensor> inputs);
 extern std::vector<at::Tensor> conv_bwd(conv_config cfg, std::vector<at::Tensor> inputs);
@@ -61,6 +63,8 @@ extern at::Tensor conv_bwd_d_ext(conv_config cfg, std::vector<at::Tensor> inputs
                                  std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
 extern at::Tensor conv_bwd_w_ext(conv_config cfg, std::vector<at::Tensor> inputs,
                                  std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
+
+std::array<std::string, 2> parse_conv_loop_string_for_batchnorm(const char *conv_loop_specs, int conv_is_nckhwrs, int use_nchw_format);
 
 typedef struct bottleneck_bn_config {
   libxsmm_blasint N;
@@ -584,6 +588,55 @@ std::vector<float> bottleneck_bn_bwd_w_get_gflop_details(bottleneck_bn_config cf
     gflop_details[i] = 1.0;
   return gflop_details;
 */
+}
+
+/* conv_is_nckhwrs is 0 for bwd_w and fwd, or 1 for bwd_w or full bwd */
+std::array<std::string, 2> parse_conv_loop_string_for_batchnorm(const char *conv_loop_specs, int conv_is_nckhwrs, int use_nchw_format) {
+  int A_seen = 0, C_seen = 0;
+  for (int i = 0; i < strlen(conv_loop_specs); i++) {
+      if(conv_is_nckhwrs) {
+        /* For nckhwrs the loop string is as for forward, with A and C for N and K respectively */
+        if (conv_loop_specs[i] == 'A')
+          A_seen++;
+        else if (conv_loop_specs[i] == 'C')
+          C_seen++;
+      } else { /* nckpixrs (~nchw) or ckhwrs */
+        /* For nchw format we check for A(N) and C(K) */
+        if (use_nchw_format == 1) {
+          if (conv_loop_specs[i] == 'A')
+            A_seen++;
+          else if (conv_loop_specs[i] == 'C')
+            C_seen++;
+        } else { /* for chwn format */
+          /* For chwn format we check for B(K) */
+          if (conv_loop_specs[i] == 'B')
+            C_seen++;
+        }
+      } /* if-else over conv_is_bwd_d */
+  }
+  std::string nc_loop_stdstr;
+  if (A_seen && C_seen)
+    nc_loop_stdstr = "AB";
+    //strcpy(nkb_loop_specs_str, "AB");
+  else if (A_seen && !C_seen)
+    nc_loop_stdstr = "Ab";
+    //strcpy(nkb_loop_specs_str, "Ab");
+  else if (!A_seen && C_seen)
+    nc_loop_stdstr = "Ba";
+    //strcpy(nkb_loop_specs_str, "Ba");
+  else
+    nc_loop_stdstr = "ab";
+    //strcpy(nkb_loop_specs_str, "ab");
+
+  std::string c_loop_stdstr;
+  if (C_seen)
+    c_loop_stdstr = "A";
+    //strcpy(kb_loop_specs_str, "A");
+  else
+    c_loop_stdstr = "a";
+    //strcpy(kb_loop_specs_str, "a");
+
+  return {nc_loop_stdstr, c_loop_stdstr};
 }
 
 REGISTER_SUBMODULE(_bottleneck, m) {

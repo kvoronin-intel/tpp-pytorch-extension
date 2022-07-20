@@ -92,7 +92,7 @@ at::Tensor conv_bwd_d_ext(
   const long w_block = tuning_params[1];
   const long c_block = tuning_params[2];
   const long k_block = tuning_params[3];
-  const long h_in_gemm = tuning_params[4];
+        long h_in_gemm = tuning_params[4];
 
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;

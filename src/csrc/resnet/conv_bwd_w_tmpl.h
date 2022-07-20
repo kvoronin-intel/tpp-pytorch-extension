@@ -2,7 +2,7 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 
 // ( grad_output, input, weight) = inputs
 
-#define VERBOSE
+//#define VERBOSE
 
 #ifdef TIMING
   double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0;
