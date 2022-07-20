@@ -46,7 +46,7 @@ parser.add_argument('--use-physical-3x3-padding', action="store_true", default=T
 parser.add_argument('--use-groupnorm', action="store_true", default=False, dest='use_groupnorm')
 
 parser.add_argument('--block-sizes', nargs="+", type=int, help='block sizes: bc_conv1, bc_conv2, bc_conv3, bk_conv3')
-parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h1_block, w1_block, ... h4/w4 (8 numbers); c1_block, k1_block, ... (8 numbers);  h_in_gemm; ... (4 numbers); pack_input fuse_stats')
+parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h1_block, w1_block, ... h4/w4 (8 numbers); c1_block, k1_block, ... (8 numbers);  h_in_gemm; ... (4 numbers)')
 parser.add_argument('--tuning-strings', nargs="+", default=None, type=str, help='conv1_string, conv2_string, conv3_string, conv4_string')
 
 parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_28thr.data', type=str,
@@ -342,7 +342,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             print("Validation PASSED")
 
     #return
-    #exit()
+    exit()
 
     if with_perf:
 
