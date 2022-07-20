@@ -267,7 +267,7 @@ for l in range(nBottlenecks):
           WBFS=None #[[1]]
           HBFS=None #[[1]]
           CBFS=[[2, 4, 8], [2, 4, 8], [2, 4, 8, 16], [1]] #None #[[1]] # potentially, KBFS for the last one
-          hs_in_gemm=[7, 7, 7, 7]
+          hs_in_gemm=[7, 1, 7, 7]
           downsample=False
           config_name='bottleneck_last'
           hbfequal = True

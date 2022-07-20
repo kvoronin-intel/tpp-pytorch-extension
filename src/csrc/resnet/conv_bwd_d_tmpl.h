@@ -83,6 +83,13 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
     avoid_rim_fmas = 1;
   }
 
+  if (avoid_rim_fmas == 1) {
+#ifdef VERBOSE
+    printf("Tweaking setup for avoid_rim_fmas = 1 in bwd_d: h_in_gemm = 1 (must be!)\n");
+#endif
+    h_in_gemm = 1;
+  }
+
   if ((R != 1 && stride_h != 1) ||
       (S != 1 && stride_w != 1)) {
     non_1x1_with_strides = 1;
