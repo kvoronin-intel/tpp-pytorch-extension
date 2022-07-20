@@ -231,7 +231,7 @@ for l in range(nBottlenecks):
           WBFS=None #[[1]]
           HBFS=None #[[1]]
           CBFS=[[1], [1], [2, 4, 8], [2, 4, 8]] #None #[[1]] # ??? if extended potentially
-          hs_in_gemm = [1, 1, 2, 2] #h in gemm 2 for all except the first one and 3x3+str2
+          hs_in_gemm = [1, 1, 2, 1] #h in gemm 2 for all except the first one and 3x3+str2 (and 1x1 s2 as there is no pack_input)
           downsample=True
           config_name='bottleneck_notlast'
           hbfequal = False
@@ -255,7 +255,7 @@ for l in range(nBottlenecks):
           WBFS=None #[[1]]
           HBFS=None #[[1]]
           CBFS=[[4, 8], [4, 8], [4, 8, 16], [4, 8, 16] ] #None #[[1]] # potentially, KBFS for the last one
-          hs_in_gemm = [2, 1, 7, 7]
+          hs_in_gemm = [2, 1, 7, 1] # last one because of 1x1 s2 without pack_input
           downsample=True
           config_name='bottleneck_notlast'
           hbfequal = True
@@ -273,7 +273,7 @@ for l in range(nBottlenecks):
           hbfequal = True
           wbfequal = True
     else:
-          print("Error: index l does not mactch any existing cases, l = ", l)
+          print("Error: index l does not match any existing cases, l = ", l)
           exit()
 
     ncombinations = 0
