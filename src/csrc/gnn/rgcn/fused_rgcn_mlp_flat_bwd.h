@@ -209,7 +209,7 @@ auto brgemm_dw_bf16_tpp_b1 =
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
+      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out_tmp);
       DECL_VLA_PTR_PT(T, grad_in, [nc][bc], t_grad_in);
 
       auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
@@ -430,7 +430,7 @@ auto trans_tpp = SCOPEIT(
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
+      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out_tmp);
       DECL_VLA_PTR_PT(T, in, [nc][bc], t_in);
       auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
           bc,

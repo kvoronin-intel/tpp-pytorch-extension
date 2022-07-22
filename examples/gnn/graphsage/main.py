@@ -161,15 +161,9 @@ def load_subtensor(nfeat, labels, seeds, input_nodes, use_bf16):
     Extracts features and labels for a set of nodes.
     """
     if args.opt_mlp:
-        if use_bf16:
-            batch_inputs = gnn_utils.gather_features(nfeat, input_nodes).to(th.bfloat16)
-        else:
-            batch_inputs = gnn_utils.gather_features(nfeat, input_nodes)
+        batch_inputs = gnn_utils.gather_features(nfeat, input_nodes)
     else:
-        if use_bf16:
-            batch_inputs = nfeat[input_nodes].to(th.bfloat16)
-        else:
-            batch_inputs = nfeat[input_nodes]
+        batch_inputs = nfeat[input_nodes]
 
     batch_labels = labels[seeds]
 
@@ -320,10 +314,11 @@ def run(args, device, data):
 
                 if step > 0:
                     iter_time.append(data_time.val + gather_time.val + batch_time.val)
-                if step % args.log_every == 0:
+                if step > 0 and step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
                     print(
                         "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
+                        "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |" 
                         "Data Load (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
                         "Gather (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
                         "Compute (s) {batch_time.val:.3f} ({batch_time.avg:.3f})".format(
@@ -331,6 +326,10 @@ def run(args, device, data):
                             step,
                             loss.item(),
                             acc.item(),
+                            blocks[0].num_src_nodes(),
+                            blocks[1].num_src_nodes(),
+                            blocks[2].num_src_nodes(),
+                            blocks[2].num_dst_nodes(),
                             data_time=data_time,
                             gather_time=gather_time,
                             batch_time=batch_time,
@@ -364,10 +363,15 @@ def run(args, device, data):
                         )
                     )
                 elif args.dataset == "ogbn-papers100M":
+                    '''
                     save_checkpoint(
                         {"state_dict": model.state_dict()},
                         filename="ogbp100M" + str(epoch) + ".pth.tar",
                     )
+                    eval_acc, test_acc, pred = evaluate(
+                        model, g, nfeat, labels, val_nid, test_nid, device
+                    )
+                    '''
 
     if prof and args.opt_mlp:
         ppx.print_debug_timers(0)
@@ -473,6 +477,8 @@ if __name__ == "__main__":
     n_classes = data.num_classes
     if args.dataset == "ogbn-products":
         nfeat = graph.ndata.pop("feat").to(device)
+        if args.use_bf16:
+            nfeat = nfeat.to(th.bfloat16)
         labels = labels[:, 0].to(device)
         in_feats = nfeat.shape[1]
         n_classes = (labels.max() + 1).item()
@@ -484,6 +490,8 @@ if __name__ == "__main__":
         labels = labels[:, 0].long()
         in_feats = graph.ndata["feat"].shape[1]
         nfeat = graph.ndata["feat"]
+        if args.use_bf16:
+            nfeat = nfeat.to(th.bfloat16)
         del data, ed
 
     # Create csr/coo/csc formats before launching sampling processes
@@ -498,7 +506,7 @@ if __name__ == "__main__":
     epoch_time = []
     if not args.profile:
         if args.dataset == "ogbn-products":
-            for i in range(10):
+            for i in range(1):
                 # test_accs.append(run(args, device, data).cpu().numpy())
                 acc, et = run(args, device, data)
                 test_accs.append(acc)
@@ -510,7 +518,7 @@ if __name__ == "__main__":
                     "Average epoch time:", np.mean(epoch_time), "±", np.std(epoch_time)
                 )
         elif args.dataset == "ogbn-papers100M":
-            for i in range(10):
+            for i in range(1):
                 et = run(args, device, data)
                 epoch_time.append(et)
                 print(

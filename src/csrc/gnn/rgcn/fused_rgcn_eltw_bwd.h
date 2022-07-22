@@ -95,7 +95,7 @@ if (self_loop) {
       VNNI);
   auto n2v_wt_tpp = SCOPEIT(
       XformExtTPP<T>(bc, bk, bcp, bk, XformTPP::XFORM_N2V_TPP, true), VNNI);
-  auto cpy_tpp = SCOPEIT(CpyTPP<T>(bn, bk, bk, bkp), EW_COPY);
+  auto cpy_tpp = SCOPEIT(CpyTPP<T>(bn, bk, K, nk*bkp), EW_COPY);
   auto cpy_act_tpp = SCOPEIT(CpyTPP<T>(bn, bk, K, K), EW_COPY);
   auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
   auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, bk, K, K)), EW_COPY);
@@ -119,7 +119,7 @@ if (self_loop) {
     RECORD_SCOPE(rgewdbias, {t_grad_out});
     {
       tensor_set_zero(nk, bk, t_grad_bias);
-      int threads = atoi(getenv("OMP_NUM_THREADS")); // omp_get_max_threads();
+      int threads = omp_get_max_threads();
       float* bias_ptrs[threads];
       {
         RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
@@ -287,9 +287,9 @@ if (self_loop) {
         {
           brgemm_di_tpp.config();
 
-          T tmp[bn][nk * bkp];
+          T tmp[bn][nk][bkp];
           for (int k = 0; k < nk; k++)
-            set_zero_col_tpp(&tmp[0][k * bkp] + bk);
+            set_zero_col_tpp(tmp[0][k] + bk);
 
           int tid = omp_get_thread_num();
           int threads = omp_get_num_threads();
@@ -305,9 +305,9 @@ if (self_loop) {
             int c = n3c % nc;
 
             for (int k = 0; k < nk; k++)
-              cpy_tpp(grad_out[n][0][k], &tmp[0][k * bk]);
+              cpy_tpp(grad_out[n][0][k], tmp[0][k]);
 
-            brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in_dst[n][0][c], nk, true);
+            brgemm_di_tpp(tmp[0][0], wt_TV[0][c], grad_in_dst[n][0][c], nk, true);
           }
           brgemm_di_tpp.release();
         }
@@ -340,22 +340,22 @@ if (self_loop) {
         DECL_VLA_PTR_PT(T, grad_in_dst, [nc][bc], t_grad_in_dst);
 
         auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
-        auto cpy_tpp = SCOPEIT(CpyTPP<T>(rem, bk, bk, bkp), EW_COPY);
+        auto cpy_tpp = SCOPEIT(CpyTPP<T>(rem, bk, K, nk*bkp), EW_COPY);
         auto brgemm_di_tpp = SCOPEIT((BrgemmTPP<T, T>(
-            rem, bc, bkp, bkp, C * bkp, nk * bkp, bc, C, 0.0, 0, nk)));
+            rem, bc, bkp, bkp, nc * bc * bkp, nk * bkp, bc, nc * bc, 0.0, 0, nk)));
 
         brgemm_di_tpp.config();
 
         if (bk != bkp) {
-          T tmp[rem][nk * bkp];
+          T tmp[rem][nk][bkp];
 
           for (int k = 0; k < nk; k++) {
-            set_zero_col_tpp(&tmp[0][k * bk] + bk);
-            cpy_tpp(grad_out[nn * bn][0], &tmp[0][k * bk]);
+            set_zero_col_tpp(tmp[0][k] + bk);
+            cpy_tpp(grad_out[nn * bn][k], tmp[0][k]);
           }
           for (int c = 0; c < nc; c++)
             brgemm_di_tpp(
-                tmp[0], wt_TV[0][c], grad_in_dst[nn * bn][c], nk, true);
+                tmp[0][0], wt_TV[0][c], grad_in_dst[nn * bn][c], nk, true);
         } else {
           for (int c = 0; c < nc; c++)
             brgemm_di_tpp(
