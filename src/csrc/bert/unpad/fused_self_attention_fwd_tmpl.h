@@ -146,7 +146,7 @@ if (training) {
     {
 #if 0
         DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
-        DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
+        DECL_VLA_PTR_PT(T, HS_T, [S1][H * S2], t_HS_T); // for BWD only
         DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
         DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
         DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
@@ -156,7 +156,7 @@ if (training) {
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < N; nk++) {
           if (bf16_training && nk == 0)
-            xpose_tpp(N, S2 * H, S2 * H, HS[s1][0], HS_T[s1][0]);
+            xpose_tpp(N, S2 * H, S1 * S2 * H, HS[s1][0], HS_T[0][s1]);
           copy_bias_tpp(Bq[nk], QL[s1][nk]);
           qkv_gemm_tpp(HS[s1][0], Wq_V[nk][0], QL[s1][nk], N);
           if (bf16_training)
@@ -175,13 +175,13 @@ if (training) {
           [&](int* ind) {
             int bn = ind[0], s1 = ind[1], nk = ind[2];
             DECL_VLA_PTR_PT(T, HS, [N][S2 * H], t_HS);
-            DECL_VLA_PTR_PT(T, HS_T, [N][H * S2], t_HS_T); // for BWD only
+            DECL_VLA_PTR_PT(T, HS_T, [S1][H * S2], t_HS_T); // for BWD only
             DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
             DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
             DECL_VLA_PTR_PT(T, QL, [N][S2 * H], t_QL);
             DECL_VLA_PTR_PT(T, QL_T, [S1][H * S2], t_QL_T); // For BWD only
             if (bf16_training && nk == 0)
-              xpose_tpp(BN, S2 * H, S2 * H, HS[s1][bn], HS_T[s1][bn]);
+              xpose_tpp(BN, S2 * H, S1 * S2 * H, HS[s1][bn], HS_T[bn][s1]);
             if (bn == 0)
               copy_bias_tpp(Bq[nk], QL[s1][nk]);
             qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN, true);
@@ -201,7 +201,7 @@ if (training) {
     RECORD_SCOPE(k_gemm, {t_EHS, t_Wk_V});
     {
 #if 0
-        DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
+        DECL_VLA_PTR_PT(T, EHS_T, [S1][H * S2], t_EHS_T); // for BWD only
         DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
         DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
         DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
@@ -212,7 +212,7 @@ if (training) {
           T tmp[S2 * H];
           T* tmpp = (training && !bf16_training) ? KL_V[s1][nk] : tmp;
           if (!null_EHS && bf16_training && nk == 0)
-            xpose_tpp(N, S2 * H, S2 * H, EHS[s1][0], EHS_T[s1][0]);
+            xpose_tpp(N, S2 * H, S1 * S2 * H, EHS[s1][0], EHS_T[0][s1]);
           copy_bias_tpp(Bk[nk], tmpp);
           qkv_gemm_tpp(EHS[s1][0], Wk_V[nk][0], tmpp, N);
           k_xpose_tpp_1(tmpp, KL_V[s1][nk]); // KL_V = KL_VT if not training
@@ -230,12 +230,12 @@ if (training) {
             DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
             DECL_VLA_PTR_PT(T, KL_TV, [N][H * S2], t_KL_TV);
             DECL_VLA_PTR_PT(T, EHS, [N][S2 * H], t_EHS);
-            DECL_VLA_PTR_PT(T, EHS_T, [N][H * S2], t_EHS_T); // for BWD only
+            DECL_VLA_PTR_PT(T, EHS_T, [S1][H * S2], t_EHS_T); // for BWD only
 
             T tmp[S2 * H];
             T* tmpp = (training && !bf16_training) ? KL_V[s1][nk] : tmp;
             if (!null_EHS && bf16_training && nk == 0)
-              xpose_tpp(N, S2 * H, S2 * H, EHS[s1][0], EHS_T[s1][0]);
+              xpose_tpp(N, S2 * H, S1 * S2 * H, EHS[s1][0], EHS_T[0][s1]);
             copy_bias_tpp(Bk[nk], tmpp);
             qkv_gemm_tpp(EHS[s1][0], Wk_V[nk][0], tmpp, N);
             k_xpose_tpp_1(tmpp, KL_V[s1][nk]); // KL_V = KL_VT if not training
