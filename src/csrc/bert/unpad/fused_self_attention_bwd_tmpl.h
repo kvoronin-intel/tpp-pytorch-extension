@@ -175,7 +175,7 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       a_trans_flag == XformTPP::XFORM_NONE_TPP ? S2 * H : N * S2 * H,
       a_trans_flag == XformTPP::XFORM_NONE_TPP ? S2 * H : N * S2 * H,
       1.0,
-      (XformTPP::XFORM_TYPE)(grad_wt_flag),
+      XformTPP::XFORM_NONE_TPP, //(XformTPP::XFORM_TYPE)grad_wt_flag,
       a_trans_flag,
       BS)));
   auto set_zero_dw_tpp = SCOPEIT(SetZeroTPP<T>(H * H), EW_ZERO);
