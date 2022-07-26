@@ -61,10 +61,19 @@ struct Scope {
   double flops[MAX_THREADS][8];
 };
 
-// Defined in init.cpp
-extern std::vector<Scope> _scope_list;
-extern std::vector<Scope> _pass_list;
+inline std::vector<Scope>& get_scope_list() {
+  static std::vector<Scope> _scope_list{Scope("Reserved")};
+  return _scope_list;
+}
+
+inline std::vector<Scope>& get_pass_list() {
+  static std::vector<Scope> _pass_list{
+      Scope("OTH"), Scope("FWD"), Scope("BWD"), Scope("UPD")};
+  return _pass_list;
+}
+
 inline int register_scope(std::string name) {
+  auto& _scope_list = get_scope_list();
   _scope_list.emplace_back(name);
   int idx = _scope_list.size() - 1;
   // printf("Registering %s scope @%d\n", name.c_str(), idx);
@@ -81,14 +90,14 @@ class ScopedTimer {
   ~ScopedTimer() {
     auto time = getTime() - start;
     int tid = omp_get_thread_num();
-    auto& pass = _pass_list[globalPass];
+    auto& pass = get_pass_list()[globalPass];
     pass.detailed_timers[tid][type] += time;
     if (type == BRGEMM)
       pass.flops[tid][0] += flops;
     if (globalPass == 0 && tid == 0)
       pass.master_timer += time;
 
-    auto& scope = _scope_list[globalScope];
+    auto& scope = get_scope_list()[globalScope];
     scope.detailed_timers[tid][type] += time;
     if (type == BRGEMM)
       scope.flops[tid][0] += flops;
@@ -103,16 +112,16 @@ class ScopedTimer {
 class GlobalScope {
  public:
   GlobalScope(int t) : oldScope(globalScope), start(getTime()) {
-    PCL_ASSERT(t < (int)_scope_list.size(), "Invalid scope initialized");
+    PCL_ASSERT(t < (int)get_scope_list().size(), "Invalid scope initialized");
     globalScope = t;
   }
   ~GlobalScope() {
-      auto time = getTime() - start;
-      auto& scope = _scope_list[globalScope];
-      scope.master_timer += time;
+    auto time = getTime() - start;
+    auto& scope = get_scope_list()[globalScope];
+    scope.master_timer += time;
     if (oldScope != 0) {
       // Remove time from outer scope
-      auto& outer_scope = _scope_list[oldScope];
+      auto& outer_scope = get_scope_list()[oldScope];
       outer_scope.master_timer -= time;
     }
     globalScope = oldScope;
@@ -127,11 +136,11 @@ class GlobalPass {
     globalPass = p;
   }
   ~GlobalPass() {
-      auto time = getTime() - start;
-      auto& pass = _pass_list[globalPass];
-      pass.master_timer += time;
+    auto time = getTime() - start;
+    auto& pass = get_pass_list()[globalPass];
+    pass.master_timer += time;
     if (oldPass != 0) {
-      auto& outer_pass = _pass_list[oldPass];
+      auto& outer_pass = get_pass_list()[oldPass];
       outer_pass.master_timer -= time;
     }
     globalPass = oldPass;
