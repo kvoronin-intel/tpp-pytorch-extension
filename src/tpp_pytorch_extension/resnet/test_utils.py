@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import math
 
 def compare_weight_grads( opt_weight_grad, ref_weight_grad, label_string, rtol=1e-5, atol=1e-6):
     opt_tensor_grad = opt_weight_grad.to(torch.float)
@@ -25,7 +26,7 @@ def compare_weight_grads( opt_weight_grad, ref_weight_grad, label_string, rtol=1
 
     #print("opt_tensor_grad_unblocked shape = ", opt_tensor_grad_unblocked.shape)
     wgrad_rel_norm_diff = (opt_tensor_grad_unblocked - ref_tensor_grad).norm(2) / ref_tensor_grad.norm(2)
-    if wgrad_rel_norm_diff > rtol:
+    if wgrad_rel_norm_diff > rtol or math.isnan(wgrad_rel_norm_diff):
         print("warning, wgrad_rel_norm diff is too large (for rtol), rtol", wgrad_rel_norm_diff, rtol)
         valid=False
     #for i in range(10):
@@ -81,7 +82,7 @@ def compare_padded_tensors(opt_grad, ref_grad, label_string, nonpadded_width = 0
 
     valid = True
     xgrad_rel_norm_diff = (opt_tensor - ref_tensor).norm(2) / (opt_tensor.norm(2))
-    if xgrad_rel_norm_diff > rtol:
+    if xgrad_rel_norm_diff > rtol or math.isnan(xgrad_rel_norm_diff):
         print("warning, xgrad_rel_norm_diff is too large, ", xgrad_rel_norm_diff)
         valid = False
     #print(opt_tensor)
