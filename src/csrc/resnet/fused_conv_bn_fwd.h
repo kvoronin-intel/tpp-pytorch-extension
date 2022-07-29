@@ -198,6 +198,19 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 
   long Cb_step = Cb / c_block;
 
+  long n_step = 1;
+  long c_step = Cb_step;
+  long k_step = 1;
+  long h_step = h_in_gemm;
+  long w_step = ofw / w_block;
+  long r_step = R;
+  long s_step = S;
+
+  if (avoid_fmas_in_rim == 1) {
+    r_step = 1;
+    s_step = 1;
+  }
+
   //std::cout << "gemm_n gemm_m gemm_k = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
 
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
@@ -212,7 +225,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
     //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
     if (pack_input == 0) {
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     } else {
       if (avoid_fmas_in_rim) {
         printf("Error: avoid_fmas_in_rim = %d is incompatible with pack_input = %d\n", avoid_fmas_in_rim, pack_input);
@@ -230,14 +243,14 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
       //l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ofh*ofw*sizeof(DType), Cb_step );
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
       //printf("brgemm_tpp\n");
-      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     }
 
     //printf("brgemm2_tpp\n");
-    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
   } else {
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
+    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
     B_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -259,18 +272,6 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
     } /* outer loop for filling the offsets */
   }
 
-  long n_step = 1;
-  long c_step = Cb_step;
-  long k_step = 1;
-  long h_step = h_in_gemm;
-  long w_step = ofw / w_block;
-  long r_step = R;
-  long s_step = S;
-
-  if (avoid_fmas_in_rim == 1) {
-    r_step = 1;
-    s_step = 1;
-  }
 
   if ( (h_in_gemm > 1) && (w_block != 1) ) {
     printf("Invalid input GEMM config: When multiple H pixels are handled in the gemm, then the full ofw should be also used as gemm_n...\n");
