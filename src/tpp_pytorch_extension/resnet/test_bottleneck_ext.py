@@ -32,12 +32,14 @@ parser.add_argument('--ref-module', default='pt_native', type=str,
 
 parser.add_argument("--with-perf", action="store_true", default=False, help='if true, measures performance additionally for the opt module', dest='with_perf')
 
-parser.add_argument('--use-bf16-opt', action="store_true", default=False, dest='use_bf16_opt')
+parser.add_argument('--use-bf16-opt', action="store_true", default=True, dest='use_bf16_opt')
 parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='use_bf16_ref')
 
 parser.add_argument('--use-physical-3x3-padding', action="store_true", default=False, dest='use_physical_3x3_padding')
 
 parser.add_argument('--use-groupnorm', action="store_true", default=False, dest='use_groupnorm')
+
+parser.add_argument('--use-hardcoded-tunings', action="store_true", default=False, dest='use_hardcoded_tunings')
 
 #import pdb
 
@@ -49,9 +51,9 @@ def gn_init(m, zero_init=False):
     m.weight.data.fill_(0. if zero_init else 1.)
     m.bias.data.zero_()
 
-def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module):
-    print("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf test_module ref_module",
-            N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module)
+def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module, use_hardcoded_tunings):
+    print("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf test_module ref_module use_hardcoded_tunings = ",
+            N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module, use_hardcoded_tunings)
 
     pcl_cgbp.init_libxsmm()
 
@@ -134,7 +136,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     if test_module == 'ext_bottleneck':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
-        opt_bottleneck = bottleneck_py.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype)
+        opt_bottleneck = bottleneck_py.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype, use_hardcoded_tunings=use_hardcoded_tunings)
     elif test_module == 'tpp_bottleneck':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
         opt_bottleneck = pcl_cgbp.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype)
@@ -194,7 +196,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
         rtol=5.0e-4
     atol=1e+0
 
-    validation_check_failed1 = compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
+    validation_check_failed1 = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
 
     z1.backward(retain_graph=True)
     z2.backward(retain_graph=True)
@@ -202,30 +204,30 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     # X gradient
 
-    validation_check_failed2 = compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
+    validation_check_failed2 = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
 
     # Weight gradients for batchnorms
 
-    validation_check_failed3 = compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
-    validation_check_failed4 = compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
-    validation_check_failed5 = compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
+    validation_check_failed3 = not compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
+    validation_check_failed4 = not compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
+    validation_check_failed5 = not compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
     if has_downsample:
-        validation_check_failed6 = compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
+        validation_check_failed6 = not compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
     else:
         validation_check_failed6 = False
 
     # Weight gradients for convs
 
-    validation_check_failed7 = compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
-    validation_check_failed8 = compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
-    validation_check_failed9 = compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
+    validation_check_failed7 = not compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
+    validation_check_failed8 = not compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
+    validation_check_failed9 = not compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
     if has_downsample:
-        validation_check_failed10 = compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
+        validation_check_failed10 = not compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
     else:
         validation_check_failed10 = False
 
-    validation_checks_failed = validation_check_failed1 and validation_check_failed2 and validation_check_failed3 and validation_check_failed4 and validation_check_failed5 and validation_check_failed6 and validation_check_failed7 and validation_check_failed8 and validation_check_failed9 and validation_check_failed10
-    if not validation_checks_failed:
+    validation_checks_failed = validation_check_failed1 or validation_check_failed2 or validation_check_failed3 or validation_check_failed4 or validation_check_failed5 or validation_check_failed6 or validation_check_failed7 or validation_check_failed8 or validation_check_failed9 or validation_check_failed10
+    if validation_checks_failed:
         print("Validation FAILED")
     else:
         print("Validation PASSED")
@@ -274,7 +276,7 @@ def main():
             eps = float(eps)
             print("eps, type(eps) = ", eps, type(eps))
             run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module)
+                                opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module, args.use_hardcoded_tunings)
     exit()
 
     # Just a single size run
@@ -290,7 +292,7 @@ def main():
     expansion = 4 # Fixed
     has_downsample = True
 
-    run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module)
+    run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module, args.use_hardcoded_tunings)
 
 if __name__ == "__main__":
     args = parser.parse_args()
