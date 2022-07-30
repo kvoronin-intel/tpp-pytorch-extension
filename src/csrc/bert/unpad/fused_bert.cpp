@@ -73,9 +73,14 @@ static std::vector<at::Tensor> fused_self_attention_fwd(
   if (inputs[6].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_self_attention_fwd_tmpl.h"
-  } else {
+  } else if (inputs[6].dtype() == at::kBFloat16) {
     typedef bfloat16 T;
 #include "fused_self_attention_fwd_tmpl.h"
+  } else if (inputs[6].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+#include "fused_self_attention_fwd_tmpl.h"
+  } else {
+    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -86,9 +91,14 @@ static std::vector<at::Tensor> fused_self_attention_bwd(
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_self_attention_bwd_tmpl.h"
-  } else {
+  } else if (inputs[0].dtype() == at::kBFloat16) {
     typedef bfloat16 T;
 #include "fused_self_attention_bwd_tmpl.h"
+  } else if (inputs[0].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+#include "fused_self_attention_bwd_tmpl.h"
+  } else {
+    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -101,9 +111,14 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
-  } else {
+  } else if (inputs[0].dtype() == at::kBFloat16) {
     typedef bfloat16 T;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
+  } else if (inputs[0].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+#include "fused_dense_dropout_layernorm_fwd_tmpl.h"
+  } else {
+    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -114,9 +129,14 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
-  } else {
+  } else if (inputs[0].dtype() == at::kBFloat16) {
     typedef bfloat16 T;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
+  } else if (inputs[0].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+#include "fused_dense_dropout_layernorm_bwd_tmpl.h"
+  } else {
+    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -129,9 +149,14 @@ static std::vector<at::Tensor> fused_dense_gelu_fwd(
   if (t_in.dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_gelu_fwd_tmpl.h"
-  } else {
+  } else if (t_in.dtype() == at::kBFloat16) {
     typedef bfloat16 T;
 #include "fused_dense_gelu_fwd_tmpl.h"
+  } else if (t_in.dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+#include "fused_dense_gelu_fwd_tmpl.h"
+  } else {
+    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -144,9 +169,14 @@ static std::vector<at::Tensor> fused_dense_gelu_bwd(
   if (t_grad_out.dtype() == at::kFloat) {
     typedef float T;
 #include "fused_dense_gelu_bwd_tmpl.h"
-  } else {
+  } else if (t_grad_out.dtype() == at::kBFloat16) {
     typedef bfloat16 T;
 #include "fused_dense_gelu_bwd_tmpl.h"
+  } else if (t_grad_out.dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+#include "fused_dense_gelu_bwd_tmpl.h"
+  } else {
+    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 

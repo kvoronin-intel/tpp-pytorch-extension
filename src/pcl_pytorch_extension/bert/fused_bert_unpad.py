@@ -17,8 +17,10 @@ from contextlib import contextmanager
 from transformers.modeling_utils import apply_chunking_to_forward
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
 
-USE_BF16_PARAMS = True
-layer_use_bf16 = False
+USE_LOW_PREC_PARAMS = True
+layer_use_low_prec = False
+low_prec_dtype = torch.bfloat16
+low_prec_vnni_blocking = 2
 print_cou = 0
 
 
@@ -273,32 +275,33 @@ class BertSelfAttention(BlockedModule):
             ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
         )
         self.blocked_input_signature = get_blocking_signature("SF", "SFSF")
-        if layer_use_bf16 == True and USE_BF16_PARAMS:
+        if layer_use_low_prec == True and USE_LOW_PREC_PARAMS:
             self.query.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // 2, 2]],
+                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
                     [0, 2, 3, 1, 4],
-                    torch.bfloat16,
+                    low_prec_dtype,
                 )
             )
             self.key.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // 2, 2]],
+                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
                     [0, 2, 3, 1, 4],
-                    torch.bfloat16,
+                    low_prec_dtype,
                 )
             )
             self.value.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // 2, 2]],
+                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
                     [0, 2, 3, 1, 4],
-                    torch.bfloat16,
+                    low_prec_dtype,
                 )
             )
-            self.query.bias.set_blocking_param((None, None, torch.bfloat16))
-            self.key.bias.set_blocking_param((None, None, torch.bfloat16))
-            self.value.bias.set_blocking_param((None, None, torch.bfloat16))
-        self.use_bf16 = layer_use_bf16
+            self.query.bias.set_blocking_param((None, None, low_prec_dtype))
+            self.key.bias.set_blocking_param((None, None, low_prec_dtype))
+            self.value.bias.set_blocking_param((None, None, low_prec_dtype))
+        self.use_low_prec = layer_use_low_prec
+        self.low_prec = low_prec_dtype
 
         # self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -394,9 +397,9 @@ class BertSelfAttention(BlockedModule):
 
         # context_layer, attention_probs = fused_bert_cpp.forward(self.handle.handle, inputs)
         p = self.attention_probs_dropout_prob if self.training else 0.0
-        if self.use_bf16:
+        if self.use_low_prec:
             inputs = [
-                i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs
+                i.cvt_to(self.low_prec) if i.is_floating_point() else i for i in inputs
             ]
         outputs = BertSelfAttentionFunction.apply(
             p, self.training, output_attentions, *inputs
@@ -414,7 +417,7 @@ class BertSelfAttention(BlockedModule):
                 attention_probs.permute([0, 2, 1, 4, 3, 5])
                 .contiguous()
                 .view([B, self.num_attention_heads, S, S])
-                .to(orig_hidden_states.dtype)
+                .cvt_to(orig_hidden_states.dtype)
             )
 
         outputs = (
@@ -478,18 +481,19 @@ class BertOutputBase(BlockedModule):
             ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
         )
         self.blocked_input_signature = get_blocking_signature("SF", "SFSF")
-        if layer_use_bf16 == True and USE_BF16_PARAMS:
+        if layer_use_low_prec == True and USE_LOW_PREC_PARAMS:
             self.dense.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // 2, 2]],
+                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
                     [0, 2, 3, 1, 4],
-                    torch.bfloat16,
+                    low_prec_dtype,
                 )
             )
-            self.dense.bias.set_blocking_param((None, None, torch.bfloat16))
-            self.LayerNorm.weight.set_blocking_param((None, None, torch.bfloat16))
-            self.LayerNorm.bias.set_blocking_param((None, None, torch.bfloat16))
-        self.use_bf16 = layer_use_bf16
+            self.dense.bias.set_blocking_param((None, None, low_prec_dtype))
+            self.LayerNorm.weight.set_blocking_param((None, None, low_prec_dtype))
+            self.LayerNorm.bias.set_blocking_param((None, None, low_prec_dtype))
+        self.use_low_prec = layer_use_low_prec
+        self.low_prec = low_prec_dtype
         # print(f"config.hidden_size = {config.hidden_size}, ifm = {ifm}, p = {config.hidden_dropout_prob}, eps = {config.layer_norm_eps}")
 
     def maybe_block_params(self):
@@ -521,14 +525,14 @@ class BertOutputBase(BlockedModule):
             self.LayerNorm.bias,
         ]
         p = self.hidden_dropout_prob if self.training else 0.0
-        if self.use_bf16:
+        if self.use_low_prec:
             inputs = [
-                i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs
+                i.cvt_to(self.low_prec) if i.is_floating_point() else i for i in inputs
             ]
         ret = BertOutputBaseFunction.apply(
             p, self.layer_norm_eps, self.training, *inputs
         )
-        # ret = ret.to(hidden_states.dtype)
+        # ret = ret.cvt_to(hidden_states.dtype)
         ret = BlockedTensor(ret, self.blocked_input_signature, orig_hidden_states.dtype)
         return ret
         # hidden_states = self.dense(hidden_states)
@@ -582,17 +586,18 @@ class BertIntermediate(BlockedModule):
         )
         self.hidden_act = config.hidden_act
         self.blocked_input_signature = get_blocking_signature("SF", "SFSF")
-        if layer_use_bf16 == True and USE_BF16_PARAMS:
+        if layer_use_low_prec == True and USE_LOW_PREC_PARAMS:
             self.dense.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // 2, 2]],
+                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
                     [0, 2, 3, 1, 4],
-                    torch.bfloat16,
+                    low_prec_dtype,
                 )
             )
-            self.dense.bias.set_blocking_param((None, None, torch.bfloat16))
+            self.dense.bias.set_blocking_param((None, None, low_prec_dtype))
 
-        self.use_bf16 = True if layer_use_bf16 else False
+        self.use_low_prec = True if layer_use_low_prec else False
+        self.low_prec = low_prec_dtype
         # if isinstance(config.hidden_act, str):
         #     self.intermediate_act_fn = ACT2FN[config.hidden_act]
         # else:
@@ -611,12 +616,12 @@ class BertIntermediate(BlockedModule):
             [None, self.attention_head_size],
         )
         inputs = [hidden_states, self.dense.weight, self.dense.bias]
-        if self.use_bf16:
+        if self.use_low_prec:
             inputs = [
-                i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs
+                i.cvt_to(self.low_prec) if i.is_floating_point() else i for i in inputs
             ]
         ret = BertIntermediateFunction.apply(*inputs, self.hidden_act, self.training)
-        # ret = ret.to(hidden_states.dtype)
+        # ret = ret.cvt_to(hidden_states.dtype)
         hidden_states = BlockedTensor(
             ret, self.blocked_input_signature, orig_hidden_states.dtype
         )
@@ -708,10 +713,12 @@ class BertEmbeddings(BlockedModule):
         ), f"position embedding type {self.position_embedding_type} not supported"
         self.blocked_ids_signature = get_blocking_signature("BS", "BSS")
         self.blocked_embed_signature = get_blocking_signature("BSF", "BSFSF")
-        self.use_bf16 = layer_use_bf16
+        self.use_low_prec = layer_use_low_prec
+        # We use bfloat16 for embedding layer even when other layers use bfloat8
+        self.low_prec = torch.bfloat16
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             print(
-                f"config.hidden_size = {config.hidden_size}, config.intermediate_size = {config.intermediate_size}, p = {config.hidden_dropout_prob}, eps = {config.layer_norm_eps}, bf16 = {layer_use_bf16}"
+                f"config.hidden_size = {config.hidden_size}, config.intermediate_size = {config.intermediate_size}, p = {config.hidden_dropout_prob}, eps = {config.layer_norm_eps}, low_prec = {layer_use_low_prec} prec = {low_prec_dtype if layer_use_low_prec else torch.float}"
             )
 
     def forward(
@@ -773,9 +780,9 @@ class BertEmbeddings(BlockedModule):
             self.LayerNorm.bias,
         ]
         p = self.hidden_dropout_prob if self.training else 0.0
-        if self.use_bf16:
+        if self.use_low_prec:
             inputs = [
-                i.to(torch.bfloat16) if i.is_floating_point() else i for i in inputs
+                i.cvt_to(self.low_prec) if i.is_floating_point() else i for i in inputs
             ]
         inputs += emb_weighs
         embeddings = BertEmbeddingsFunction.apply(
@@ -786,7 +793,7 @@ class BertEmbeddings(BlockedModule):
             self.pad_token_id,
             *inputs,
         )
-        # embeddings = BlockedTensor(embeddings, self.blocked_embed_signature, torch.bfloat16 if self.use_bf16 else torch.float)
+        # embeddings = BlockedTensor(embeddings, self.blocked_embed_signature, low_prec_dtype if self.use_low_prec else torch.float)
         embeddings = BlockedTensor(
             embeddings, self.blocked_embed_signature, torch.float
         )
@@ -1159,8 +1166,10 @@ except:
 
 
 @contextmanager
-def pcl_impl(enable=True, use_bf16=False):
-    global layer_use_bf16
+def pcl_impl(enable=True, use_low_prec=False, use_bf8=False):
+    global layer_use_low_prec
+    global low_prec_dtype
+    global low_prec_vnni_blocking
     try:
         import transformers
 
@@ -1170,13 +1179,17 @@ def pcl_impl(enable=True, use_bf16=False):
             if enable:
                 transformers.models.bert.modeling_bert.BertEncoder = BertEncoder
                 transformers.models.bert.modeling_bert.BertEmbeddings = BertEmbeddings
-                if use_bf16:
-                    layer_use_bf16 = True
+                if use_low_prec:
+                    layer_use_low_prec = True
+                    low_prec_dtype = torch.bfloat8 if use_bf8 == True else torch.bfloat16
+                    low_prec_vnni_blocking = 4 if use_bf8 == True else 2
             yield
         finally:
             transformers.models.bert.modeling_bert.BertEncoder = orig_BertEncoder
             transformers.models.bert.modeling_bert.BertEmbeddings = orig_BertEmbeddings
-            layer_use_bf16 = False
+            layer_use_low_prec = False
+            low_prec_dtype = torch.bfloat16
+            low_prec_vnni_blocking = 2
     except ImportError as e:
         pass
 

@@ -21,6 +21,9 @@ $bash cmd.sh --use_pcl --pcl_bf16
 
 You can enable unpad optimization by adding --unpad to optimized command line (FP32 or BF16).
 
+For bit accurate BF8 (152) emulation code (only supported with unpad):
+$bash cmd.sh --use_pcl --pcl_bf8 --unpad
+
 To enable autograd profiling add "--profile" to above command line.
 
 To run bert squad on multi-node run:
@@ -40,4 +43,7 @@ $bash download_squad_fine_tuned_model.sh
 
 To run squad inference task:
 $bash cmd_infer.sh --use_pcl --pcl_bf16 
+
+To run squad inference in BF8:
+$bash cmd_infer.sh --use_pcl --pcl_bf8 --unpad
 

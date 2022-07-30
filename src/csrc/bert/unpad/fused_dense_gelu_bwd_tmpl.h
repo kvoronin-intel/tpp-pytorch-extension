@@ -9,6 +9,7 @@ auto Hc = in_sizes[3];
 auto Nk = wt_sizes[0];
 auto Hk = wt_sizes[3];
 
+constexpr int VBS = get_vnni_block_size<T>();
 const auto grad_wt_flag =
     (t_wt.dim() == 5 ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_NONE_TPP);
 const auto input_trans_flag =
@@ -26,8 +27,8 @@ auto t_grad_gelu = at::empty_like(t_grad_out);
 auto t_grad_wt = at::empty_like(t_wt);
 auto t_grad_bias = t_wt.new_empty({Nk * Hk}); // [Nk][Hk]
 auto t_grad_gelu_V = t_grad_gelu;
-if (t_grad_gelu.dtype() == at::kBFloat16) {
-  t_grad_gelu_V = t_grad_out.new_empty({S1, Nk, S2 / 2, Hk, 2});
+if (t_grad_gelu.dtype() != at::kFloat) {
+  t_grad_gelu_V = t_grad_out.new_empty({S1, Nk, S2 / VBS, Hk, VBS});
 }
 
 DECL_VLA_PTR_PT(T, in_T, [Nc][Hc * S2], t_in_T);
