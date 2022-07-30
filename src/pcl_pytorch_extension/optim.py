@@ -165,10 +165,14 @@ class AdamW(Optimizer):
                 if p.grad is None:
                     continue
                 grad = p.grad.data
+                data = p.data
                 if grad.is_sparse:
                     raise RuntimeError(
                         "Adam does not support sparse gradients, please consider SparseAdam instead"
                     )
+                if hasattr(torch,'bfloat8') and p.data.dtype == torch.bfloat8:
+                    data = data.to(torch.float)
+                    grad = grad.to(torch.float)
 
                 state = self.state[p]
 
@@ -176,15 +180,20 @@ class AdamW(Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     # Exponential moving average of gradient values
-                    state["exp_avg"] = torch.zeros_like(p.data)
+                    state["exp_avg"] = torch.zeros_like(data)
                     # Exponential moving average of squared gradient values
-                    state["exp_avg_sq"] = torch.zeros_like(p.data)
+                    state["exp_avg_sq"] = torch.zeros_like(data)
                     # Lower bits for bf16 params
                     if p.data.dtype == torch.bfloat16:
                         state["low_bits"] = torch.zeros_like(p.data)
+                    elif hasattr(torch,'bfloat8') and p.data.dtype == torch.bfloat8:
+                        state["master_copy"] = data
+
+                if hasattr(torch,'bfloat8') and p.data.dtype == torch.bfloat8:
+                    data = state["master_copy"]
 
                 exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
-                if p.data.dtype == torch.bfloat16:
+                if data.dtype == torch.bfloat16:
                     low_bits = state["low_bits"]
                 beta1, beta2 = group["betas"]
 
@@ -217,9 +226,9 @@ class AdamW(Optimizer):
                 # if group["weight_decay"] > 0.0:
                 #     p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
 
-                if p.data.dtype == torch.bfloat16:
+                if data.dtype == torch.bfloat16:
                     optim_cpp.fused_split_adamw(
-                        p.data,
+                        data,
                         low_bits,
                         grad.contiguous(),
                         exp_avg,
@@ -233,7 +242,7 @@ class AdamW(Optimizer):
                     )
                 else:
                     optim_cpp.fused_adamw(
-                        p.data,
+                        data,
                         grad.contiguous(),
                         exp_avg,
                         exp_avg_sq,
@@ -244,6 +253,8 @@ class AdamW(Optimizer):
                         group["weight_decay"],
                         group["eps"],
                     )
+                    if hasattr(torch,'bfloat8') and p.data.dtype == torch.bfloat8:
+                        p.data.copy_(state["master_copy"].to(torch.bfloat8))
 
         return loss
 

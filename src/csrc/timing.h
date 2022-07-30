@@ -1,6 +1,7 @@
 #ifndef _BERT_TIMING_H_
 #define _BERT_TIMING_H_
 
+#include <omp.h>
 #include "utils.h"
 
 enum DebugTimer {
@@ -149,6 +150,10 @@ class GlobalPass {
   double start;
 };
 
+//#define DEBUG_TRACE_TPP
+#ifdef DEBUG_TRACE_TPP
+static thread_local std::string prev_class_name = "";
+#endif
 template <typename T, int impl = 0>
 class ScopedTPP {
  public:
@@ -156,6 +161,15 @@ class ScopedTPP {
   template <typename... Types>
   void operator()(Types... vars) {
     ScopedTimer _t(t);
+#ifdef DEBUG_TRACE_TPP
+    if (omp_get_thread_num() == 0) {
+      auto cur_class_name = get_class_name<T>();
+      if (cur_class_name != prev_class_name) {
+        std::cout << "Calling impl " << impl << " for " << cur_class_name << std::endl;
+        prev_class_name = cur_class_name;
+      } 
+    }
+#endif
     if (impl == 0) {
       func(vars...);
     } else if (impl == 1) {

@@ -391,9 +391,11 @@ double clip_grad_norm(std::vector<at::Tensor>& grads, double max_norm) {
 
   for (int i = 0; i < N; i++) {
     if (grads[i].dtype() == at::kFloat) {
-      total_norm += norm2(grads[i].data_ptr<float>(), grads[i].numel());
+      total_norm += norm2(pt_get_data_ptr<float>(grads[i]), grads[i].numel());
     } else if (grads[i].dtype() == at::kBFloat16) {
-      total_norm += norm2(grads[i].data_ptr<bfloat16>(), grads[i].numel());
+      total_norm += norm2(pt_get_data_ptr<bfloat16>(grads[i]), grads[i].numel());
+    } else if (grads[i].dtype() == at::kBFloat8) {
+      total_norm += norm2(pt_get_data_ptr<bfloat8>(grads[i]), grads[i].numel());
     } else {
       PCL_ASSERT(0, "Unsupported data type");
     }
@@ -404,10 +406,13 @@ double clip_grad_norm(std::vector<at::Tensor>& grads, double max_norm) {
   if (clip_coef < 1.0) {
     for (int i = 0; i < N; i++) {
       if (grads[i].dtype() == at::kFloat) {
-        tensor_scale(grads[i].data_ptr<float>(), grads[i].numel(), clip_coef);
+        tensor_scale(pt_get_data_ptr<float>(grads[i]), grads[i].numel(), clip_coef);
       } else if (grads[i].dtype() == at::kBFloat16) {
         tensor_scale(
-            grads[i].data_ptr<bfloat16>(), grads[i].numel(), clip_coef);
+            pt_get_data_ptr<bfloat16>(grads[i]), grads[i].numel(), clip_coef);
+      } else if (grads[i].dtype() == at::kBFloat8) {
+        tensor_scale(
+            pt_get_data_ptr<bfloat8>(grads[i]), grads[i].numel(), clip_coef);
       } else {
         PCL_ASSERT(0, "Unsupported data type");
       }

@@ -4,7 +4,10 @@
 #include <ATen/record_function.h>
 #include <torch/csrc/autograd/VariableTypeUtils.h>
 #include <torch/extension.h>
+#include "bfloat8.h"
 
+#include <cxxabi.h>
+#include <typeinfo>
 #include <iostream>
 #include <vector>
 #ifdef _OPENMP
@@ -28,10 +31,11 @@
 
 typedef at::BFloat16 bfloat16;
 typedef at::Half half;
+typedef at::BFloat8 bfloat8;
 
 #define DECL_VLA_PTR(type, name, dims, ptr) type(*name) dims = (type(*) dims)ptr
 #define DECL_VLA_PTR_PT(type, name, dims, t) \
-  type(*name) dims = (type(*) dims)(t.data_ptr<type>())
+  type(*name) dims = (type(*) dims)(pt_get_data_ptr<type>(t))
 
 extern double ifreq; // defined in init.cpp
 
@@ -39,6 +43,26 @@ extern double ifreq; // defined in init.cpp
 extern thread_local unsigned int* rng_state;
 extern thread_local struct drand48_data drng_state; // For non AVX512 version
 unsigned int* get_rng_state();
+
+template<typename T>
+inline T* pt_get_data_ptr(at::Tensor t) {
+  return t.data_ptr<T>();
+}
+#ifndef PYTORCH_SUPPORTS_BFLOAT8
+template<>
+inline bfloat8* pt_get_data_ptr<bfloat8>(at::Tensor t) {
+  PCL_ASSERT(t.dtype() == at::kByte, "Wrong prec");
+  return (bfloat8*)t.data_ptr<uint8_t>();
+}
+#endif
+
+template<typename T>
+inline std::string get_class_name() {
+    auto cname = abi::__cxa_demangle(typeid(T).name(), 0, 0, NULL);
+    std::string name(cname);
+    free(cname);
+    return name;
+}
 
 #ifdef __x86_64__
 static __inline__ unsigned long long rdtsc(void) {

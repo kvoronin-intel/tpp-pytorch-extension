@@ -12,6 +12,7 @@
 #else
 #include <pytorch_extension_wrapper.h>
 #endif
+#include <bfloat8.h>
 #include <string>
 #include <unordered_map>
 
@@ -28,6 +29,7 @@
 namespace pcl {
 typedef at::BFloat16 bfloat16;
 typedef at::Half half;
+typedef at::BFloat8 bfloat8;
 inline float upconvert_to_float(float val) {
   return val;
 }
@@ -35,6 +37,9 @@ inline float upconvert_to_float(bfloat16 val) {
   return (float)val;
 }
 inline float upconvert_to_float(half val) {
+  return (float)val;
+}
+inline float upconvert_to_float(bfloat8 val) {
   return (float)val;
 }
 template <typename T>
@@ -58,6 +63,10 @@ inline libxsmm_datatype XsmmDtype<bfloat16>() {
 template <>
 inline libxsmm_datatype XsmmDtype<half>() {
   return LIBXSMM_DATATYPE_F16;
+}
+template <>
+inline libxsmm_datatype XsmmDtype<bfloat8>() {
+  return LIBXSMM_DATATYPE_BF8;
 }
 
 #ifdef __AVX512F__
@@ -151,6 +160,30 @@ inline void _mm512_mask_split_storeu_ps(
       _mm512_cvtepi32_epi16(_mm512_bsrli_epi128(_mm512_castps_si512(a), 2)));
   _mm256_mask_storeu_epi16(
       (__m256i*)lo, k, _mm512_cvtepi32_epi16(_mm512_castps_si512(a)));
+}
+inline __m512 _mm512_convert_bf8_ps(__m128i a) {
+  return _mm512_cvtph_ps(_mm256_slli_epi16(_mm256_cvtepi8_epi16(a), 8));
+}
+inline __m128i _mm_convert_ps_bf8(__m512 a) {
+  return _mm256_cvtepi16_epi8(_mm256_srai_epi16(_mm512_cvtps_ph(a, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC), 8));
+}
+
+inline __m512 _mm512_loadu_ps_auto(bfloat8 const* mem_addr) {
+  return _mm512_convert_bf8_ps(_mm_loadu_si128((__m128i const*)mem_addr));
+}
+inline __m512 _mm512_maskz_loadu_ps_auto(
+    __mmask16 k,
+    bfloat8 const* mem_addr) {
+  return _mm512_convert_bf8_ps(_mm_maskz_loadu_epi8(k, (__m128i const*)mem_addr));
+}
+inline void _mm512_storeu_ps_auto(bfloat8* mem_addr, __m512 a) {
+  _mm_storeu_si128((__m128i*)mem_addr, _mm_convert_ps_bf8(a));
+}
+inline void _mm512_mask_storeu_ps_auto(
+    bfloat8* mem_addr,
+    __mmask16 k,
+    __m512 a) {
+  _mm_mask_storeu_epi8((__m128i*)mem_addr, k, _mm_convert_ps_bf8(a));
 }
 #endif
 
@@ -252,6 +285,8 @@ class BaseTPP {
     }
     return kernel;
   }
+  // We should make hash_str() public
+  std::string get_hash_str() { return hash_str();}
 
  protected:
   std::unordered_map<std::string, void*>& get_kernel_cache() {
@@ -287,7 +322,7 @@ class UnaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_unary)get_kernel();
-    initialized = true;
+    if (kernel) initialized = true;
   }
 
   void operator()(void* in, void* out) {
@@ -427,7 +462,7 @@ class BinaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_binary)get_kernel();
-    initialized = true;
+    if (kernel) initialized = true;
   }
 
   void operator()(void* in0, void* in1, void* out) {
@@ -1249,15 +1284,20 @@ class XformExtTPP {
           "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
           (int)xtype);
     }
-    const int BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    const int BS = (dtype == LIBXSMM_DATATYPE_BF8 ? 4 : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
     if (xtype == XformTPP::XFORM_N2V_TPP) {
       in_rows_p = out_rows;
       in_cols_p = out_cols;
-      if (dtype != LIBXSMM_DATATYPE_F32) {
+      if (dtype == LIBXSMM_DATATYPE_F32) {
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
+      } else if (dtype == LIBXSMM_DATATYPE_BF16) {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2;
         PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
+      } else if (dtype == LIBXSMM_DATATYPE_BF8) {
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4;
+        PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
       } else {
-        unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
+        PCL_ASSERT(false, "N2VTPP: unknown dtype\n");
       }
     } else {
       in_rows_p = out_cols;
@@ -1271,7 +1311,11 @@ class XformExtTPP {
           PCL_ASSERT(
               in_cols_p % BS == 0, "XposeN2VTPP: uneven number of cols\n");
         } else {
-          unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI2_TO_VNNI2T;
+          if (dtype == LIBXSMM_DATATYPE_BF16) {
+            unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI2_TO_VNNI2T;
+          } else {
+            unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI4_TO_VNNI4T;
+          }
           PCL_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
           PCL_ASSERT(
               in_cols_p % BS == 0, "XposeV2VTPP: uneven number of cols\n");
@@ -1334,7 +1378,7 @@ class XformExtTPP {
     }
   }
   void ref(T* in, T* out) {
-    auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    const int BS = (dtype == LIBXSMM_DATATYPE_BF8 ? 4 : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {
@@ -3975,8 +4019,8 @@ class SplitSGDTPP : public BaseTPP {
     auto out_hi = (libxsmm_bfloat16*)hi;
     auto out_lo = (libxsmm_bfloat16*)lo;
     for (int i = 0; i < N; i++) {
-      union libxsmm_bfloat16_hp bf16_hp;
-      union libxsmm_bfloat16_hp bf16_wt;
+      union libxsmm_bfloat16_f32 bf16_hp;
+      union libxsmm_bfloat16_f32 bf16_wt;
       bf16_wt.i[0] = 0;
       bf16_wt.i[1] = dwt[i];
       bf16_hp.i[0] = out_lo[i];
@@ -4428,7 +4472,7 @@ class FusedSplitAdamWTPP {
     float beta2_1 = 1.0f - beta2;
 #ifndef __AVX512F__
     for (long i = 0; i < sz; i++) {
-      union libxsmm_bfloat16_hp data_hp;
+      union libxsmm_bfloat16_f32 data_hp;
       float avg_i = exp_avg[i];
       float avg_sq_i = exp_avg_sq[i];
       float grad_i = grad[i];

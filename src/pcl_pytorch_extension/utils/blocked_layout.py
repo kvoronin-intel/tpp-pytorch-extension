@@ -161,7 +161,7 @@ class BlockedTensor(object):
         plain_dtype = self.get_plain_dtype()
         # print("BlockedTensor returning unblocked tensor with shape %s" % (plain_shape,))
         return (
-            self._t.permute(permute_list).contiguous().view(plain_shape).to(plain_dtype)
+            self._t.permute(permute_list).contiguous().view(plain_shape).cvt_to(plain_dtype)
         )
 
     def get_signature(self):
@@ -235,9 +235,9 @@ class BlockedParameter(torch.nn.Parameter):
                 blocking_factors=self.blocking_param[0],
                 permute=self.blocking_param[1],
             )
-        self.data = self.blocking_manager.block(self.data).to(self.blocked_dtype)
+        self.data = self.blocking_manager.block(self.data).cvt_to(self.blocked_dtype)
         if self.grad is not None:
-            self.grad.data = self.blocking_manager.block(self.grad.data).to(
+            self.grad.data = self.blocking_manager.block(self.grad.data).cvt_to(
                 self.blocked_dtype
             )
         self.blocked = True
@@ -246,9 +246,9 @@ class BlockedParameter(torch.nn.Parameter):
         if not self.blocked:
             return
         assert self.blocking_manager is not None
-        self.data = self.blocking_manager.unblock(self.data).to(self.unblocked_dtype)
+        self.data = self.blocking_manager.unblock(self.data).cvt_to(self.unblocked_dtype)
         if self.grad is not None:
-            self.grad.data = self.blocking_manager.unblock(self.grad.data).to(
+            self.grad.data = self.blocking_manager.unblock(self.grad.data).cvt_to(
                 self.unblocked_dtype
             )
         self.blocked = False
