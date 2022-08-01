@@ -11,7 +11,7 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-//#define VERBOSE
+#define VERBOSE
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
@@ -80,6 +80,13 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   long r_step = R;
   long s_step = S;
 
+  //cfg.avoid_fmas_in_rim = 1;
+  long avoid_fmas_in_rim = 0;
+  if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
+    avoid_fmas_in_rim = 1;
+    cfg.avoid_fmas_in_rim = 1; //??? FIXME
+  }
+
   if (cfg.avoid_fmas_in_rim == 1) {
     r_step = 1;
     s_step = 1;
@@ -94,13 +101,6 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
-
-  //cfg.avoid_fmas_in_rim = 1;
-  long avoid_fmas_in_rim = 0;
-  if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
-    avoid_fmas_in_rim = 1;
-    cfg.avoid_fmas_in_rim = 1; //??? FIXME
-  }
 
   if (R != 1 || S != 1) {
 #ifdef VERBOSE
