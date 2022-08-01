@@ -272,6 +272,8 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         y1 = opt_conv(x1, tuning_params_d=tuning_params, tuning_string_d=tuning_string, tuning_timings_d=dummy_tuning_timings)
     elif perf_bwd_w:
         y1 = opt_conv(x1, tuning_params_w=tuning_params, tuning_string_w=tuning_string, tuning_timings_w=dummy_tuning_timings)
+    else:
+        y1 = opt_conv(x1)
 
     #y1 = opt_conv(x1) #xp)
 
