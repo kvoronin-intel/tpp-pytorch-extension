@@ -289,6 +289,10 @@ def run(args, device, data):
             # blocks.
             end = time.time()
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+                if args.opt_mlp and epoch==0 and step==0:
+                    cores = int(os.environ['OMP_NUM_THREADS'])
+                    gnn_utils.affinitize_cores(cores, args.num_workers)
+
                 # measure data loading time
                 t0 = time.time()
                 data_time.update(t0 - end)
