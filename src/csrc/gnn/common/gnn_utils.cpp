@@ -1,15 +1,22 @@
+#include <ATen/record_function.h>
 #include <torch/extension.h>
 #include <cstdlib>
 
 #include <iostream>
 #include <mutex>
 #include <vector>
+#include "ext_tpp.h"
 #include "init.h"
-#include "utils.h"
+#include "timing.h"
+#include "xsmm_functors.h"
 
-typedef at::BFloat16 bfloat16;
+#include <omp.h>
+#include <sched.h>
 
-at::Tensor gather_features(const int align, std::vector<at::Tensor> inputs) {
+using namespace pcl;
+REGISTER_SCOPE(gather, "gather");
+
+at::Tensor gather_features(const int alignN, std::vector<at::Tensor> inputs) {
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "gnn_utils.h"
