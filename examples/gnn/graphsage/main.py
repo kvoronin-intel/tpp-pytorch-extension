@@ -318,7 +318,7 @@ def run(args, device, data):
                     acc = compute_acc(batch_pred, batch_labels)
                     print(
                         "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
-                        "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |" 
+                        "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |"
                         "Data Load (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
                         "Gather (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
                         "Compute (s) {batch_time.val:.3f} ({batch_time.avg:.3f})".format(
@@ -363,7 +363,7 @@ def run(args, device, data):
                         )
                     )
                 elif args.dataset == "ogbn-papers100M":
-                    '''
+                    """
                     save_checkpoint(
                         {"state_dict": model.state_dict()},
                         filename="ogbp100M" + str(epoch) + ".pth.tar",
@@ -371,7 +371,7 @@ def run(args, device, data):
                     eval_acc, test_acc, pred = evaluate(
                         model, g, nfeat, labels, val_nid, test_nid, device
                     )
-                    '''
+                    """
 
     if prof and args.opt_mlp:
         ppx.print_debug_timers(0)

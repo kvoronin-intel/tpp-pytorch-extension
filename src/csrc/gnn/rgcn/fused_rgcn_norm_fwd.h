@@ -29,8 +29,8 @@ DECL_VLA_PTR_PT(float, degs, [bn], t_degs);
 DECL_VLA_PTR_PT(float, norm, [bn], t_norm);
 DECL_VLA_PTR_PT(float, in_f32, [bn][C], t_in_f32);
 
-auto recp_tpp = SCOPEIT((RecpTPP<float, float>(bn)), EW_RCP);
-auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float, float>(bn)), EW_RSQRT);
+auto recp_tpp = SCOPEIT((RecpTPP<float>(bn)), EW_RCP);
+auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float>(bn)), EW_RSQRT);
 auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, C, C, C)), EW_MUL);
 auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, C)), EW_COPY);
 
@@ -55,8 +55,8 @@ auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, C)), EW_COPY);
       DECL_VLA_PTR_PT(T, out, [C], t_out);
       DECL_VLA_PTR_PT(float, in_f32, [C], t_in_f32);
 
-      auto recp_tpp = SCOPEIT((RecpTPP<float, float>(rem)), EW_RCP);
-      auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float, float>(rem)), EW_RSQRT);
+      auto recp_tpp = SCOPEIT((RecpTPP<float>(rem)), EW_RCP);
+      auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float>(rem)), EW_RSQRT);
       auto mul_norm_tpp =
           SCOPEIT_REF((MulNormTPP<float, T>(rem, C, C, C)), EW_MUL);
       auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(rem, C)), EW_COPY);

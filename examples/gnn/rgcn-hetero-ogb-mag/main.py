@@ -39,10 +39,12 @@ def opt_impl(enable=True, use_bf16=False):
     except ImportError as e:
         pass
 
+
 def block(model):
     for m in model.modules():
         if hasattr(m, "maybe_block_params"):
             m.maybe_block_params()
+
 
 def train(
     embedding_layer: nn.Module,
@@ -93,7 +95,7 @@ def train(
 
             loss.backward()
 
-            '''
+            """
             for param in model.parameters():
                 if param.requires_grad and param.grad is not None:
                     print('{}: {:.4f}'.format(param.shape, param.grad.data.sum()))
@@ -101,7 +103,7 @@ def train(
             for param in embedding_layer.parameters():
                 if param.requires_grad and param.grad is not None:
                     print('{}: {:.4f}'.format(param.shape, param.grad.coalesce().values().sum()))
-            '''
+            """
 
             model_optimizer.step()
             embedding_optimizer.step()
@@ -109,7 +111,7 @@ def train(
             total_loss += loss.item()
             total_accuracy += accuracy
 
-            #print('Step {:02d} | Loss {:.4f} | TLoss {:.4f} | Acc {:.4f} | TAcc {:.4f}'.format(
+            # print('Step {:02d} | Loss {:.4f} | TLoss {:.4f} | Acc {:.4f} | TAcc {:.4f}'.format(
             #  step, loss.item(), total_loss, accuracy, total_accuracy))
 
     if args.mlp_profile and args.opt_mlp:
@@ -196,7 +198,11 @@ def validate(
             total_accuracy /= step + 1
         elif inference_mode == "full_neighbor_sampler":
             logits = model.inference(
-                hg, eval_batch_size, eval_num_workers, embedding_layer, device,
+                hg,
+                eval_batch_size,
+                eval_num_workers,
+                embedding_layer,
+                device,
             )[predict_category][mask]
 
             total_loss = loss_function(logits, valid_labels)
@@ -228,7 +234,8 @@ def run(args: argparse.ArgumentParser) -> None:
     torch.manual_seed(args.seed)
 
     dataset, hg, train_idx, valid_idx, test_idx = utils.process_dataset(
-        args.dataset, root=args.dataset_root,
+        args.dataset,
+        root=args.dataset_root,
     )
     predict_category = dataset.predict_category
     labels = hg.nodes[predict_category].data["labels"]
@@ -320,11 +327,11 @@ def run(args: argparse.ArgumentParser) -> None:
 
     if args.opt_mlp:
         embedding_optimizer = ppx.optim.AdamW(
-                embedding_layer.node_embeddings.parameters(), lr=args.embedding_lr
+            embedding_layer.node_embeddings.parameters(), lr=args.embedding_lr
         )
     else:
         embedding_optimizer = torch.optim.SparseAdam(
-                embedding_layer.node_embeddings.parameters(), lr=args.embedding_lr
+            embedding_layer.node_embeddings.parameters(), lr=args.embedding_lr
         )
 
     if args.node_feats_projection:
@@ -528,13 +535,19 @@ if __name__ == "__main__":
         "--use_bf16", action="store_true", help="Whether to use BF16 datatype"
     )
     argparser.add_argument(
-        "--profile", action="store_true", help="Whether to profile or not",
+        "--profile",
+        action="store_true",
+        help="Whether to profile or not",
     )
     argparser.add_argument(
-        "--mlp-profile", action="store_true", help="Whether to profile MLP or not",
+        "--mlp-profile",
+        action="store_true",
+        help="Whether to profile MLP or not",
     )
     argparser.add_argument(
-        "--cpu-worker-aff", action="store_true", help="Whether to affinitize DL workers or not",
+        "--cpu-worker-aff",
+        action="store_true",
+        help="Whether to affinitize DL workers or not",
     )
 
     args = argparser.parse_args()

@@ -49,8 +49,8 @@ auto brgemm_tpp = SCOPEITGEMM(
     (BrgemmTPP<
         T,
         float>(bn, bk, bcp, bcp, bk* bcp, nc* bcp, bk, nk* bk, 0.0, 0, nc)));
-auto recp_tpp = SCOPEIT((RecpTPP<float, float>(bn)), EW_RCP);
-auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float, float>(bn)), EW_RSQRT);
+auto recp_tpp = SCOPEIT((RecpTPP<float>(bn)), EW_RCP);
+auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float>(bn)), EW_RSQRT);
 auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, bk, K, K)), EW_MUL);
 
 {
@@ -100,8 +100,8 @@ auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, bk, K, K)), EW_MUL);
 
       auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));
-      auto recp_tpp = SCOPEIT((RecpTPP<float, float>(rem)), EW_RCP);
-      auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float, float>(rem)), EW_RSQRT);
+      auto recp_tpp = SCOPEIT((RecpTPP<float>(rem)), EW_RCP);
+      auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float>(rem)), EW_RSQRT);
       auto mul_norm_tpp =
           SCOPEIT((MulNormTPP<float, T>(rem, bk, K, K)), EW_MUL);
 
