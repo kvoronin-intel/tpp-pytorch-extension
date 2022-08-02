@@ -206,6 +206,7 @@ void print_debug_thread_imbalance() {
 }
 
 static void init_submodules(pybind11::module& m) {
+  auto& _submodule_list = get_submodule_list();
   for (auto& p : _submodule_list) {
     auto sm = m.def_submodule(p.first.c_str());
     auto module = py::handle(sm).cast<py::module>();

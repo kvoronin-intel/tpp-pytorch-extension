@@ -156,7 +156,7 @@ def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     )
 
 
-def load_subtensor(nfeat, labels, seeds, input_nodes, use_bf16):
+def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
@@ -213,7 +213,7 @@ def run(args, device, data):
             drop_last=False,
             num_workers=args.num_workers,
             use_cpu_worker_affinity=args.cpu_worker_aff,
-            persistent_workers=False,
+            persistent_workers=args.cpu_worker_aff,
             formats=["csc"],
         )
     else:
@@ -225,6 +225,7 @@ def run(args, device, data):
             shuffle=True,
             drop_last=False,
             num_workers=args.num_workers,
+            persistent_workers=args.cpu_worker_aff,
             use_cpu_worker_affinity=args.cpu_worker_aff,
         )
 
@@ -277,7 +278,11 @@ def run(args, device, data):
         if prof and args.opt_mlp:
             ppx.reset_debug_timers()
         for epoch in range(args.num_epochs):
-            batch_time = AverageMeter()
+            batch_fwd_time = AverageMeter()
+            batch_bwd_time = AverageMeter()
+            loss_time = AverageMeter()
+            optim_zero_time = AverageMeter()
+            optim_step_time = AverageMeter()
             data_time = AverageMeter()
             gather_time = AverageMeter()
 
@@ -289,54 +294,89 @@ def run(args, device, data):
             # blocks.
             end = time.time()
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
-                if args.opt_mlp and epoch==0 and step==0:
-                    cores = int(os.environ['OMP_NUM_THREADS'])
+                if args.opt_mlp and epoch == 0 and step == 0:
+                    cores = int(os.environ["OMP_NUM_THREADS"])
                     gnn_utils.affinitize_cores(cores, args.num_workers)
-
                 # measure data loading time
                 t0 = time.time()
-                data_time.update(t0 - end)
+                if step > 0:
+                    data_time.update(t0 - end)
 
                 # Load the input features as well as output labels
                 batch_inputs, batch_labels = load_subtensor(
-                    nfeat, labels, seeds, input_nodes, args.use_bf16
+                    nfeat, labels, seeds, input_nodes
                 )
                 t1 = time.time()
-                gather_time.update(t1 - t0)
+                if step > 0:
+                    gather_time.update(t1 - t0)
 
+                t2 = time.time()
                 # Compute loss and prediction
                 batch_pred = model(blocks, batch_inputs).to(th.float32)
+                t3 = time.time()
+                if step > 0:
+                    batch_fwd_time.update(t3 - t2)
+
                 loss = loss_fcn(batch_pred, batch_labels)
+                t4 = time.time()
+                if step > 0:
+                    loss_time.update(t4 - t3)
+
                 optimizer.zero_grad()
+                t5 = time.time()
+                if step > 0:
+                    optim_zero_time.update(t5 - t4)
+
                 loss.backward()
+                t6 = time.time()
+                if step > 0:
+                    batch_bwd_time.update(t6 - t5)
 
                 optimizer.step()
+                t7 = time.time()
+                if step > 0:
+                    optim_step_time.update(t7 - t6)
 
-                # measure elapsed time
-                batch_time.update(time.time() - t1)
                 end = time.time()
 
                 if step > 0:
-                    iter_time.append(data_time.val + gather_time.val + batch_time.val)
+                    iter_time.append(
+                        data_time.val
+                        + gather_time.val
+                        + batch_fwd_time.val
+                        + loss_time.val
+                        + optim_zero_time.val
+                        + batch_bwd_time.val
+                        + optim_step_time.val
+                    )
                 if step > 0 and step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
                     print(
-                        "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
-                        "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |"
-                        "Data Load (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
-                        "Gather (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
-                        "Compute (s) {batch_time.val:.3f} ({batch_time.avg:.3f})".format(
+                        # "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
+                        # "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |"
+                        "Epoch {:05d} | Step {:05d} |"
+                        "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
+                        "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
+                        "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) |"
+                        "Loss (s) {loss_time.val:.4f} ({loss_time.avg:.4f}) |"
+                        "Optim Zero (s) {optim_zero_time.val:.4f} ({optim_zero_time.avg:.4f}) |"
+                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) |"
+                        "Optim Step (s) {optim_step_time.val:.4f} ({optim_step_time.avg:.4f}) |".format(
                             epoch,
                             step,
                             loss.item(),
                             acc.item(),
-                            blocks[0].num_src_nodes(),
-                            blocks[1].num_src_nodes(),
-                            blocks[2].num_src_nodes(),
-                            blocks[2].num_dst_nodes(),
+                            # blocks[0].num_src_nodes(),
+                            # blocks[1].num_src_nodes(),
+                            # blocks[2].num_src_nodes(),
+                            # blocks[2].num_dst_nodes(),
                             data_time=data_time,
                             gather_time=gather_time,
-                            batch_time=batch_time,
+                            batch_fwd_time=batch_fwd_time,
+                            loss_time=loss_time,
+                            optim_zero_time=optim_zero_time,
+                            batch_bwd_time=batch_bwd_time,
+                            optim_step_time=optim_step_time,
                         )
                     )
 
@@ -367,11 +407,11 @@ def run(args, device, data):
                         )
                     )
                 elif args.dataset == "ogbn-papers100M":
-                    """
                     save_checkpoint(
                         {"state_dict": model.state_dict()},
                         filename="ogbp100M" + str(epoch) + ".pth.tar",
                     )
+                    """
                     eval_acc, test_acc, pred = evaluate(
                         model, g, nfeat, labels, val_nid, test_nid, device
                     )
