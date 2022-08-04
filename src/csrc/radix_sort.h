@@ -47,8 +47,10 @@ Key_Value_Pair<Tind>* radix_sort_parallel(
     Key_Value_Pair<Tind>* input = inp_buf;
     Key_Value_Pair<Tind>* output = tmp_buf;
 
-    for (unsigned int pass = 0; pass < num_passes; pass++) {
+    for (unsigned int pass = 0; pass < (unsigned int)num_passes; pass++) {
+#ifdef DEBUG
       unsigned long long t1 = __rdtsc();
+#endif
       // Step 1: compute histogram
       // Reset histogram
       for (int i = 0; i < nbkts; i++)
@@ -73,7 +75,9 @@ Key_Value_Pair<Tind>* radix_sort_parallel(
         }
       }
 #pragma omp barrier
+#ifdef DEBUG
       unsigned long long t11 = __rdtsc();
+#endif
       // Step 2: prefix sum
       if (tid == 0) {
         int sum = 0, prev_sum = 0;
@@ -90,7 +94,9 @@ Key_Value_Pair<Tind>* radix_sort_parallel(
         }
       }
 #pragma omp barrier
+#ifdef DEBUG
       unsigned long long t12 = __rdtsc();
+#endif
 
       // Step 3: scatter
 #pragma omp for schedule(static)
@@ -125,7 +131,9 @@ Key_Value_Pair<Tind>* radix_sort_parallel(
       input = output;
       output = temp;
 #pragma omp barrier
+#ifdef DEBUG
       unsigned long long t2 = __rdtsc();
+#endif
 #ifdef DEBUG_TIME
       if (tid == 0)
         printf(

@@ -41,11 +41,13 @@ void affinitize_cores(const int nthreads, const int num_workers) {
 #pragma omp parallel
   {
     int mytid = omp_get_thread_num();
-    cpu_set_t my_set, mask;
+    cpu_set_t my_set;
     CPU_ZERO(&my_set);
     CPU_SET(num_workers + mytid, &my_set);
 
     sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+#ifdef DEBUG
+    cpu_set_t mask;
     if (sched_getaffinity(0, sizeof(cpu_set_t), &mask) == -1) {
       perror("sched_getaffinity");
       assert(false);
@@ -55,6 +57,7 @@ void affinitize_cores(const int nthreads, const int num_workers) {
       if (CPU_ISSET(i, &mask))
         printf("%d on core %ld\n", mytid, i);
     }
+#endif
   }
 }
 

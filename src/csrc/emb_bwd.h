@@ -27,7 +27,6 @@ at::Tensor t_outputRowOffsets = std::get<1, at::Tensor>(ret);
 at::Tensor t_outputRows = std::get<2>(ret);
 
 auto N = t_uniqueIndices.size(0);
-auto NS = numIndices;
 auto E = t_grad_out.size(1);
 
 auto t_values = t_grad_out.new_empty({N, E});
@@ -48,7 +47,6 @@ auto emb_bwd_tpp = SCOPEIT((EmbeddingBwdTPP<T, int, T>(E)), EW_RED);
 #pragma omp parallel for
     for (int n = 0; n < N; n++) {
       auto start = or_offsets[n];
-      // auto end = (n < N - 1 ? or_offsets[n + 1] : NS);
       auto end = or_offsets[n + 1];
 
       emb_bwd_tpp(grad_out[0], &input[start], values[n], end - start);

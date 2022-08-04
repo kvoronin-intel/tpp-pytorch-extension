@@ -37,16 +37,21 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> coalescing_preprocessing(
     long indicesCount,
     long maxIndexValue,
     std::pair<Tidx, Tidx>* scratch) {
+#ifdef DEBUG
   unsigned long long t3 = __rdtsc();
+#endif
   auto sortedIndexWithOutputRowPair = radix_sort_parallel(
       scratch, scratch + indicesCount, indicesCount, maxIndexValue);
+#ifdef DEBUG
   unsigned long long t4 = __rdtsc();
+#endif
 
   // cout << "Sort: " << (t4-t3)*1e3/freq<< " ms" << endl;
 
   int maxThreads = omp_get_max_threads();
-
+#ifdef DEBUG
   unsigned long long t5 = __rdtsc();
+#endif
 
   CoalescingPreprocessingThreadState preprocessingThreadState[maxThreads];
 
