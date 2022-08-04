@@ -28,26 +28,10 @@ enum DebugTimer {
 };
 
 inline const char* DebugTimerName(int t) {
-  const char* names[] = {"BRGEMM",
-                         "XPOSE",
-                         "DROPOUT",
-                         "LYR_NRM",
-                         "SOFTMAX",
-                         "ACT",
-                         "BIAS",
-                         "VNNI",
-                         "COPY",
-                         "ADD",
-                         "SCALE",
-                         "RCP",
-                         "RSQRT",
-                         "MUL",
-                         "ZERO",
-                         "REDUCE",
-                         "ROW_GT",
-                         "ROW_ST",
-                         "OPTIM",
-                         "LAST_TIMER"};
+  const char* names[] = {
+      "BRGEMM", "XPOSE",  "DROPOUT", "LYR_NRM", "SOFTMAX", "ACT",       "BIAS",
+      "VNNI",   "COPY",   "ADD",     "SCALE",   "RCP",     "RSQRT",     "MUL",
+      "ZERO",   "REDUCE", "ROW_GT",  "ROW_ST",  "OPTIM",   "LAST_TIMER"};
   return names[t];
 }
 
