@@ -22,6 +22,7 @@ enum DebugTimer {
   EW_ZERO,
   EW_RED,
   ROW_GT,
+  ROW_ST,
   OPTIM,
   LAST_TIMER
 };
@@ -44,6 +45,7 @@ inline const char* DebugTimerName(int t) {
                          "ZERO",
                          "REDUCE",
                          "ROW_GT",
+                         "ROW_ST",
                          "OPTIM",
                          "LAST_TIMER"};
   return names[t];

@@ -15,14 +15,25 @@
 
 using namespace pcl;
 REGISTER_SCOPE(gather, "gather");
+REGISTER_SCOPE(scatter, "scatter");
 
 at::Tensor gather_features(const int alignN, std::vector<at::Tensor> inputs) {
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-#include "gnn_utils.h"
+#include "gather.h"
   } else {
     typedef bfloat16 T;
-#include "gnn_utils.h"
+#include "gather.h"
+  }
+}
+
+void scatter_features(const int alignN, std::vector<at::Tensor> inputs) {
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#include "scatter.h"
+  } else {
+    typedef bfloat16 T;
+#include "scatter.h"
   }
 }
 
@@ -49,5 +60,6 @@ void affinitize_cores(const int nthreads, const int num_workers) {
 
 REGISTER_SUBMODULE(_gnn_utils, m) {
   m.def("gather_features", &gather_features, "C++ Impl of feature gather");
+  m.def("scatter_features", &scatter_features, "C++ Impl of feature scatter");
   m.def("affinitize_cores", &affinitize_cores, "Compute thread affinization");
 }

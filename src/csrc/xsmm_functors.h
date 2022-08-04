@@ -1384,6 +1384,48 @@ class EmbeddingBwdTPP {
   UnaryTPP kernel;
 };
 
+template <typename Tin, typename Tind, typename Tout>
+class ScatterTPP {
+  public:
+    ScatterTPP() {}
+    ScatterTPP(int rows, int cols, int ldi) : ScatterTPP(rows, cols, ldi, ldi) {}
+    ScatterTPP(int rows, int cols) : ScatterTPP(rows, cols, cols, cols) {}
+    ScatterTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        kernel(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            (LIBXSMM_MELTW_FLAG_UNARY_GS_COLS |
+             (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES :
+              LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
+            LIBXSMM_MELTW_TYPE_UNARY_SCATTER) {}
+    void operator()(Tin* in, Tind* out1, Tout* out) {
+      kernel((void*)in, NULL, NULL, (void*)out, (void*)out1);
+    }
+    void ref(Tin* in, Tind* out1, Tout* out) {
+      for(int r=0; r< rows; r++) {
+        auto ind = out1[r];
+        for(int c=0; c<cols; c++) {
+          out[ind*ldo + c] = in[r*ldi + c];
+        }
+      }
+    }
+  private:
+    int rows=0;
+    int cols=0;
+    int ldi=0;
+    int ldo=0;
+    UnaryTPP kernel;
+};
+
 class XformTPP {
  public:
   XformTPP() {}

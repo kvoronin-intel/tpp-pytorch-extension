@@ -7,17 +7,17 @@ def affinitize_cores(nthreads, nworkers):
 
 
 def gather_features(nfeat, indices):
-    N = nfeat.shape[1]
-    # align = 32 if N >= 32 or N==0 else N
-    align = [50, 32]
-    falign = N
-    for a in align:
-        if N >= a and N % a == 0 or N == 0:
-            falign = a
-            break
-
+    N = nfeat.shape[0]
+    align = 32 if N >= 32 or N==0 else N
     inputs = [nfeat, indices]
 
-    out = gnn_utils_cpp.gather_features(falign, inputs)
+    out = gnn_utils_cpp.gather_features(align, inputs)
 
     return out
+
+def scatter_features(feat_src, indices, feat_dst):
+    N = feat_src.shape[0]
+    align = 32 if N >= 32 or N==0 else N
+    inputs = [feat_src, indices, feat_dst]
+
+    gnn_utils_cpp.scatter_features(align, inputs)
