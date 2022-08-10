@@ -100,6 +100,7 @@ sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
 sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 sources += glob.glob("src/csrc/gnn/common/*.cpp")
+sources += glob.glob("src/csrc/gnn/gat/*.cpp")
 
 print(sources)
 
