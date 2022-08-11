@@ -28,11 +28,11 @@ Keep the batch size as power of 2 with the MKLDNN backend (Conv1d) for optimal p
 """
 Batch_size = 64                  # Batch size (64)
 Input_width = 60000              # Width of the input signal track (60000)
-Channels = 15                    # Number of channels in the input (15)
-Filters = 15                     # Number of filter in the layer (15)
+Channels = 16                    # Number of channels in the input (15)
+Filters = 16                     # Number of filter in the layer (15)
 Dilation = 8                     # Amount of dilation (8)
 Kernel_size = 51                 # Size of each filter (51)
-enable_BF16 = False              # Enable layer compute in BFloat16 (Only works when Filters and channels are both even numbers)
+enable_BF16 = True              # Enable layer compute in BFloat16 (Only works when Filters and channels are both even numbers)
 
 class ZeroSamePad1d(nn.Module):
     """Apply SAME zero padding to input."""
@@ -136,17 +136,17 @@ for p in net2.parameters():
     wgrad2 = p.grad
 
 r = wgrad1.max() - wgrad1.min()
-print("Backward weight check: ",((torch.abs(wgrad1 - wgrad2)/r < 0.00001).sum() == Filters*Channels*Kernel_size).item())
+print("Backward weight check: ",((torch.abs(wgrad1 - wgrad2)/r < 0.01).sum() == Filters*Channels*Kernel_size).item())
 
 Y1 = net1(X)
 Y2 = net2(X)
 r = Y1.max() - Y1.min()
-print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.00001).sum() == Batch_size*Filters*Input_width).item())
+print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.01).sum() == Batch_size*Filters*Input_width).item())
 
 dgrad1 = torch.autograd.grad(Y1.sum(),X)
 dgrad2 = torch.autograd.grad(Y2.sum(),X)
 r = dgrad1[0].max() - dgrad2[0].min()
-print("  Backward data check: ", ((torch.abs(dgrad1[0] - dgrad2[0])/r < 0.00001).sum() == Batch_size*Channels*Input_width).item())
+print("  Backward data check: ", ((torch.abs(dgrad1[0] - dgrad2[0])/r < 0.01).sum() == Batch_size*Channels*Input_width).item())
 
 
 ###------------------------------------- Timing check part -----------------------------------###

@@ -43,11 +43,11 @@
 
 
     /* JIT eltwise TPPs for initialization... */
-    libxsmm_blasint tpp_m1 = XS_TILE_FORWARD;                      /* columns */
-    libxsmm_blasint tpp_m2 = (W_t - tile_multiple);                  /* columns */
-    libxsmm_blasint tpp_n = F_t;                                   /* rows */
-    libxsmm_blasint tpp_k = C_t;
-    libxsmm_blasint ld_zero = W_t;
+    int tpp_m1 = XS_TILE_FORWARD;                      /* columns */
+    int tpp_m2 = (W_t - tile_multiple);                  /* columns */
+    int tpp_n = F_t;                                   /* rows */
+    int tpp_k = C_t;
+    int ld_zero = W_t;
 
     auto main_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(tpp_n, tpp_m1, tpp_k, F_t*C_t, 2*dial, lda, main_width, ldc, 1.0, 0, 1)));
     auto edge_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(tpp_n, tpp_m2, tpp_k, F_t*C_t, 2*dial, lda, edge_width, ldc, 1.0, 0, 1)));
@@ -56,14 +56,14 @@
     auto zero_kernel_edge = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m2, ld_zero), EW_ZERO);
 
     // /* use jited VNNI */
-    libxsmm_blasint ldi = Win_t;
-    libxsmm_blasint ldo_main = main_width;
-    libxsmm_blasint ldo_edge = edge_width;
+    int ldi = Win_t;
+    int ldo_main = main_width;
+    int ldo_edge = edge_width;
     tpp_m1 = (XS_TILE_FORWARD + dial*(WW_t-1));
     tpp_m2 = (W_t - tile_multiple + dial*(WW_t-1));
 
-    auto trans_mainvnni_kernel = SCOPEIT(XformExtTPP<T>(C_t, tpp_m1, C_t, tpp_m1, ldi, main_width, XformTPP::XFORM_N2V_TPP), VNNI);
-    auto trans_edgevnni_kernel = SCOPEIT(XformExtTPP<T>(C_t, tpp_m2, C_t, tpp_m2, ldi, edge_width, XformTPP::XFORM_N2V_TPP), VNNI);
+    auto trans_mainvnni_kernel = SCOPEIT(XformExtTPP<T>(C_t, tpp_m1, C_t, tpp_m1, ldi, ldo_main, XformTPP::XFORM_N2V_TPP), VNNI);
+    auto trans_edgevnni_kernel = SCOPEIT(XformExtTPP<T>(C_t, tpp_m2, C_t, tpp_m2, ldi, ldo_edge, XformTPP::XFORM_N2V_TPP), VNNI);
 
 
     /* Main compute loop */
@@ -74,7 +74,7 @@
             #pragma omp parallel for
             for(int n = 0; n < N_t; n++) {                                                      /* Loop for batches */
                 int last_block = 0;
-                libxsmm_meltw_unary_param trans_param_main, trans_param_edge;
+
                 for(int wb = 0; wb < W_t - XS_TILE_FORWARD + 1; wb += XS_TILE_FORWARD) {        /* width blocking loop (Main case) */
 
                     /* Main case */

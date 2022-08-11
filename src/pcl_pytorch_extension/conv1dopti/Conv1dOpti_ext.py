@@ -132,12 +132,12 @@ class Conv1dOptiFunction(Function):
 
         else:                                                               # Run the BF16 version
             if grad.dtype == torch.bfloat16:                                # Check if gradiant is in BF16 format
-                d_input, d_weight = Conv1dOpti_cpp.backward_bf16(grad.contiguous(), \
+                d_input, d_weight = Conv1dOpti_cpp.backward(grad.contiguous(), \
                                                         inp, \
                                                         weight, \
                                                         dilation[0])
             else:
-                d_input, d_weight = Conv1dOpti_cpp.backward_bf16(grad.to(torch.bfloat16).contiguous(), \
+                d_input, d_weight = Conv1dOpti_cpp.backward(grad.to(torch.bfloat16).contiguous(), \
                                                         inp, \
                                                         weight, \
                                                         dilation[0])

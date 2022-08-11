@@ -66,17 +66,14 @@
     int ldc = Win_t;                                            /* Input width (60400) */
     unsigned long long l_br = WW_t;                             /* Number of batches for brGEMM (51) */
 
-    auto backdata_kernel_main = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_orig, ldc, 1.0, 0, 1)));
-
-
     int pad_tile_multiple = 2 * (((WW_t - 1)*dial)/XS_TILE_DBACKWARD + 1) * XS_TILE_DBACKWARD;       /* 896 */
     auto grad_shortpad_tensor = grad.new_empty({N_t,F_t,2*pad_tile_multiple});
     DECL_VLA_PTR_PT(T, grad_a_shortpad, [F_t][2*pad_tile_multiple], grad_shortpad_tensor);
     int ldb_shortpad = 2*pad_tile_multiple;                     /* grad pad 1792 */
 
 
-    /* Dispatch kernels for normal and edge cases*/
-
+    /* Dispatch brgemm kernels for normal and edge cases*/
+    auto backdata_kernel_main = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_orig, ldc, 1.0, 0, 1)));
     auto backdata_kernel_lr = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_shortpad, ldc, 1.0, 0, 1)));
     auto backdata_kernel_edge = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, (Win_t - tile_multiple), F_t, C_t*F_t, dial, lda, ldb_shortpad, ldc, 1.0, 0, 1)));
 
