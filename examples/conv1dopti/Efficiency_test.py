@@ -28,11 +28,11 @@ Keep the batch size as power of 2 with the MKLDNN backend (Conv1d) for optimal p
 """
 
 Input_width = 60400              # Width of the input signal track (60400)
-Channels = 16                    # Number of channels in the input (15)
-Filters = 16                     # Number of filter in the layer (15)
+Channels = 15                    # Number of channels in the input (15)
+Filters = 15                     # Number of filter in the layer (15)
 Dilation = 8                     # Amount of dilation (8)
 Kernel_size = 51                 # Size of each filter (51)
-enable_BF16 = True              # Enable layer compute in BFloat16 (Only works when Filters and channels are both even numbers)
+enable_BF16 = False              # Enable layer compute in BFloat16 (Only works when Filters and channels are both even numbers)
 
 
 class Net1(nn.Module):                      # First network containing inbuilt PyTorch layer
