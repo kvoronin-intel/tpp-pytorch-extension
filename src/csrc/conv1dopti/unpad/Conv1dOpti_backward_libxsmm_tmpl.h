@@ -40,92 +40,92 @@
     /* jited tranpose to permute the array dimensions
         Overall convert (F_t, C_t, WW_t) -----> (WW_t, C_t, F_t) in two steps */
 
-    int flip_m1 = WW_t;
-    int flip_n1 = F_t*C_t;
+    int64_t flip_m1 = WW_t;
+    int64_t flip_n1 = F_t*C_t;
 
-    auto trans_unary_flip_1 = SCOPEIT(XformExtTPP<T>(flip_n1, flip_m1, XformTPP::XFORM_XPOSE_TPP), XPOSE);
-    trans_unary_flip_1(&flip_weight_a[0], &weight_buffer_a[0]);
+    auto trans_flip_1 = SCOPEIT(XformExtTPP<T>(flip_n1, flip_m1, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    trans_flip_1(&flip_weight_a[0], &weight_buffer_a[0]);
 
-    int flip_m2 = C_t;
-    int flip_n2 = F_t;
+    int64_t flip_m2 = C_t;
+    int64_t flip_n2 = F_t;
 
-    auto trans_unary_flip_2 = SCOPEIT(XformExtTPP<T>(flip_n2, flip_m2, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    auto trans_flip_2 = SCOPEIT(XformExtTPP<T>(flip_n2, flip_m2, XformTPP::XFORM_XPOSE_TPP), XPOSE);
 
     /* Convert (WW_t, F_t, C_t) -----> (F_t, C_t, WW_t) */
     #pragma omp parallel for
     for(int kw = 0; kw < WW_t; kw++){                          /* permute last two dimensions */
-        trans_unary_flip_2(&weight_buffer_a[kw*C_t*F_t], &flip_weight_a[kw*C_t*F_t]);
+        trans_flip_2(&weight_buffer_a[kw*C_t*F_t], &flip_weight_a[kw*C_t*F_t]);
     }
 
     int64_t Wpad_t = W_t + 2*(WW_t - 1)*dial;
     int64_t tile_multiple = (Win_t/XS_TILE_DBACKWARD)*XS_TILE_DBACKWARD;
 
-    int lda = F_t;                                              /* Filters (15) */
-    int ldb_orig = W_t;                                         /* grad width 60000 */
+    int64_t lda = F_t;                                              /* Filters (15) */
+    int64_t ldb_orig = W_t;                                         /* grad width 60000 */
     /* int ldb = Wpad_t;                                        //    Extra padded grad input case 60800 */
-    int ldc = Win_t;                                            /* Input width (60400) */
+    int64_t ldc = Win_t;                                            /* Input width (60400) */
     unsigned long long l_br = WW_t;                             /* Number of batches for brGEMM (51) */
 
-    int pad_tile_multiple = 2 * (((WW_t - 1)*dial)/XS_TILE_DBACKWARD + 1) * XS_TILE_DBACKWARD;       /* 896 */
-    auto grad_shortpad_tensor = grad.new_empty({N_t,F_t,2*pad_tile_multiple});
-    DECL_VLA_PTR_PT(T, grad_a_shortpad, [F_t][2*pad_tile_multiple], grad_shortpad_tensor);
-    int ldb_shortpad = 2*pad_tile_multiple;                     /* grad pad 1792 */
+    int64_t pad_tile_multiple = 2 * (((WW_t - 1)*dial)/XS_TILE_DBACKWARD + 1) * XS_TILE_DBACKWARD;       /* 896 */
+    auto grad_shortpad = grad.new_empty({N_t,F_t,2*pad_tile_multiple});
+    DECL_VLA_PTR_PT(T, grad_shortpad_a, [F_t][2*pad_tile_multiple], grad_shortpad);
+    int64_t ldb_shortpad = 2*pad_tile_multiple;                     /* grad pad 1792 */
 
 
     /* Dispatch brgemm kernels for normal and edge cases*/
-    auto backdata_kernel_main = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_orig, ldc, 1.0, 0, 1)));
-    auto backdata_kernel_lr = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_shortpad, ldc, 1.0, 0, 1)));
-    auto backdata_kernel_edge = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, (Win_t - tile_multiple), F_t, C_t*F_t, dial, lda, ldb_shortpad, ldc, 1.0, 0, 1)));
+    auto main_gemm_backdata_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_orig, ldc, 1.0, 0, 1)));
+    auto lr_gemm_backdata_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, XS_TILE_DBACKWARD, F_t, C_t*F_t, dial, lda, ldb_shortpad, ldc, 1.0, 0, 1)));
+    auto edge_gemm_backdata_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, (Win_t - tile_multiple), F_t, C_t*F_t, dial, lda, ldb_shortpad, ldc, 1.0, 0, 1)));
 
     /* Virtual copy kernels */
-    int virtual_m1 = pad_tile_multiple - ((WW_t - 1)*dial);     /* columns */
-    int virtual_m2 = ((WW_t - 1)*dial);                         /* columns */
-    int virtual_n = F_t;                                        /* rows */
-    int ldi_virtual = W_t;
-    int ldo_virtual = 2*pad_tile_multiple;
+    int64_t virtual_m1 = pad_tile_multiple - ((WW_t - 1)*dial);     /* columns */
+    int64_t virtual_m2 = ((WW_t - 1)*dial);                         /* columns */
+    int64_t virtual_n = F_t;                                        /* rows */
+    int64_t ldi_virtual = W_t;
+    int64_t ldo_virtual = 2*pad_tile_multiple;
 
     if (ldi_virtual < virtual_m1){                                          /* corner case when width's are very small */
         virtual_m1 = ldi_virtual;
         auto all_zero_backdata = SCOPEIT(SetZeroTPP<T>(virtual_n, ldo_virtual, ldo_virtual), EW_ZERO);
         #pragma omp parallel for
         for(int n = 0; n < N_t; n++){
-            all_zero_backdata(&grad_a_shortpad[n][0][0]);
+            all_zero_backdata(&grad_shortpad_a[n][0][0]);
         }
     }
 
     auto virtual_copy = SCOPEIT(CpyTPP<T>(virtual_n, virtual_m1, ldi_virtual, ldo_virtual), EW_COPY);
     auto virtual_copy_zero = SCOPEIT(SetZeroTPP<T>(virtual_n, virtual_m2, ldo_virtual), EW_ZERO);
 
-    /* Loops for storing the edge portion of gradinant array into grad_a_shortpad */
+    /* Loops for storing the edge portion of gradinant array into grad_shortpad_a */
     {
-    RECORD_SCOPE(virtul_copy_loop, {grad_a, grad_a_shortpad});
+    RECORD_SCOPE(virtul_copy_loop, {grad_a, grad_shortpad_a});
         {
             RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
             #pragma omp parallel for
             for(int n = 0; n < N_t; n++){
 
-                virtual_copy_zero(&grad_a_shortpad[n][0][0]);
+                virtual_copy_zero(&grad_shortpad_a[n][0][0]);
 
-                virtual_copy(&grad_a[n][0][0], &grad_a_shortpad[n][0][(WW_t - 1)*dial]);
-                virtual_copy(&grad_a[n][0][W_t - virtual_m1], &grad_a_shortpad[n][0][ldo_virtual - virtual_m1 - ((WW_t - 1)*dial)]);
+                virtual_copy(&grad_a[n][0][0], &grad_shortpad_a[n][0][(WW_t - 1)*dial]);
+                virtual_copy(&grad_a[n][0][W_t - virtual_m1], &grad_shortpad_a[n][0][ldo_virtual - virtual_m1 - ((WW_t - 1)*dial)]);
 
-                virtual_copy_zero(&grad_a_shortpad[n][0][ldo_virtual - ((WW_t - 1)*dial)]);
+                virtual_copy_zero(&grad_shortpad_a[n][0][ldo_virtual - ((WW_t - 1)*dial)]);
             }
         }
     }
 
     /* JIT eltwise TPPs for initialization... */
-    int tpp_m1 = XS_TILE_DBACKWARD;                  /* columns */
-    int tpp_m2 = Win_t - tile_multiple;              /* columns */
-    int tpp_n = C_t;                                 /* rows */
-    int ld_zero = Win_t;
+    int64_t tpp_m1 = XS_TILE_DBACKWARD;                  /* columns */
+    int64_t tpp_m2 = Win_t - tile_multiple;              /* columns */
+    int64_t tpp_n = C_t;                                 /* rows */
+    int64_t ld_zero = Win_t;
     
-    auto copy_kernel_main = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m1, ld_zero), EW_ZERO);
-    auto copy_kernel_edge = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m2, ld_zero), EW_ZERO);
+    auto main_zero_tpp = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m1, ld_zero), EW_ZERO);
+    auto edge_zero_tpp = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m2, ld_zero), EW_ZERO);
 
     /* Main compute kernel */
     {
-    RECORD_SCOPE(backward_data_loop, {grad_a, grad_a_shortpad});
+    RECORD_SCOPE(backward_data_loop, {d_input_a, grad_a, flip_weight_a});
         {
             RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
             #pragma omp parallel for
@@ -134,19 +134,19 @@
 
                 for(int wb = 0; wb < Win_t - XS_TILE_DBACKWARD + 1; wb += XS_TILE_DBACKWARD) {
 
-                    copy_kernel_main(&d_input_a[n][0][wb]);
+                    main_zero_tpp(&d_input_a[n][0][wb]);
 
                     if (wb >= (WW_t-1)*dial && wb < Win_t - (WW_t-1)*dial - XS_TILE_DBACKWARD){       /* Main case */
 
-                        backdata_kernel_main(&flip_weight_a[0], &grad_a[n][0][wb - (WW_t-1)*dial], &d_input_a[n][0][wb], l_br);
+                        main_gemm_backdata_tpp(&flip_weight_a[0], &grad_a[n][0][wb - (WW_t-1)*dial], &d_input_a[n][0][wb], l_br);
                     }
                     else if (wb < (WW_t-1)*dial){                                                      /* Right side case */
 
-                        backdata_kernel_lr(&flip_weight_a[0], &grad_a_shortpad[n][0][wb], &d_input_a[n][0][wb], l_br);
+                        lr_gemm_backdata_tpp(&flip_weight_a[0], &grad_shortpad_a[n][0][wb], &d_input_a[n][0][wb], l_br);
                     }
                     else{                                                                              /* left side case */
 
-                        backdata_kernel_lr(&flip_weight_a[0], &grad_a_shortpad[n][0][wb - Wpad_t + 2*pad_tile_multiple], &d_input_a[n][0][wb], l_br);
+                        lr_gemm_backdata_tpp(&flip_weight_a[0], &grad_shortpad_a[n][0][wb - Wpad_t + 2*pad_tile_multiple], &d_input_a[n][0][wb], l_br);
                     }
 
                     last_block = wb;                                                                    /* store position for last block */
@@ -154,8 +154,8 @@
 
                 if (Win_t % XS_TILE_DBACKWARD != 0){                                                    /* Edge case */
 
-                    copy_kernel_edge(&d_input_a[n][0][last_block + XS_TILE_DBACKWARD]);
-                    backdata_kernel_edge(&flip_weight_a[0], &grad_a_shortpad[n][0][last_block + XS_TILE_DBACKWARD - Wpad_t + 2*pad_tile_multiple], &d_input_a[n][0][last_block + XS_TILE_DBACKWARD], l_br);
+                    edge_zero_tpp(&d_input_a[n][0][last_block + XS_TILE_DBACKWARD]);
+                    edge_gemm_backdata_tpp(&flip_weight_a[0], &grad_shortpad_a[n][0][last_block + XS_TILE_DBACKWARD - Wpad_t + 2*pad_tile_multiple], &d_input_a[n][0][last_block + XS_TILE_DBACKWARD], l_br);
                 }
             }
         }
@@ -176,36 +176,36 @@
     tile_multiple = (W_t/XS_TILE_WBACKWARD)*XS_TILE_WBACKWARD;
 
     /* Blocking on grad_a */
-    int lda_g = Win_t;
+    int64_t lda_g = Win_t;
     /* int ldb_g = W_t; */
-    int ldb_trans_g = F_t;
-    int ldc_g = F_t;
+    int64_t ldb_trans_g = F_t;
+    int64_t ldc_g = F_t;
 
-    int short_W_t = XS_TILE_WBACKWARD;
-    int edge_W_t = W_t - tile_multiple;
-    int M_g = W_t;
-    int N_g = F_t;
-
-
-    auto grad_shorttrans_tensor = grad.new_empty({N_t,F_t,short_W_t});              /* Tensor for storing transposed short buffer */
-    DECL_VLA_PTR_PT(T, grad_shorttrans, [F_t][short_W_t], grad_shorttrans_tensor);
-
-    auto grad_edgetrans_tensor = grad.new_empty({N_t,F_t,edge_W_t});                /* Tensor for storing transposed short buffer in edge case */
-    DECL_VLA_PTR_PT(T, grad_edgetrans, [F_t][edge_W_t], grad_edgetrans_tensor);
+    int64_t short_W_t = XS_TILE_WBACKWARD;
+    int64_t edge_W_t = W_t - tile_multiple;
+    int64_t M_g = W_t;
+    int64_t N_g = F_t;
 
 
-    auto trans_shortkernel_grad = SCOPEIT(XformExtTPP<T>(N_g, short_W_t, short_W_t, N_g, M_g, N_g, XformTPP::XFORM_XPOSE_TPP), XPOSE);
-    auto trans_edgekernel_grad = SCOPEIT(XformExtTPP<T>(N_g, edge_W_t, edge_W_t, N_g, M_g, N_g, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    auto grad_shorttrans = grad.new_empty({N_t,F_t,short_W_t});              /* Tensor for storing transposed short buffer */
+    DECL_VLA_PTR_PT(T, grad_shorttrans_a, [F_t][short_W_t], grad_shorttrans);
+
+    auto grad_edgetrans = grad.new_empty({N_t,F_t,edge_W_t});                /* Tensor for storing transposed short buffer in edge case */
+    DECL_VLA_PTR_PT(T, grad_edgetrans_a, [F_t][edge_W_t], grad_edgetrans);
+
+
+    auto short_trans_tpp = SCOPEIT(XformExtTPP<T>(N_g, short_W_t, short_W_t, N_g, M_g, N_g, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    auto edge_trans_tpp = SCOPEIT(XformExtTPP<T>(N_g, edge_W_t, edge_W_t, N_g, M_g, N_g, XformTPP::XFORM_XPOSE_TPP), XPOSE);
 
 
     /* Dispatch brGEMM kernel for normal and edge cases*/
 
-    auto backweight_kernel_main = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, XS_TILE_WBACKWARD, 0, 0, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
-    auto backweight_kernel_edge = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, (W_t - tile_multiple), 0, 0, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
+    auto main_gemm_backweight_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, XS_TILE_WBACKWARD, 0, 0, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
+    auto edge_gemm_backweight_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, (W_t - tile_multiple), 0, 0, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
 
     /* Main compute loop for backward weight */
     {
-    RECORD_SCOPE(backward_weight_loop, {grad_a, grad_a_shortpad});
+    RECORD_SCOPE(backward_weight_loop, {flip_d_weight_a, input_a, grad_a});
         {
             RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
             #pragma omp parallel for reduction(+: flip_d_weight_a[:F_t*C_t*WW_t])                /* Distribute the weight array */
@@ -214,22 +214,22 @@
 
                 for(int wb = 0; wb < W_t - XS_TILE_WBACKWARD + 1; wb += XS_TILE_WBACKWARD) {     /* Normal case */
 
-                    trans_shortkernel_grad(&grad_a[n][0][wb],  &grad_shorttrans[n][0][0] );
+                    short_trans_tpp(&grad_a[n][0][wb],  &grad_shorttrans_a[n][0][0] );
 
                     for(int kw = 0; kw < WW_t; kw++) {
 
-                        backweight_kernel_main(&input_a[n][0][wb + kw*dial], &grad_shorttrans[n][0][0], &flip_d_weight_a[kw*C_t*F_t], 1);
+                        main_gemm_backweight_tpp(&input_a[n][0][wb + kw*dial], &grad_shorttrans_a[n][0][0], &flip_d_weight_a[kw*C_t*F_t], 1);
                     }
                     last_block = wb;
                 }
 
                 if (W_t % XS_TILE_WBACKWARD != 0){
 
-                    trans_edgekernel_grad(&grad_a[n][0][last_block + XS_TILE_WBACKWARD], &grad_edgetrans[n][0][0]);
+                    edge_trans_tpp(&grad_a[n][0][last_block + XS_TILE_WBACKWARD], &grad_edgetrans_a[n][0][0]);
 
                     for(int kw = 0; kw < WW_t; kw++) {
 
-                        backweight_kernel_edge(&input_a[n][0][(last_block + XS_TILE_WBACKWARD) + kw*dial], &grad_edgetrans[n][0][0], &flip_d_weight_a[kw*F_t*C_t], 1);
+                        edge_gemm_backweight_tpp(&input_a[n][0][(last_block + XS_TILE_WBACKWARD) + kw*dial], &grad_edgetrans_a[n][0][0], &flip_d_weight_a[kw*F_t*C_t], 1);
                     }
                 }
             }

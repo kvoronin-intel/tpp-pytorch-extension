@@ -26,49 +26,49 @@
     auto trans_permute_tpp = SCOPEIT(XformExtTPP<T>(F_t*C_t, WW_t, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     trans_permute_tpp(&weight_a[0][0][0], &flip_weight_a[0][0][0]);
 
-    int lda = C_t;                      /* Input channels (16) */
+    int64_t lda = C_t;                      /* Input channels (16) */
     // int ldb = Win_t;                    /* Input width    (60400) */
-    int ldc = W_t;                      /* Output width   (60000) */
+    int64_t ldc = W_t;                      /* Output width   (60000) */
     unsigned long long l_br = WW_t;     /* Number of batches in brGEMM (= width of kernel = 51) */
 
-    int tile_multiple = (W_t/XS_TILE_FORWARD)*XS_TILE_FORWARD;                                          /* Number of blocks/Tiles in the output width */
+    int64_t tile_multiple = (W_t/XS_TILE_FORWARD)*XS_TILE_FORWARD;                                          /* Number of blocks/Tiles in the output width */
 
-    int main_width = ((XS_TILE_FORWARD + (WW_t-1)*dial)/XS_TILE_FORWARD + 1)*XS_TILE_FORWARD;          /* width of main buffer */
+    int64_t main_width = ((XS_TILE_FORWARD + (WW_t-1)*dial)/XS_TILE_FORWARD + 1)*XS_TILE_FORWARD;          /* width of main buffer */
     auto input_mainvnni = input.new_empty({N_t, C_t, main_width});                                       /* VNNI transformed array of the main buffer */
-    DECL_VLA_PTR_PT(T, input_a_mainvnni, [C_t][main_width], input_mainvnni);
+    DECL_VLA_PTR_PT(T, input_mainvnni_a, [C_t][main_width], input_mainvnni);
 
-    int edge_width = (((W_t - tile_multiple) + (WW_t-1)*dial)/XS_TILE_FORWARD + 1)*XS_TILE_FORWARD;     /* width of buffer in the edge case (last block) */
+    int64_t edge_width = (((W_t - tile_multiple) + (WW_t-1)*dial)/XS_TILE_FORWARD + 1)*XS_TILE_FORWARD;     /* width of buffer in the edge case (last block) */
     auto input_edgevnni = input.new_empty({N_t, C_t, edge_width});                                        /* VNNI VNNI transformed array of the edge buffer */
-    DECL_VLA_PTR_PT(T, input_a_edgevnni, [C_t][edge_width], input_edgevnni);
+    DECL_VLA_PTR_PT(T, input_edgevnni_a, [C_t][edge_width], input_edgevnni);
 
 
     /* JIT eltwise TPPs for initialization... */
-    int tpp_m1 = XS_TILE_FORWARD;                      /* columns */
-    int tpp_m2 = (W_t - tile_multiple);                  /* columns */
-    int tpp_n = F_t;                                   /* rows */
-    int tpp_k = C_t;
-    int ld_zero = W_t;
+    int64_t tpp_m1 = XS_TILE_FORWARD;                      /* columns */
+    int64_t tpp_m2 = (W_t - tile_multiple);                  /* columns */
+    int64_t tpp_n = F_t;                                   /* rows */
+    int64_t tpp_k = C_t;
+    int64_t ld_zero = W_t;
 
     auto main_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(tpp_n, tpp_m1, tpp_k, F_t*C_t, 2*dial, lda, main_width, ldc, 1.0, 0, 1)));
     auto edge_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(tpp_n, tpp_m2, tpp_k, F_t*C_t, 2*dial, lda, edge_width, ldc, 1.0, 0, 1)));
 
-    auto zero_kernel_main = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m1, ld_zero), EW_ZERO);
-    auto zero_kernel_edge = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m2, ld_zero), EW_ZERO);
+    auto main_zero_tpp = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m1, ld_zero), EW_ZERO);
+    auto edge_zero_tpp = SCOPEIT(SetZeroTPP<T>(tpp_n, tpp_m2, ld_zero), EW_ZERO);
 
     // /* use jited VNNI */
-    int ldi = Win_t;
-    int ldo_main = main_width;
-    int ldo_edge = edge_width;
+    int64_t ldi = Win_t;
+    int64_t ldo_main = main_width;
+    int64_t ldo_edge = edge_width;
     tpp_m1 = (XS_TILE_FORWARD + dial*(WW_t-1));
     tpp_m2 = (W_t - tile_multiple + dial*(WW_t-1));
 
-    auto trans_mainvnni_kernel = SCOPEIT(XformExtTPP<T>(C_t, tpp_m1, C_t, tpp_m1, ldi, ldo_main, XformTPP::XFORM_N2V_TPP), VNNI);
-    auto trans_edgevnni_kernel = SCOPEIT(XformExtTPP<T>(C_t, tpp_m2, C_t, tpp_m2, ldi, ldo_edge, XformTPP::XFORM_N2V_TPP), VNNI);
+    auto mainvnni_trans_tpp = SCOPEIT(XformExtTPP<T>(C_t, tpp_m1, C_t, tpp_m1, ldi, ldo_main, XformTPP::XFORM_N2V_TPP), VNNI);
+    auto edgevnni_trans_tpp = SCOPEIT(XformExtTPP<T>(C_t, tpp_m2, C_t, tpp_m2, ldi, ldo_edge, XformTPP::XFORM_N2V_TPP), VNNI);
 
 
     /* Main compute loop */
     {
-    RECORD_SCOPE(forward_loop_bf16, {input, Y});
+    RECORD_SCOPE(forward_loop_bf16, {Y, input, flip_weight});
         {
             RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
             #pragma omp parallel for
@@ -78,25 +78,25 @@
                 for(int wb = 0; wb < W_t - XS_TILE_FORWARD + 1; wb += XS_TILE_FORWARD) {        /* width blocking loop (Main case) */
 
                     /* Main case */
-                    zero_kernel_main(&Y_a[n][0][wb]);
+                    main_zero_tpp(&Y_a[n][0][wb]);
 
                     /* VNNI transform */
-                    trans_mainvnni_kernel(&input_a[n][0][wb], &input_a_mainvnni[n][0][0]);
+                    mainvnni_trans_tpp(&input_a[n][0][wb], &input_mainvnni_a[n][0][0]);
 
                     /* brGEMM */
-                    main_brgemm_tpp(&flip_weight_a[0][0][0], &input_a_mainvnni[n][0][0], &Y_a[n][0][wb], l_br);
+                    main_brgemm_tpp(&flip_weight_a[0][0][0], &input_mainvnni_a[n][0][0], &Y_a[n][0][wb], l_br);
                     last_block = wb;                                                           /* Store value for last block */
                 }
 
                 if (W_t % XS_TILE_FORWARD != 0){                                               /* Edge case */
 
-                    zero_kernel_edge(&Y_a[n][0][last_block + XS_TILE_FORWARD]);
+                    edge_zero_tpp(&Y_a[n][0][last_block + XS_TILE_FORWARD]);
 
                     /* VNNI transform */
-                    trans_edgevnni_kernel(&input_a[n][0][last_block + XS_TILE_FORWARD], &input_a_edgevnni[n][0][0]);
+                    edgevnni_trans_tpp(&input_a[n][0][last_block + XS_TILE_FORWARD], &input_edgevnni_a[n][0][0]);
 
                     /* brGEMM */
-                    edge_brgemm_tpp(&flip_weight_a[0][0][0], &input_a_edgevnni[n][0][0], &Y_a[n][0][last_block + XS_TILE_FORWARD], l_br);
+                    edge_brgemm_tpp(&flip_weight_a[0][0][0], &input_edgevnni_a[n][0][0], &Y_a[n][0][last_block + XS_TILE_FORWARD], l_br);
                 }
             }
         }
