@@ -43,7 +43,7 @@ conda install -y h5py onnx tensorboardx -c anaconda -c conda-forge
 #conda install -y -c eumetsat expect
 
 # for development (code formatting)
-conda install -y black clang-format -c sarcasm -c conda-forge
+conda install -y black=22.6.0 clang-format=5.0.1 -c sarcasm -c conda-forge
 
 fi
 
