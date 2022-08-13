@@ -73,7 +73,8 @@ def mlperf_submission_log(benchmark):
     mllogger.logger.propagate = False
 
     log_event(
-        key=constants.SUBMISSION_BENCHMARK, value=benchmark,
+        key=constants.SUBMISSION_BENCHMARK,
+        value=benchmark,
     )
 
     log_event(key=constants.SUBMISSION_ORG, value="Intel")

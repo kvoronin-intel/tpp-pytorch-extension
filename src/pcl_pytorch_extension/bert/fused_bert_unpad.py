@@ -266,33 +266,60 @@ class BertSelfAttention(BlockedModule):
         ), "self.position_embedding_type other than absolute not supported"
 
         self.query.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.key.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.value.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.blocked_input_signature = get_blocking_signature("SF", "SFSF")
         if layer_use_low_prec == True and USE_LOW_PREC_PARAMS:
             self.query.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
+                    [
+                        self.attention_head_size,
+                        [
+                            self.attention_head_size // low_prec_vnni_blocking,
+                            low_prec_vnni_blocking,
+                        ],
+                    ],
                     [0, 2, 3, 1, 4],
                     low_prec_dtype,
                 )
             )
             self.key.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
+                    [
+                        self.attention_head_size,
+                        [
+                            self.attention_head_size // low_prec_vnni_blocking,
+                            low_prec_vnni_blocking,
+                        ],
+                    ],
                     [0, 2, 3, 1, 4],
                     low_prec_dtype,
                 )
             )
             self.value.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
+                    [
+                        self.attention_head_size,
+                        [
+                            self.attention_head_size // low_prec_vnni_blocking,
+                            low_prec_vnni_blocking,
+                        ],
+                    ],
                     [0, 2, 3, 1, 4],
                     low_prec_dtype,
                 )
@@ -328,9 +355,11 @@ class BertSelfAttention(BlockedModule):
         assert past_key_value == None, "past_key_value not supported"
         self.maybe_block_params()
         if encoder_hidden_states is not None:
-            assert encoder_hidden_states.shape == hidden_states.shape, (
-                "Different shapes not supported(%s != %s)"
-                % (encoder_hidden_states.shape, hidden_states.shape,)
+            assert (
+                encoder_hidden_states.shape == hidden_states.shape
+            ), "Different shapes not supported(%s != %s)" % (
+                encoder_hidden_states.shape,
+                hidden_states.shape,
             )
             encoder_hidden_states = self.get_blocked_tensor(
                 encoder_hidden_states,
@@ -373,9 +402,8 @@ class BertSelfAttention(BlockedModule):
             # encoder_attention_mask = encoder_attention_mask.expand([B, N, S, S]).view([B, N, S1, S2, S1, S2]).permute([0, 2, 1, 4, 3, 5]).contiguous()
             assert (
                 encoder_attention_mask.size(1) == encoder_attention_mask.size(2) == 1
-            ), (
-                "unsupported encoder_attention_mask shape %s"
-                % (encoder_attention_mask.shape,)
+            ), "unsupported encoder_attention_mask shape %s" % (
+                encoder_attention_mask.shape,
             )
             encoder_attention_mask = encoder_attention_mask.contiguous()
         inputs.append(attention_mask if attention_mask is not None else torch.Tensor())
@@ -478,13 +506,22 @@ class BertOutputBase(BlockedModule):
         self.attention_head_size = config.hidden_size // config.num_attention_heads
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.dense.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.blocked_input_signature = get_blocking_signature("SF", "SFSF")
         if layer_use_low_prec == True and USE_LOW_PREC_PARAMS:
             self.dense.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
+                    [
+                        self.attention_head_size,
+                        [
+                            self.attention_head_size // low_prec_vnni_blocking,
+                            low_prec_vnni_blocking,
+                        ],
+                    ],
                     [0, 2, 3, 1, 4],
                     low_prec_dtype,
                 )
@@ -578,7 +615,10 @@ class BertIntermediate(BlockedModule):
         self.dense = DummyLinear(config.hidden_size, config.intermediate_size)
         self.attention_head_size = config.hidden_size // config.num_attention_heads
         self.dense.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         assert config.hidden_act in ["gelu", "gelu_new"], (
             "Currently, only GELU new is supported in fused op, %s is given"
@@ -589,7 +629,13 @@ class BertIntermediate(BlockedModule):
         if layer_use_low_prec == True and USE_LOW_PREC_PARAMS:
             self.dense.weight.set_blocking_param(
                 (
-                    [self.attention_head_size, [self.attention_head_size // low_prec_vnni_blocking, low_prec_vnni_blocking]],
+                    [
+                        self.attention_head_size,
+                        [
+                            self.attention_head_size // low_prec_vnni_blocking,
+                            low_prec_vnni_blocking,
+                        ],
+                    ],
                     [0, 2, 3, 1, 4],
                     low_prec_dtype,
                 )
@@ -1181,7 +1227,9 @@ def pcl_impl(enable=True, use_low_prec=False, use_bf8=False):
                 transformers.models.bert.modeling_bert.BertEmbeddings = BertEmbeddings
                 if use_low_prec:
                     layer_use_low_prec = True
-                    low_prec_dtype = torch.bfloat8 if use_bf8 == True else torch.bfloat16
+                    low_prec_dtype = (
+                        torch.bfloat8 if use_bf8 == True else torch.bfloat16
+                    )
                     low_prec_vnni_blocking = 4 if use_bf8 == True else 2
             yield
         finally:

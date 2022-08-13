@@ -90,13 +90,18 @@ class BuildMakeLib(Command):
             check_call(["make", "-f", makefile] + build_args, cwd=str(build_dir))
 
 
-sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp", "src/csrc/bfloat8.cpp"]
+sources = [
+    "src/csrc/init.cpp",
+    "src/csrc/optim.cpp",
+    "src/csrc/xsmm.cpp",
+    "src/csrc/bfloat8.cpp",
+]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
 sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 
-extra_compile_args=["-fopenmp", "-g", "-march=native"]
+extra_compile_args = ["-fopenmp", "-g", "-march=native"]
 
 if hasattr(torch, "bfloat8"):
     extra_compile_args.append("-DPYTORCH_SUPPORTS_BFLOAT8")
@@ -130,7 +135,10 @@ setup(
             "pcl_pytorch_extension._C",
             sources,
             extra_compile_args=extra_compile_args,
-            include_dirs=[xsmm_include, "{}/src/csrc".format(cwd),],
+            include_dirs=[
+                xsmm_include,
+                "{}/src/csrc".format(cwd),
+            ],
             # library_dirs=[xsmm_lib],
             # libraries=["xsmm"],
         )

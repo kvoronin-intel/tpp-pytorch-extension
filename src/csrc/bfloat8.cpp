@@ -4,8 +4,8 @@
 
 #include <iostream>
 #include <vector>
-#include "ext_tpp.h"
 #include "bfloat8.h"
+#include "ext_tpp.h"
 #include "init.h"
 #include "timing.h"
 #include "xsmm_functors.h"
@@ -13,8 +13,8 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
-template<typename Tin, typename Tout>
-void cvt_impl(long N, Tin *inp, Tout *outp) {
+template <typename Tin, typename Tout>
+void cvt_impl(long N, Tin* inp, Tout* outp) {
   constexpr int BS = 256;
   auto cvt_tpp = SCOPEIT((ConvertTPP<Tin, Tout>(BS)), EW_COPY);
   long i;

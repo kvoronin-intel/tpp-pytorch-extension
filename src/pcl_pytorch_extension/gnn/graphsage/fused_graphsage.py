@@ -264,7 +264,12 @@ class SAGEConvOpt(BlockedModule):
                     break
             bk = bc
 
-            self.fc_pool.weight.set_blocking_param(([bk, bc], [0, 2, 3, 1],))
+            self.fc_pool.weight.set_blocking_param(
+                (
+                    [bk, bc],
+                    [0, 2, 3, 1],
+                )
+            )
         if aggregator_type == "lstm":
             self.lstm = nn.LSTM(
                 self._in_src_feats, self._in_src_feats, batch_first=True
@@ -272,7 +277,12 @@ class SAGEConvOpt(BlockedModule):
         if aggregator_type != "gcn" and ("concat" not in aggregator_type):
             self.res = True
             self.fc_self = DummyLinear(self._in_dst_feats, out_feats, bias=False)
-            self.fc_self.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
+            self.fc_self.weight.set_blocking_param(
+                (
+                    [self.bk, self.bc],
+                    [0, 2, 3, 1],
+                )
+            )
 
         if "concat" not in aggregator_type:
             self.fc_neigh = DummyLinear(self._in_dst_feats, out_feats, bias=False)
@@ -281,7 +291,12 @@ class SAGEConvOpt(BlockedModule):
                 self._in_dst_feats + self._in_dst_feats, out_feats, bias=False
             )
 
-        self.fc_neigh.weight.set_blocking_param(([self.bk, self.bc], [0, 2, 3, 1],))
+        self.fc_neigh.weight.set_blocking_param(
+            (
+                [self.bk, self.bc],
+                [0, 2, 3, 1],
+            )
+        )
 
         if bias:
             self.apply_bias = True
@@ -546,11 +561,19 @@ class SAGEConvOptBF16(SAGEConvOpt):
         )
         if USE_BF16_PARAMS:
             self.fc_neigh.weight.set_blocking_param(
-                ([self.bk, [self.bc // 2, 2]], [0, 2, 3, 1, 4], torch.bfloat16,)
+                (
+                    [self.bk, [self.bc // 2, 2]],
+                    [0, 2, 3, 1, 4],
+                    torch.bfloat16,
+                )
             )
             if aggregator_type != "gcn":
                 self.fc_self.weight.set_blocking_param(
-                    ([self.bk, [self.bc // 2, 2]], [0, 2, 3, 1, 4], torch.bfloat16,)
+                    (
+                        [self.bk, [self.bc // 2, 2]],
+                        [0, 2, 3, 1, 4],
+                        torch.bfloat16,
+                    )
                 )
 
         self.use_bf16 = True

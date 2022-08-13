@@ -10,7 +10,7 @@ namespace at {
 constexpr auto kBFloat8 = kByte;
 class BFloat8 {
  public:
-  BFloat8() { }
+  BFloat8() {}
   BFloat8(float f) {
     libxsmm_rne_convert_fp32_bf8(&f, &val, 1);
   }
@@ -20,8 +20,8 @@ class BFloat8 {
     return f;
   }
 
-  template<typename T>
-  BFloat8& operator +=(const T& rhs) {
+  template <typename T>
+  BFloat8& operator+=(const T& rhs) {
     *this = float(*this) + float(rhs);
     return *this;
   }

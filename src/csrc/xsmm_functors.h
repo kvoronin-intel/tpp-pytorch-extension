@@ -165,16 +165,16 @@ inline __m512 _mm512_convert_bf8_ps(__m128i a) {
   return _mm512_cvtph_ps(_mm256_slli_epi16(_mm256_cvtepi8_epi16(a), 8));
 }
 inline __m128i _mm_convert_ps_bf8(__m512 a) {
-  return _mm256_cvtepi16_epi8(_mm256_srai_epi16(_mm512_cvtps_ph(a, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC), 8));
+  return _mm256_cvtepi16_epi8(_mm256_srai_epi16(
+      _mm512_cvtps_ph(a, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC), 8));
 }
 
 inline __m512 _mm512_loadu_ps_auto(bfloat8 const* mem_addr) {
   return _mm512_convert_bf8_ps(_mm_loadu_si128((__m128i const*)mem_addr));
 }
-inline __m512 _mm512_maskz_loadu_ps_auto(
-    __mmask16 k,
-    bfloat8 const* mem_addr) {
-  return _mm512_convert_bf8_ps(_mm_maskz_loadu_epi8(k, (__m128i const*)mem_addr));
+inline __m512 _mm512_maskz_loadu_ps_auto(__mmask16 k, bfloat8 const* mem_addr) {
+  return _mm512_convert_bf8_ps(
+      _mm_maskz_loadu_epi8(k, (__m128i const*)mem_addr));
 }
 inline void _mm512_storeu_ps_auto(bfloat8* mem_addr, __m512 a) {
   _mm_storeu_si128((__m128i*)mem_addr, _mm_convert_ps_bf8(a));
@@ -286,7 +286,9 @@ class BaseTPP {
     return kernel;
   }
   // We should make hash_str() public
-  std::string get_hash_str() { return hash_str();}
+  std::string get_hash_str() {
+    return hash_str();
+  }
 
  protected:
   std::unordered_map<std::string, void*>& get_kernel_cache() {
@@ -322,7 +324,8 @@ class UnaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_unary)get_kernel();
-    if (kernel) initialized = true;
+    if (kernel)
+      initialized = true;
   }
 
   void operator()(void* in, void* out) {
@@ -462,7 +465,8 @@ class BinaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_binary)get_kernel();
-    if (kernel) initialized = true;
+    if (kernel)
+      initialized = true;
   }
 
   void operator()(void* in0, void* in1, void* out) {
@@ -1284,7 +1288,10 @@ class XformExtTPP {
           "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
           (int)xtype);
     }
-    const int BS = (dtype == LIBXSMM_DATATYPE_BF8 ? 4 : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
+    const int BS =
+        (dtype == LIBXSMM_DATATYPE_BF8
+             ? 4
+             : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
     if (xtype == XformTPP::XFORM_N2V_TPP) {
       in_rows_p = out_rows;
       in_cols_p = out_cols;
@@ -1378,7 +1385,10 @@ class XformExtTPP {
     }
   }
   void ref(T* in, T* out) {
-    const int BS = (dtype == LIBXSMM_DATATYPE_BF8 ? 4 : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
+    const int BS =
+        (dtype == LIBXSMM_DATATYPE_BF8
+             ? 4
+             : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {

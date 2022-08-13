@@ -7,8 +7,8 @@
 #include "bfloat8.h"
 
 #include <cxxabi.h>
-#include <typeinfo>
 #include <iostream>
+#include <typeinfo>
 #include <vector>
 #ifdef _OPENMP
 #include <omp.h>
@@ -44,24 +44,24 @@ extern thread_local unsigned int* rng_state;
 extern thread_local struct drand48_data drng_state; // For non AVX512 version
 unsigned int* get_rng_state();
 
-template<typename T>
+template <typename T>
 inline T* pt_get_data_ptr(at::Tensor t) {
   return t.data_ptr<T>();
 }
 #ifndef PYTORCH_SUPPORTS_BFLOAT8
-template<>
+template <>
 inline bfloat8* pt_get_data_ptr<bfloat8>(at::Tensor t) {
   PCL_ASSERT(t.dtype() == at::kByte, "Wrong prec");
   return (bfloat8*)t.data_ptr<uint8_t>();
 }
 #endif
 
-template<typename T>
+template <typename T>
 inline std::string get_class_name() {
-    auto cname = abi::__cxa_demangle(typeid(T).name(), 0, 0, NULL);
-    std::string name(cname);
-    free(cname);
-    return name;
+  auto cname = abi::__cxa_demangle(typeid(T).name(), 0, 0, NULL);
+  std::string name(cname);
+  free(cname);
+  return name;
 }
 
 #ifdef __x86_64__

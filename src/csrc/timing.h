@@ -165,9 +165,10 @@ class ScopedTPP {
     if (omp_get_thread_num() == 0) {
       auto cur_class_name = get_class_name<T>();
       if (cur_class_name != prev_class_name) {
-        std::cout << "Calling impl " << impl << " for " << cur_class_name << std::endl;
+        std::cout << "Calling impl " << impl << " for " << cur_class_name
+                  << std::endl;
         prev_class_name = cur_class_name;
-      } 
+      }
     }
 #endif
     if (impl == 0) {

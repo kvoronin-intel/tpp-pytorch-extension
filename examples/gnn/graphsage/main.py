@@ -396,7 +396,9 @@ if __name__ == "__main__":
         "--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer."
     )
     argparser.add_argument(
-        "--profile", action="store_true", help="Whether to profile or not",
+        "--profile",
+        action="store_true",
+        help="Whether to profile or not",
     )
 
     args = argparser.parse_args()
