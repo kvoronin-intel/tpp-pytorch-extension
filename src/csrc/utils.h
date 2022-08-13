@@ -51,7 +51,7 @@ inline T* pt_get_data_ptr(at::Tensor t) {
 #ifndef PYTORCH_SUPPORTS_BFLOAT8
 template <>
 inline bfloat8* pt_get_data_ptr<bfloat8>(at::Tensor t) {
-  PCL_ASSERT(t.dtype() == at::kByte, "Wrong prec");
+  // PCL_ASSERT(t.dtype() == at::kByte, "Wrong prec");
   return (bfloat8*)t.data_ptr<uint8_t>();
 }
 #endif

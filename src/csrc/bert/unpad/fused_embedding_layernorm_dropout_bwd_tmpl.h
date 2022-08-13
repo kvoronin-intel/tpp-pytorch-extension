@@ -58,7 +58,8 @@ DECL_VLA_PTR_PT(ET, grad_pos_emb, [N][H], t_grad_pos_emb);
 DECL_VLA_PTR_PT(ET, grad_tt_emb, [N][H], t_grad_tt_emb);
 
 auto drop_out_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(N * S2 * H, p), DROPOUT);
-auto layer_norm_bwd_tpp = SCOPEIT(LayerNormBwdTPP<T>(N, S2, H), LAYER_NORM);
+auto layer_norm_bwd_tpp =
+    SCOPEIT((LayerNormBwdTPP<T, T>(N, S2, H)), LAYER_NORM);
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
 
 {
