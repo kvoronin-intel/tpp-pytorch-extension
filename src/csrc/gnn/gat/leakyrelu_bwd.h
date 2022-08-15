@@ -14,23 +14,22 @@ auto lrelu_mask = t_lrelu_mask.data_ptr<short>();
 auto t_grad_out = at::empty_like(t_grad_in);
 auto grad_out = t_grad_out.data_ptr<T>();
 
-const int BS = 256;  // Define the block size
+const int BS = 256; // Define the block size
 
 auto lrelu_bwd_tpp = SCOPEIT(LeakyReLUBwdTPP<T>(BS, alpha), ACT);
+{
+  RECORD_SCOPE(gdo_lrelu, {t_grad_in});
   {
-    RECORD_SCOPE(gdo_lrelu, {t_grad_in});
-    {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-      long n;
+    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+    long n;
 #pragma omp parallel for lastprivate(n)
-      for (n = 0; n < ALIGNDOWN(N, BS); n+=BS)
-        lrelu_bwd_tpp(&grad_in[n], &grad_out[n], &inp[n], &lrelu_mask[n/16]);
-    if (n < N)
-    	{
-        	auto lrelu_bwd_tpp = SCOPEIT(LeakyReLUBwdTPP<T>(N-n, alpha), ACT);
-        	lrelu_bwd_tpp(&grad_in[n], &grad_out[n], &inp[n], &lrelu_mask[n/16]);        
-        }
+    for (n = 0; n < ALIGNDOWN(N, BS); n += BS)
+      lrelu_bwd_tpp(&grad_in[n], &grad_out[n], &inp[n], &lrelu_mask[n / 16]);
+    if (n < N) {
+      auto lrelu_bwd_tpp = SCOPEIT(LeakyReLUBwdTPP<T>(N - n, alpha), ACT);
+      lrelu_bwd_tpp(&grad_in[n], &grad_out[n], &inp[n], &lrelu_mask[n / 16]);
     }
+  }
 }
 
 return t_grad_out;

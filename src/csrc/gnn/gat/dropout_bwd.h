@@ -5,16 +5,13 @@ int i = 0;
 auto t_grad_out = inputs[i++];
 auto t_dp_mask = inputs[i++];
 
-
-if (p > 0.0) 
-{
-    
+if (p > 0.0) {
   auto N = t_grad_out.numel();
 
   auto grad_out = t_grad_out.data_ptr<T>();
   auto dp_mask = t_dp_mask.data_ptr<short>();
 
-  const int BS = 256;  // Define the block size
+  const int BS = 256; // Define the block size
 
   auto dropout_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(BS, p), DROPOUT);
   {
@@ -23,12 +20,11 @@ if (p > 0.0)
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
       long n;
 #pragma omp parallel for lastprivate(n)
-      for (n = 0; n < ALIGNDOWN(N, BS); n+=BS)
+      for (n = 0; n < ALIGNDOWN(N, BS); n += BS)
         dropout_bwd_tpp(&grad_out[n], &grad_out[n], &dp_mask[n / 16]);
 
-      if(n < N)
-      {
-        auto dropout_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(N-n, p), DROPOUT);
+      if (n < N) {
+        auto dropout_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(N - n, p), DROPOUT);
         dropout_bwd_tpp(&grad_out[n], &grad_out[n], &dp_mask[n / 16]);
       }
     }

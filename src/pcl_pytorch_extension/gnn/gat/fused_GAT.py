@@ -19,6 +19,7 @@ from pcl_pytorch_extension.utils.blocked_layout import (
 )
 from pcl_pytorch_extension.utils import blocked_layout, xsmm
 from pcl_pytorch_extension._C import _fused_gsage as fused_gat_cpp
+
 # from pcl_pytorch_extension._C import _fused_gat as fused_gat_cpp
 import time
 from contextlib import contextmanager
@@ -53,11 +54,10 @@ class DummyLinear(BlockedModule):
         return input
 
 
-
 class GATMLPAttentionFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, align, act, *inputs):
-       
+
         (mlp_inp, wt, attn, bias) = inputs
         (mlp_out, attn_out, act_mask) = fused_gat_cpp.fused_gat_mlp_attn_fwd(
             align, act, inputs
@@ -65,19 +65,22 @@ class GATMLPAttentionFunction(torch.autograd.Function):
 
         if act == "None":
             act_mask = torch.tensor([], dtype=torch.short)
-        ctx.save_for_backward(mlp_out, attn, mlp_inp, wt, act_mask)      # attn_input = mlp_out
+        ctx.save_for_backward(
+            mlp_out, attn, mlp_inp, wt, act_mask
+        )  # attn_input = mlp_out
         ctx.act = act
-        ctx.align = align 
-        return (attn_out, mlp_out)              # mlp_out = attn_inp
+        ctx.align = align
+        return (attn_out, mlp_out)  # mlp_out = attn_inp
 
     @staticmethod
     def backward(ctx, *grad_attn_out):
         inputs = list(grad_attn_out)
         inputs += ctx.saved_tensors
-        grad_inp, grad_wt, grad_attn, grad_bias = fused_gat_cpp.fused_gat_mlp_attn_bwd(ctx.align, ctx.act, inputs)
+        grad_inp, grad_wt, grad_attn, grad_bias = fused_gat_cpp.fused_gat_mlp_attn_bwd(
+            ctx.align, ctx.act, inputs
+        )
 
         return (None, None, grad_inp, grad_wt, grad_attn, grad_bias)
-
 
 
 class DropoutFunction(torch.autograd.Function):
@@ -95,34 +98,35 @@ class DropoutFunction(torch.autograd.Function):
         inputs += ctx.saved_tensors
         # breakpoint()
         grad_inp = fused_gat_cpp.gat_dropout_bwd(ctx.p, inputs)
-        return (None,  grad_inp, None)
+        return (None, grad_inp, None)
+
 
 class Dropout_(nn.Module):
-    __constants__ = ['p', 'inplace']
+    __constants__ = ["p", "inplace"]
     p: float
     inplace: bool
 
-    def __init__ (self, p: float=0.5, inplace: bool = False) -> None:
+    def __init__(self, p: float = 0.5, inplace: bool = False) -> None:
         super(Dropout_, self).__init__()
         if p < 0 or p > 1:
-            raise ValueError("dropout probability has to be between 0 and 1, "
-                                                       "but got {}".format(p))
+            raise ValueError(
+                "dropout probability has to be between 0 and 1, " "but got {}".format(p)
+            )
         self.p = p
         self.inplace = inplace
 
     def extra_repr(self) -> str:
-        return 'p={}, inplace={}'.format(self.p, self.inplace)
+        return "p={}, inplace={}".format(self.p, self.inplace)
 
 
 class Dropout(Dropout_):
-    r""" Train"""
+    r"""Train"""
 
     def forward(self, input):
         input = input.contiguous()
-        output = DropoutFunction.apply(self.p, input, self.training) 
+        output = DropoutFunction.apply(self.p, input, self.training)
 
         return output
-
 
 
 class LeakyReLUFn(torch.autograd.Function):
@@ -140,17 +144,16 @@ class LeakyReLUFn(torch.autograd.Function):
         inputs += ctx.saved_tensors
         grad_inp = fused_gat_cpp.leakyrelu_bwd(ctx.alpha, inputs)
 
-        return(None, grad_inp)
-
+        return (None, grad_inp)
 
 
 class LeakyReLU(nn.Module):
-    __constants__=['inplace']
+    __constants__ = ["inplace"]
 
-    def __init__(self, alpha, inplace: bool=False):
+    def __init__(self, alpha, inplace: bool = False):
         super(LeakyReLU, self).__init__()
         self.alpha = alpha
-        self.inplace = False #inplace
+        self.inplace = False  # inplace
 
     def forward(self, input):
         input = input.contiguous()
@@ -283,97 +286,108 @@ class GATConvOpt(BlockedModule):
             [ 0.1594,  0.3825]]], grad_fn=<BinaryReduceBackward>)
     """
 
-    def __init__(self,
-                 in_feats,
-                 out_feats,
-                 num_heads,
-                 feat_drop=0.,
-                 attn_drop=0.,
-                 negative_slope=0.2,
-                 residual=False,
-                 activation=None,
-                 allow_zero_in_degree=False,
-                 bias=True):
-            super(GATConvOpt, self).__init__()
-            self._in_src_feats, self._in_dst_feats = expand_as_pair(in_feats)
-            self._num_heads = num_heads
-            self._out_feats = out_feats
-            self._allow_zero_in_degree = allow_zero_in_degree
-            self.bc = self._in_dst_feats
-            self.bk = num_heads * self._out_feats
-            self.res = False
-            self.align = 32
-            self.fdp = feat_drop
-            self.adp = attn_drop
-            for cbf in [50, 32, 16]:
-                if self._in_dst_feats % cbf == 0:
-                    self.bc = cbf
-                    break
+    def __init__(
+        self,
+        in_feats,
+        out_feats,
+        num_heads,
+        feat_drop=0.0,
+        attn_drop=0.0,
+        negative_slope=0.2,
+        residual=False,
+        activation=None,
+        allow_zero_in_degree=False,
+        bias=True,
+    ):
+        super(GATConvOpt, self).__init__()
+        self._in_src_feats, self._in_dst_feats = expand_as_pair(in_feats)
+        self._num_heads = num_heads
+        self._out_feats = out_feats
+        self._allow_zero_in_degree = allow_zero_in_degree
+        self.bc = self._in_dst_feats
+        self.bk = num_heads * self._out_feats
+        self.res = False
+        self.align = 32
+        self.fdp = feat_drop
+        self.adp = attn_drop
+        for cbf in [50, 32, 16]:
+            if self._in_dst_feats % cbf == 0:
+                self.bc = cbf
+                break
 
-            for kbf in [50, 32, 16]:
-                if self._out_feats % kbf == 0:
-                    self.bk = kbf
-                    break
-            # print("bk: ",self._out_feats, " ", self.bk, " bc ", self.bc)
-            if isinstance(in_feats, tuple):
-                self.fc_src = DummyLinear(
-                    self._in_src_feats, out_feats*num_heads, bias=False)
-                self.fc_src.weight.set_blocking_param(
-                        (
-                            [self.bk, self.bc],
-                            [0, 2, 3, 1],
-                        )
-                    )
-                self.fc_dst = DummyLinear(
-                    self._in_dst_feats, out_feats*num_heads, bias=False)
-                self.fc_dst.weight.set_blocking_param(
-                        (
-                            [self.bk, self.bc],
-                            [0, 2, 3, 1],
-                        )
-                    )
-            else:
-                self.fc = DummyLinear(
-                    self._in_src_feats, out_feats * num_heads, bias=False)
+        for kbf in [50, 32, 16]:
+            if self._out_feats % kbf == 0:
+                self.bk = kbf
+                break
+        # print("bk: ",self._out_feats, " ", self.bk, " bc ", self.bc)
+        if isinstance(in_feats, tuple):
+            self.fc_src = DummyLinear(
+                self._in_src_feats, out_feats * num_heads, bias=False
+            )
+            self.fc_src.weight.set_blocking_param(
+                (
+                    [self.bk, self.bc],
+                    [0, 2, 3, 1],
+                )
+            )
+            self.fc_dst = DummyLinear(
+                self._in_dst_feats, out_feats * num_heads, bias=False
+            )
+            self.fc_dst.weight.set_blocking_param(
+                (
+                    [self.bk, self.bc],
+                    [0, 2, 3, 1],
+                )
+            )
+        else:
+            self.fc = DummyLinear(self._in_src_feats, out_feats * num_heads, bias=False)
 
-                self.fc.weight.set_blocking_param(
-                        (
-                            [self.bk, self.bc],
-                            [0, 2, 3, 1],
-                        )
-                    )
-            ### Optimized-----
-            self.attn_l = BlockedParameter(torch.FloatTensor(size=(1, num_heads, out_feats)))
-            self.attn_r = BlockedParameter(torch.FloatTensor(size=(1, num_heads, out_feats)))
-            
-            self.feat_drop = Dropout(feat_drop)
-            self.attn_drop = Dropout(attn_drop)
+            self.fc.weight.set_blocking_param(
+                (
+                    [self.bk, self.bc],
+                    [0, 2, 3, 1],
+                )
+            )
+        ### Optimized-----
+        self.attn_l = BlockedParameter(
+            torch.FloatTensor(size=(1, num_heads, out_feats))
+        )
+        self.attn_r = BlockedParameter(
+            torch.FloatTensor(size=(1, num_heads, out_feats))
+        )
 
-            self.leaky_relu = LeakyReLU(negative_slope)
-            if bias:
-                self.bias = nn.Parameter(torch.FloatTensor(size=(num_heads * out_feats,)))
-            else:
-                self.register_buffer('bias', None)
-            if residual:
-                if self._in_dst_feats != out_feats * num_heads:
-                    self.res_fc = DummyLinear(self._in_dst_feats, num_heads * out_feats, bias=False)
-                    self.res_fc.weight.set_blocking_param(
-                        (
-                            [self.bk, self.bc],
-                            [0, 2, 3, 1],
-                        )
+        self.feat_drop = Dropout(feat_drop)
+        self.attn_drop = Dropout(attn_drop)
+
+        self.leaky_relu = LeakyReLU(negative_slope)
+        if bias:
+            self.bias = nn.Parameter(torch.FloatTensor(size=(num_heads * out_feats,)))
+        else:
+            self.register_buffer("bias", None)
+        if residual:
+            if self._in_dst_feats != out_feats * num_heads:
+                self.res_fc = DummyLinear(
+                    self._in_dst_feats, num_heads * out_feats, bias=False
+                )
+                self.res_fc.weight.set_blocking_param(
+                    (
+                        [self.bk, self.bc],
+                        [0, 2, 3, 1],
                     )
-                else:
-                    self.res_fc = Identity()
+                )
             else:
-                self.register_buffer('res_fc', None)
-            self.activation = "relu" if activation == F.relu else "None"    # For Optimized Block
-            self.use_bf16 = False
-            self.reset_parameters()
+                self.res_fc = Identity()
+        else:
+            self.register_buffer("res_fc", None)
+        self.activation = (
+            "relu" if activation == F.relu else "None"
+        )  # For Optimized Block
+        self.use_bf16 = False
+        self.reset_parameters()
 
     def maybe_block_params(self):
-    
-        if not hasattr(self, 'fc_src'):        
+
+        if not hasattr(self, "fc_src"):
             self.fc.weight.block()
         else:
             self.fc_src.weight.block()
@@ -381,7 +395,6 @@ class GATConvOpt(BlockedModule):
 
         if self.res_fc is not None:
             self.res_fc.weight.block()
-        
 
     def reset_parameters(self):
         """
@@ -395,8 +408,8 @@ class GATConvOpt(BlockedModule):
         The fc weights :math:`W^{(l)}` are initialized using Glorot uniform initialization.
         The attention weights are using xavier initialization method.
         """
-        gain = nn.init.calculate_gain('relu')
-        if hasattr(self, 'fc'):
+        gain = nn.init.calculate_gain("relu")
+        if hasattr(self, "fc"):
             nn.init.xavier_normal_(self.fc.weight, gain=gain)
         else:
             nn.init.xavier_normal_(self.fc_src.weight, gain=gain)
@@ -407,7 +420,6 @@ class GATConvOpt(BlockedModule):
             nn.init.constant_(self.bias, 0)
         if isinstance(self.res_fc, nn.Linear):
             nn.init.xavier_normal_(self.res_fc.weight, gain=gain)
-
 
     def set_allow_zero_in_degree(self, set_value):
         r"""
@@ -422,7 +434,6 @@ class GATConvOpt(BlockedModule):
             The value to be set to the flag.
         """
         self._allow_zero_in_degree = set_value
-
 
     def forward(self, graph, feat, get_attention=False):
         r"""
@@ -462,15 +473,17 @@ class GATConvOpt(BlockedModule):
         with graph.local_scope():
             if not self._allow_zero_in_degree:
                 if (graph.in_degrees() == 0).any():
-                    raise DGLError('There are 0-in-degree nodes in the graph, '
-                                   'output for those nodes will be invalid. '
-                                   'This is harmful for some applications, '
-                                   'causing silent performance regression. '
-                                   'Adding self-loop on the input graph by '
-                                   'calling `g = dgl.add_self_loop(g)` will resolve '
-                                   'the issue. Setting ``allow_zero_in_degree`` '
-                                   'to be `True` when constructing this module will '
-                                   'suppress the check and let the code run.')
+                    raise DGLError(
+                        "There are 0-in-degree nodes in the graph, "
+                        "output for those nodes will be invalid. "
+                        "This is harmful for some applications, "
+                        "causing silent performance regression. "
+                        "Adding self-loop on the input graph by "
+                        "calling `g = dgl.add_self_loop(g)` will resolve "
+                        "the issue. Setting ``allow_zero_in_degree`` "
+                        "to be `True` when constructing this module will "
+                        "suppress the check and let the code run."
+                    )
 
             if isinstance(feat, tuple):
                 src_prefix_shape = feat[0].shape[:-1]
@@ -480,120 +493,133 @@ class GATConvOpt(BlockedModule):
                     h_src = self.feat_drop(feat[0])
                     h_dst = self.feat_drop(feat[1])
                 else:
-                    h_src = feat[0] 
-                    h_dst = feat[1] 
-                
+                    h_src = feat[0]
+                    h_dst = feat[1]
+
                 if self.use_bf16:
                     h_src = h_src.to(torch.bfloat16)
                     h_dst = h_dst.to(torch.bfloat16)
-                
-                if not hasattr(self, 'fc_src'):
+
+                if not hasattr(self, "fc_src"):
 
                     inputs = [h_src, self.fc_src.weight, self.attn_l]
                     if self.use_bf16:
                         inputs = [
-                            i.to(torch.bfloat16) if i.is_floating_point() else i 
+                            i.to(torch.bfloat16) if i.is_floating_point() else i
                             for i in inputs
                         ]
                     inputs.append(self.bias)
 
-                    
                     N = h_src.size(0)
-                    align = self.align if ( N > self.align or N == 0) else N
+                    align = self.align if (N > self.align or N == 0) else N
                     feat_src = feat_dst = GATMLPAttentionFunction.apply(
-                        self.align,
-                        *inputs
-                        ).view(
-                        *src_prefix_shape, self._num_heads, self._out_feats)
-                    
+                        self.align, *inputs
+                    ).view(*src_prefix_shape, self._num_heads, self._out_feats)
+
                 else:
                     inputs_src = [
-                        h_src, 
+                        h_src,
                         self.fc_src.weight,
                         self.attn_l,
-                        ]
+                    ]
                     if self.use_bf16:
                         inputs_src = [
-                            i.to(torch.bfloat16) if i.is_floating_point() else i 
+                            i.to(torch.bfloat16) if i.is_floating_point() else i
                             for i in inputs_src
-                            ]
+                        ]
                     inputs_src.append(self.bias)
                     N = h_src.size(0)
-                    align = self.align if ( N > self.align or N == 0) else N
-                    
+                    align = self.align if (N > self.align or N == 0) else N
+
                     el, feat_src_ = GATMLPAttentionFunction.apply(
                         align,
                         self.activation,
                         *inputs_src,
-                        )
-                    feat_src = feat_src_.view(*src_prefix_shape, self._num_heads, self._out_feats)
-                    
+                    )
+                    feat_src = feat_src_.view(
+                        *src_prefix_shape, self._num_heads, self._out_feats
+                    )
+
                     inputs_dst = [
-                        h_dst, 
+                        h_dst,
                         self.fc_dst.weight,
                         self.attn_r,
-                        ]
+                    ]
                     if self.use_bf16:
                         inputs_dst = [
-                            i.to(torch.bfloat16) if i.is_floating_point() else i 
+                            i.to(torch.bfloat16) if i.is_floating_point() else i
                             for i in inputs_dst
                         ]
                     inputs_dst.append(self.bias)
                     N = h_dst.size(0)
-                    align = self.align if ( N > self.align or N == 0) else N
-                    
+                    align = self.align if (N > self.align or N == 0) else N
+
                     er, feat_dst_ = GATMLPAttentionFunction.apply(
                         align,
                         self.activation,
                         *inputs_dst,
-                        )#
-                    feat_dst = feat_dst_.view(*dst_prefix_shape, self._num_heads, self._out_feats)
-                    
+                    )  #
+                    feat_dst = feat_dst_.view(
+                        *dst_prefix_shape, self._num_heads, self._out_feats
+                    )
+
             else:
 
                 src_prefix_shape = dst_prefix_shape = feat.shape[:-1]
                 h_src = h_dst = feat
 
                 if graph.is_block:
-                    feat_dst = self.feat_src[:graph.number_of_dst_nodes()]
-                    h_dst = h_dst[:graph.number_of_dst_nodes()]
-                    dst_prefix_shape = (graph.number_of_dst_nodes(),) + dst_prefix_shape[1:]
+                    feat_dst = self.feat_src[: graph.number_of_dst_nodes()]
+                    h_dst = h_dst[: graph.number_of_dst_nodes()]
+                    dst_prefix_shape = (
+                        graph.number_of_dst_nodes(),
+                    ) + dst_prefix_shape[1:]
 
-            graph.srcdata.update({'ft': feat_src, 'el': el})
-            graph.dstdata.update({'er': er})
+            graph.srcdata.update({"ft": feat_src, "el": el})
+            graph.dstdata.update({"er": er})
 
             # compute edge attention, el and er are a_l Wh_i and a_r Wh_j respectively.
-            graph.apply_edges(fn.u_add_v('el', 'er', 'e'))
-            e = self.leaky_relu(graph.edata.pop('e'))
-            # compute softmax           
-            graph.edata['a'] = self.attn_drop(edge_softmax(graph, e))
+            graph.apply_edges(fn.u_add_v("el", "er", "e"))
+            e = self.leaky_relu(graph.edata.pop("e"))
+            # compute softmax
+            graph.edata["a"] = self.attn_drop(edge_softmax(graph, e))
             # message passing
-            graph.update_all(fn.u_mul_e('ft', 'a', 'm'),
-                             fn.sum('m', 'ft'))
-            rst = graph.dstdata['ft']
-            
+            graph.update_all(fn.u_mul_e("ft", "a", "m"), fn.sum("m", "ft"))
+            rst = graph.dstdata["ft"]
+
             if get_attention:
-                return rst, graph.edata['a']
+                return rst, graph.edata["a"]
             else:
                 return rst
 
 
 class GATConvOptBF16(GATConvOpt):
-    def __init__(self,
-         in_feats,
-         out_feats,
-         num_heads,
-         feat_drop=0.,
-         attn_drop=0.,
-         negative_slope=0.2,
-         residual=False,
-         activation=None,
-         allow_zero_in_degree=False,
-         bias=True):
+    def __init__(
+        self,
+        in_feats,
+        out_feats,
+        num_heads,
+        feat_drop=0.0,
+        attn_drop=0.0,
+        negative_slope=0.2,
+        residual=False,
+        activation=None,
+        allow_zero_in_degree=False,
+        bias=True,
+    ):
 
         super(GATConvOptBF16, self).__init__(
-            in_feats, out_feats, num_heads, feat_drop, attn_drop, negative_slope, 
-            residual, activation, allow_zero_in_degree, bias)
+            in_feats,
+            out_feats,
+            num_heads,
+            feat_drop,
+            attn_drop,
+            negative_slope,
+            residual,
+            activation,
+            allow_zero_in_degree,
+            bias,
+        )
         if USE_BF16_PARAMS:
             self.fc_src.weight.set_blocking_param(
                 (
@@ -616,7 +642,7 @@ class GATConvOptBF16(GATConvOpt):
 @contextmanager
 def pcl_impl(enable=True, use_bf16=False):
     try:
-        import dgl 
+        import dgl
 
         orig_GATConv = dgl.nn.pytorch.GATConv
         orig_Dropout = torch.nn.Dropout
@@ -632,8 +658,7 @@ def pcl_impl(enable=True, use_bf16=False):
             dgl.nn.pytorch.GATConv = orig_GATConv
             torch.nn.Dropout = orig_Dropout
     except ImportError as e:
-        pass 
-
+        pass
 
 
 def block(model):

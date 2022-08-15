@@ -14,8 +14,6 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
-
-
 static int my_rank = guess_mpi_rank();
 
 REGISTER_SCOPE(gao_gemm, "gao_gemm");
@@ -32,7 +30,6 @@ REGISTER_SCOPE(gdo_attn, "gdo_attn");
 REGISTER_SCOPE(go_mlp_attn, "go_mlp_attn");
 REGISTER_SCOPE(gdo_mlp_attn, "gdo_mlp_attn");
 REGISTER_SCOPE(ga_dattn_dbias_din, "ga_dattn_dbias_din");
-
 
 template <typename Tin, typename Tout>
 inline void omp_reduce_buf(
@@ -56,41 +53,44 @@ inline void omp_reduce_buf(
   }
 }
 
-//######################################## FUSED GAT MLP & ATTENTION ################################################
+//######################################## FUSED GAT MLP & ATTENTION
+//################################################
 
 std::vector<at::Tensor> fused_gat_mlp_attn_fwd(
-  int align,
-  std::string act,
-  std::vector<at::Tensor> inputs){
-
+    int align,
+    std::string act,
+    std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);
-  if (inputs[0].dtype() == at::kFloat){
+  if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-     #include "fused_gat_mlp_attn_flat_fwd.h"
+#include "fused_gat_mlp_attn_flat_fwd.h"
   } else {
     typedef bfloat16 T;
-      #include "fused_gat_mlp_attn_flat_fwd.h"
+#include "fused_gat_mlp_attn_flat_fwd.h"
   }
 }
-
 
 std::vector<at::Tensor> fused_gat_mlp_attn_bwd(
-  int align,
-  std::string act,
-  std::vector<at::Tensor> inputs) {
+    int align,
+    std::string act,
+    std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
-  if (inputs[0].dtype() == at::kFloat){
+  if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
-    #include "fused_gat_mlp_attn_flat_bwd.h"
+#include "fused_gat_mlp_attn_flat_bwd.h"
   } else {
     typedef bfloat16 T;
-    #include "fused_gat_mlp_attn_flat_bwd.h"
+#include "fused_gat_mlp_attn_flat_bwd.h"
   }
 }
 
-//######################################## Dropout ################################################
+//######################################## Dropout
+//################################################
 
-std::vector<at::Tensor> gat_dropout_fwd(float p, at::Tensor inp, bool training) {
+std::vector<at::Tensor> gat_dropout_fwd(
+    float p,
+    at::Tensor inp,
+    bool training) {
   GlobalPass _gp(FWD);
   if (inp.dtype() == at::kFloat) {
     typedef float T;
@@ -112,11 +112,10 @@ at::Tensor gat_dropout_bwd(float p, std::vector<at::Tensor> inputs) {
   }
 }
 
-//######################################## Leaky ReLU ################################################
+//######################################## Leaky ReLU
+//################################################
 
-std::vector<at::Tensor> leakyrelu_fwd(
-    float alpha, 
-    at::Tensor inp) {
+std::vector<at::Tensor> leakyrelu_fwd(float alpha, at::Tensor inp) {
   GlobalPass _gp(FWD);
   if (inp.dtype() == at::kFloat) {
     // std::cout << " In Cpp "<< inp << std::endl;
@@ -128,10 +127,7 @@ std::vector<at::Tensor> leakyrelu_fwd(
   }
 }
 
-
-at::Tensor leakyrelu_bwd(
-  float alpha, 
-  std::vector<at::Tensor> inputs) {
+at::Tensor leakyrelu_bwd(float alpha, std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
@@ -142,14 +138,17 @@ at::Tensor leakyrelu_bwd(
   }
 }
 
-
-
-
 REGISTER_SUBMODULE(_fused_gsage, m) {
-  m.def("fused_gat_mlp_attn_fwd", &fused_gat_mlp_attn_fwd, "Pcl GAT fused MLP-Attention forward");
-  m.def("fused_gat_mlp_attn_bwd", &fused_gat_mlp_attn_bwd, "Pcl GAT fused MLP-Attention backward");
+  m.def(
+      "fused_gat_mlp_attn_fwd",
+      &fused_gat_mlp_attn_fwd,
+      "Pcl GAT fused MLP-Attention forward");
+  m.def(
+      "fused_gat_mlp_attn_bwd",
+      &fused_gat_mlp_attn_bwd,
+      "Pcl GAT fused MLP-Attention backward");
   m.def("gat_dropout_fwd", &gat_dropout_fwd, "Pcl Optimized Dropout FWD");
   m.def("gat_dropout_bwd", &gat_dropout_bwd, "Pcl Optimized Dropout BWD");
   m.def("leakyrelu_fwd", &leakyrelu_fwd, "Pcl Optimized Leaky Relu FWD");
   m.def("leakyrelu_bwd", &leakyrelu_bwd, "Pcl Optimized Leaky Relu BWD");
-  }
+}
