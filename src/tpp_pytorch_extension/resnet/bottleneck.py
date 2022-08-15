@@ -301,6 +301,36 @@ class BottleneckApplyBNTPP(Function):
                 exit(-1)
         """
 
+        rank = int(os.environ.get("PMI_RANK", -1))
+        if rank < 0:
+            rank = 0
+        if rank == 0:
+            c1w_nan_count = torch.isnan(c1w.view(-1)).sum()
+            print("nan check in bottleneck for c1w, nancount = ", c1w_nan_count)
+            c2w_nan_count = torch.isnan(c2w.view(-1)).sum()
+            print("nan check in bottleneck for c2w, nancount = ", c2w_nan_count)
+            c3w_nan_count = torch.isnan(c3w.view(-1)).sum()
+            print("nan check in bottleneck for c3w, nancount = ", c3w_nan_count)
+            if config.has_residual_conv:
+                c4w_nan_count = torch.isnan(c4w.view(-1)).sum()
+                print("nan check in bottleneck for c4w, nancount = ", c4w_nan_count)
+            else:
+                c4w_nan_count = 0
+            b1w_nan_count = torch.isnan(b1w.view(-1)).sum()
+            print("nan check in bottleneck for b1w, nancount = ", b1w_nan_count)
+            b2w_nan_count = torch.isnan(b2w.view(-1)).sum()
+            print("nan check in bottleneck for b2w, nancount = ", b2w_nan_count)
+            b3w_nan_count = torch.isnan(b3w.view(-1)).sum()
+            print("nan check in bottleneck for b3w, nancount = ", b3w_nan_count)
+            if config.has_residual_conv:
+                b4w_nan_count = torch.isnan(b4w.view(-1)).sum()
+                print("nan check in bottleneck for b4w, nancount = ", b4w_nan_count)
+            else:
+                b4w_nan_count = 0
+            if c1w_nan_count > 0 or c2w_nan_count > 0 or c3w_nan_count > 0 or c4w_nan_count > 0 or b1w_nan_count > 0 or b2w_nan_count > 0 or b3w_nan_count > 0 or b4w_nan_count > 0:
+                print("Exiting before doing fwd because nan count is not zero")
+                exit(-1)
+
         if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
             (output,
             conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out,
@@ -340,7 +370,7 @@ class BottleneckApplyBNTPP(Function):
             print("ind out", ind, output.view(-1)[ind].item())
         """
 
-        """
+        
         rank = int(os.environ.get("PMI_RANK", -1))
         if rank < 0:
             rank = 0
@@ -377,20 +407,26 @@ class BottleneckApplyBNTPP(Function):
             conv3_nan_count = torch.isnan(conv3_out.view(-1)).sum()
             print("nan check in bottleneck for conv3_out, nancount = ", conv3_nan_count)
             #print("nan check in bottleneck for residual, nancount = ", torch.isnan(residual.view(-1)).sum())
-            c4w_nan_count = torch.isnan(c4w.view(-1)).sum()
-            print("nan check in bottleneck for c4w, nancount = ", c4w_nan_count)
+            if config.has_residual_conv:
+                c4w_nan_count = torch.isnan(c4w.view(-1)).sum()
+                print("nan check in bottleneck for c4w, nancount = ", c4w_nan_count)
+            else:
+                c42_nan_count = 0
             conv4_nan_count = torch.isnan(conv4_out.view(-1)).sum()
             print("nan check in bottleneck for conv4_out, nancount = ", conv4_nan_count)
-            bn4_nan_count = torch.isnan(bn4_out.view(-1)).sum()
-            print("nan check in bottleneck for bn4_out, nancount = ", bn4_nan_count)
+            if config.has_residual_conv:
+                bn4_nan_count = torch.isnan(bn4_out.view(-1)).sum()
+                print("nan check in bottleneck for bn4_out, nancount = ", bn4_nan_count)
+            else:
+                bn4_nan_count = 0
             bn3_nan_count = torch.isnan(bn3_out.view(-1)).sum()
             print("nan check in bottleneck for bn3_out, nancount = ", bn3_nan_count)
             output_nan_count = torch.isnan(output.view(-1)).sum()
             print("nan check in bottleneck for output, nancount = ", torch.isnan(output.view(-1)).sum())
             if conv1_nan_count > 0 or conv2_nan_count > 0 or conv3_nan_count > 0 or conv4_nan_count > 0 or bn1_nan_count > 0 or bn2_nan_count > 0 or bn3_nan_count > 0 or bn4_nan_count > 0 or c1w_nan_count > 0 or c2w_nan_count > 0 or c3w_nan_count > 0 or c4w_nan_count > 0:
-                print("Exiting because nan count is not zero")
+                print("Exiting after doing fwd because nan count is not zero")
                 exit(-1)
-        """
+        
 
         """
         dump = False
@@ -539,7 +575,7 @@ class BottleneckApplyBNTPP(Function):
 
         grad_input = grad_c1i + grad_c4i
 
-        """
+        
         rank = int(os.environ.get("PMI_RANK", -1))
         if rank < 0:
             rank = 0
@@ -567,7 +603,7 @@ class BottleneckApplyBNTPP(Function):
             if grad_b1w_nan_count > 0 or grad_b2w_nan_count > 0 or grad_b3w_nan_count > 0 or grad_b4w_nan_count > 0 or grad_c1w_nan_count > 0 or grad_c2w_nan_count > 0 or grad_c3w_nan_count > 0 or grad_c4w_nan_count > 0:
                 print("Exiting because nan count is not zero")
                 exit(-1)
-        """
+        
 
         """
         print("debug: pad_h = ", param_struct.pad_h)
