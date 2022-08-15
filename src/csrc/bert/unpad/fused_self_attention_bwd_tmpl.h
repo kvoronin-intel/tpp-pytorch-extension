@@ -26,7 +26,7 @@ auto S2 = sizes[2];
 long H = sizes[3];
 // long NH = N*H;
 float one_by_sqrt_H = 1.0 / sqrt(H);
-bool dt_bf16 = (t_dCL.dtype() == at::kBFloat16);
+bool dt_low_prec = (t_dCL.dtype() != at::kFloat);
 
 auto t_dQL = t_QL_T.new_empty({S1, N, S2, H});
 auto t_dQL_V = t_dQL;
@@ -52,6 +52,7 @@ auto t_dAPD = at::empty_like(t_AP);
 auto t_dAPD_V = t_AP.new_empty({N, SS1, S2, S2});
 
 auto null_EHS = false;
+constexpr int VBS = get_vnni_block_size<T>();
 
 if (t_EHS_T.numel() == 0) {
   null_EHS = true;
@@ -62,21 +63,21 @@ if (t_EHS_T.numel() == 0) {
 }
 
 auto t_dCL_V = t_dCL;
-if (dt_bf16) {
-  t_dQL_V = t_QL_T.new_empty({S1, N, S2 / 2, H, 2});
-  t_dKL_V = t_KL_V.new_empty({S1, N, S2 / 2, H, 2});
-  t_dVL_V = t_VL_TV.new_empty({S1, N, S2 / 2, H, 2});
+if (dt_low_prec) {
+  t_dQL_V = t_QL_T.new_empty({S1, N, S2 / VBS, H, VBS});
+  t_dKL_V = t_KL_V.new_empty({S1, N, S2 / VBS, H, VBS});
+  t_dVL_V = t_VL_TV.new_empty({S1, N, S2 / VBS, H, VBS});
   t_dCL_V = act_tensor_n2v(S1, N, S2, H, t_dCL);
 }
 const auto grad_wt_flag =
     (t_Wq.dim() == 5 ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_NONE_TPP);
 const auto a_trans_flag =
-    (dt_bf16 ? XformTPP::XFORM_NONE_TPP : XformTPP::XFORM_XPOSE_TPP);
+    (dt_low_prec ? XformTPP::XFORM_NONE_TPP : XformTPP::XFORM_XPOSE_TPP);
 if (grad_wt_flag == XformTPP::XFORM_N2V_TPP) {
-  t_dWq = t_dWq.view({N, N, H / 2, H, 2});
-  t_dWk = t_dWk.view({N, N, H / 2, H, 2});
-  t_dWv = t_dWv.view({N, N, H / 2, H, 2});
-  t_dAPD_V = t_dAPD_V.view({N, SS1, S2 / 2, S2, 2});
+  t_dWq = t_dWq.view({N, N, H / VBS, H, VBS});
+  t_dWk = t_dWk.view({N, N, H / VBS, H, VBS});
+  t_dWv = t_dWv.view({N, N, H / VBS, H, VBS});
+  t_dAPD_V = t_dAPD_V.view({N, SS1, S2 / VBS, S2, VBS});
 }
 auto t_Wq_TV = wt_tensor_for_bwd(N, H, N, H, t_Wq);
 auto t_Wk_TV = wt_tensor_for_bwd(N, H, N, H, t_Wk);
@@ -192,7 +193,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
           long len = end - start;
           for (int s21 = start; s21 < end; s21++, ss1 += len) {
             cw_gemm_tpp(APD_T[n][ss1], dCL_V[start][n], dVL[s21][n], len);
-            if (dt_bf16)
+            if (dt_low_prec)
               cw_n2v_tpp(dVL[s21][n], dVL_V[s21][n]);
           }
         }
@@ -241,7 +242,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
             }
             // dQL = dADP * KL_V
             ai_gemm_tpp(dtAPD_bf[0][0], KL_V[start][n], dQL[s11][n], len);
-            if (dt_bf16)
+            if (dt_low_prec)
               cw_n2v_tpp(dQL[s11][n], dQL_V[s11][n]);
           }
         }
@@ -262,7 +263,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
           for (int s21 = start; s21 < end; s21++, ss1 += len) {
             // dKL = (QL_T * dAPD)T
             aw_gemm_tpp(QL_T[start][n], dAPD_V[n][ss1], dKL[s21][n], len);
-            if (dt_bf16)
+            if (dt_low_prec)
               cw_n2v_tpp(dKL[s21][n], dKL_V[s21][n]);
           }
         }

@@ -6,15 +6,6 @@
 #pragma message "Using OpenMP"
 #endif
 
-std::vector<std::pair<std::string, submodule_init_func>> _submodule_list;
-
-// Declared in timing.h
-std::vector<Scope> _scope_list{Scope("Reserved")};
-std::vector<Scope> _pass_list{Scope("OTH"),
-                              Scope("FWD"),
-                              Scope("BWD"),
-                              Scope("UPD")};
-
 double ifreq = 1.0 / getFreq();
 
 PassType globalPass = OTH;
@@ -33,7 +24,7 @@ void reset_debug_timers() {
 #pragma omp parallel
   {
     int tid = omp_get_thread_num();
-    for (auto& scope : _pass_list) {
+    for (auto& scope : get_pass_list()) {
       if (scope.master_timer == 0.0)
         continue;
       for (int t = 0; t < NUM_TIMERS; t++) {
@@ -41,7 +32,7 @@ void reset_debug_timers() {
       }
       scope.flops[tid][0] = 0;
     }
-    for (auto& scope : _scope_list) {
+    for (auto& scope : get_scope_list()) {
       if (scope.master_timer == 0.0)
         continue;
       for (int t = 0; t < NUM_TIMERS; t++) {
@@ -50,12 +41,12 @@ void reset_debug_timers() {
       scope.flops[tid][0] = 0;
     }
   }
-  for (auto& scope : _pass_list) {
+  for (auto& scope : get_pass_list()) {
     if (scope.master_timer == 0.0)
       continue;
     scope.master_timer = 0.0;
   }
-  for (auto& scope : _scope_list) {
+  for (auto& scope : get_scope_list()) {
     if (scope.master_timer == 0.0)
       continue;
     scope.master_timer = 0.0;
@@ -107,9 +98,9 @@ void print_debug_timers(int tid) {
           printf(" %8.1f  %8.1f\n", total * 1e3, scope.master_timer * 1e3);
         }
       };
-      for (auto& scope : _pass_list)
+      for (auto& scope : get_pass_list())
         print_scope(scope);
-      for (auto& scope : _scope_list)
+      for (auto& scope : get_scope_list())
         print_scope(scope);
     }
   }
@@ -198,9 +189,9 @@ void print_debug_thread_imbalance() {
       printf(" %8.1f\n", scope.master_timer * 1e3);
     }
   };
-  for (auto& scope : _pass_list)
+  for (auto& scope : get_pass_list())
     print_scope(scope);
-  for (auto& scope : _scope_list)
+  for (auto& scope : get_scope_list())
     print_scope(scope);
   printf.print();
 }

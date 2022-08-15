@@ -11,9 +11,9 @@
 
 namespace at {
 
-class BFlaoat16 {
+class BFloat16 {
  public:
-  BFlaoat16(float f) {
+  BFloat16(float f) {
     u_bf16 tmp;
     tmp.f = f;
     val = tmp.i[1];

@@ -18,6 +18,7 @@ auto Hc = in_sizes[3];
 auto Nk = wt_sizes[0];
 auto Hk = wt_sizes[3];
 
+constexpr int VBS = get_vnni_block_size<T>();
 const auto grad_wt_flag =
     (t_wt.dim() == 5 ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_NONE_TPP);
 const auto input_trans_flag =
@@ -34,7 +35,7 @@ auto t_grad_in2 = at::empty_like(t_grad_out);
 at::Tensor t_grad_dout; //   = at::zeros_like(t_grad_out);
 auto t_grad_in = at::empty_like(t_in);
 auto t_grad_wt = at::empty_like(t_wt);
-auto t_grad_bias = at::empty_like(t_gamma); // [Nk][Hk]
+auto t_grad_bias = at::empty_like(t_gamma, t_in.dtype()); // [Nk][Hk]
 auto t_grad_gamma = at::empty_like(t_gamma); // [Nk][Hk]
 auto t_grad_beta = at::empty_like(t_gamma); // [Nk][Hk]
 
@@ -44,8 +45,8 @@ if (p > 0) {
   t_grad_dout = t_grad_in2;
 }
 auto t_grad_dout_V = t_grad_dout;
-if (t_grad_dout.dtype() == at::kBFloat16) {
-  t_grad_dout_V = t_grad_out.new_empty({S1, Nk, S2 / 2, Hk, 2});
+if (t_grad_dout.dtype() != at::kFloat) {
+  t_grad_dout_V = t_grad_out.new_empty({S1, Nk, S2 / VBS, Hk, VBS});
 }
 
 DECL_VLA_PTR_PT(T, in_T, [Nc][Hc][S2], t_in_T);
@@ -55,9 +56,9 @@ DECL_VLA_PTR_PT(T, grad_in, [Nc][S2][Hc], t_grad_in);
 DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
 DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc][Hk], t_grad_wt);
 DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
-DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
-DECL_VLA_PTR_PT(T, grad_gamma, [Hk], t_grad_gamma);
-DECL_VLA_PTR_PT(T, grad_beta, [Hk], t_grad_beta);
+DECL_VLA_PTR_PT(LT, gamma, [Hk], t_gamma);
+DECL_VLA_PTR_PT(LT, grad_gamma, [Hk], t_grad_gamma);
+DECL_VLA_PTR_PT(LT, grad_beta, [Hk], t_grad_beta);
 DECL_VLA_PTR_PT(float, mean, [S2], t_mean);
 DECL_VLA_PTR_PT(float, var, [S2], t_var);
 DECL_VLA_PTR_PT(T, grad_dout, [Nk][S2][Hk], t_grad_dout);
@@ -73,7 +74,8 @@ if (Nk > Nc && Nk % Nc == 0) {
 }
 
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(Nk * Hk), EW_ZERO);
-auto layer_norm_bwd_tpp = SCOPEIT(LayerNormBwdTPP<T>(Nk, S2, Hk), LAYER_NORM);
+auto layer_norm_bwd_tpp =
+    SCOPEIT((LayerNormBwdTPP<T, LT>(Nk, S2, Hk)), LAYER_NORM);
 auto drop_out_bwd_tpp = SCOPEIT(DropOutBwdTPP<T>(S2 * Hk, p), DROPOUT);
 auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, Hk), BIAS);
 auto n2v_tpp =

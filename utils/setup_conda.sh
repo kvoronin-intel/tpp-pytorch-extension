@@ -3,7 +3,7 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 CONDA_INSTALL_DIR=`realpath ./miniconda3`
-ENV_NAME=pt1102
+ENV_NAME=pt1120
 
 while (( "$#" )); do
   case "$1" in
@@ -34,7 +34,7 @@ if ! test -d ${CONDA_INSTALL_DIR} ; then
 bash ./Miniconda3-latest-Linux-x86_64.sh -b -p ${CONDA_INSTALL_DIR}
 ${CONDA_INSTALL_DIR}/bin/conda create -y -n ${ENV_NAME} python=3.8
 source ${CONDA_INSTALL_DIR}/bin/activate ${ENV_NAME}
-conda install -y pytorch==1.10.2 torchvision torchaudio cpuonly intel-openmp gperftools ninja setuptools tqdm future cmake numpy pyyaml scikit-learn pydot -c pytorch -c intel -c conda-forge 
+conda install -y pytorch==1.12.0 torchvision torchaudio cpuonly intel-openmp gperftools ninja setuptools tqdm future cmake numpy pyyaml scikit-learn pydot -c pytorch -c intel -c conda-forge 
 
 # for bert
 conda install -y h5py onnx tensorboardx -c anaconda -c conda-forge
@@ -43,7 +43,7 @@ conda install -y h5py onnx tensorboardx -c anaconda -c conda-forge
 #conda install -y -c eumetsat expect
 
 # for development (code formatting)
-conda install -y black clang-format -c sarcasm -c conda-forge
+conda install -y black=22.6.0 clang-format=5.0.1 -c sarcasm -c conda-forge
 
 fi
 

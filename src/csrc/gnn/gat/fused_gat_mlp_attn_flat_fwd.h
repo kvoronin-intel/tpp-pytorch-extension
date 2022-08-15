@@ -1,13 +1,13 @@
 RECORD_FUNCTION("gat_mlp_fwd", std::vector<c10::IValue>());
 
-at::Tensor t_in_mlp, t_attn_3d, t_wt,  t_bias;
+at::Tensor t_in_mlp, t_attn_3d, t_wt, t_bias;
 int i = 0;
-#define PRINT_T(x) std::cout << #x << "==: " << x.sizes() << std::endl
+//#define PRINT_T(x) std::cout << #x << "==: " << x.sizes() << std::endl
 
-t_in_mlp = inputs[i++];               // [N, C]
-t_wt = inputs[i++];               // [nk, nc, bc, bk]
-t_attn_3d = inputs[i++];         // [1, H, F]
-t_bias = inputs[i++];             // [K]
+t_in_mlp = inputs[i++]; // [N, C]
+t_wt = inputs[i++]; // [nk, nc, bc, bk]
+t_attn_3d = inputs[i++]; // [1, H, F]
+t_bias = inputs[i++]; // [K]
 
 auto in_sizes = t_in_mlp.sizes();
 auto wt_sizes = t_wt.sizes();
@@ -31,7 +31,7 @@ if (t_wt.dtype() == at::kBFloat16) {
 
 auto t_wt_V = wt_tensor_for_fwd(nk, bk, nc, bc, t_wt);
 
-auto t_out_mlp = t_in_mlp.new_empty({N, K});            // [N,  K]
+auto t_out_mlp = t_in_mlp.new_empty({N, K}); // [N,  K]
 at::Tensor t_out_f32;
 if (t_out_mlp.dtype() == at::kFloat)
   t_out_f32 = t_out_mlp;
@@ -55,7 +55,8 @@ auto brgemm_tpp = SCOPEITGEMM2(
         float>(bn, bk, bcp, bcp, bk* bcp, nc* bcp, bk, nk* bk, 1.0, 0, nc)));
 
 auto cpy_bias_tpp = SCOPEIT(CpyBiasTPP<float>(bn, bk, K), BIAS);
-auto relu_fwd_tpp = SCOPEIT(ReLUFwdTPP<float>(bn, bk, nk* bk, nk* bk, true), ACT);
+auto relu_fwd_tpp =
+    SCOPEIT(ReLUFwdTPP<float>(bn, bk, nk* bk, nk* bk, true), ACT);
 auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
 
 {
@@ -70,7 +71,7 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
         if (act == "relu") {
           relu_fwd_tpp(out_f32[n][0][k], out_f32[n][0][k], relu_mask[n][0][k]);
         }
-          cvt_tpp(out_f32[n][0][k], out[n][0][k]);
+        cvt_tpp(out_f32[n][0][k], out[n][0][k]);
       }
     }
     if (rem > 0) {
@@ -78,7 +79,6 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
       DECL_VLA_PTR_PT(T, out, [nk][bk], t_out_mlp);
       DECL_VLA_PTR_PT(float, out_f32, [nk][bk], t_out_f32);
       DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-    
 
       auto brgemm_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 1.0, 0, nc)));
@@ -92,15 +92,15 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
       for (int k = 0; k < nk; k++) {
         for (int r = 0; r < rem; r++)
           cpy_bias_tpp(bias[k], out_f32[nn * bn + r][k]);
-        brgemm_tpp(in[nn * bn][0], wt_V[k][0], out_f32[nn * bn][k], nc);   
-        for (int r = 0; r < rem; r++){
+        brgemm_tpp(in[nn * bn][0], wt_V[k][0], out_f32[nn * bn][k], nc);
+        for (int r = 0; r < rem; r++) {
           if (act == "relu") {
             relu_fwd_tpp(
-                out_f32[nn * bn +r][k], 
-                out_f32[nn * bn +r][k], 
+                out_f32[nn * bn + r][k],
+                out_f32[nn * bn + r][k],
                 relu_mask[nn * bn + r][k]);
           }
-            cvt_tpp(out_f32[nn * bn + r][k], out[nn * bn + r][k]);
+          cvt_tpp(out_f32[nn * bn + r][k], out[nn * bn + r][k]);
         }
       }
     }
@@ -109,52 +109,51 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
 
 auto attn_sizes = t_attn_3d.sizes(); // 3D shape [1, H, F] = [1, 4, 128] let
 
-auto H = attn_sizes[1];  // 4
-auto F = attn_sizes[2];  // 128
+auto H = attn_sizes[1]; // 4
+auto F = attn_sizes[2]; // 128
 
 auto t_out_attn = t_out_mlp.new_empty({N, H});
 
-auto t_attn = t_attn_3d.view({H*F});
+auto t_attn = t_attn_3d.view({H * F});
 
 at::Tensor t_out_attn_f32;
-if(t_in_mlp.dtype() == at::kBFloat16)
+if (t_in_mlp.dtype() == at::kBFloat16)
   t_out_attn_f32 = at::empty({N, H});
 else
   t_out_attn_f32 = t_out_attn;
 
-  DECL_VLA_PTR_PT(T, in_attn, [H][F], t_out_mlp);
-  DECL_VLA_PTR_PT(T, attn, [F], t_attn);      //[nk, bk]
-  DECL_VLA_PTR_PT(T, out_attn, [H], t_out_attn);          // [N, H]
-  DECL_VLA_PTR_PT(float, out_attn_f32, [H], t_out_attn_f32);          // [N, H]
+DECL_VLA_PTR_PT(T, in_attn, [H][F], t_out_mlp);
+DECL_VLA_PTR_PT(T, attn, [F], t_attn); //[nk, bk]
+DECL_VLA_PTR_PT(T, out_attn, [H], t_out_attn); // [N, H]
+DECL_VLA_PTR_PT(float, out_attn_f32, [H], t_out_attn_f32); // [N, H]
 
-  auto mul_reduce_tpp = SCOPEIT((MulReduceTPP<T, T, float>(H, F)), EW_MUL);
-  auto cvt_attn_tpp = SCOPEIT((ConvertTPP<float, T>(1, H)), EW_COPY);
+auto mul_reduce_tpp = SCOPEIT((MulReduceTPP<T, T, float>(H, F)), EW_MUL);
+auto cvt_attn_tpp = SCOPEIT((ConvertTPP<float, T>(1, H)), EW_COPY);
 
+{
+  RECORD_SCOPE(go_attn, {t_out_attn});
   {
-    RECORD_SCOPE(go_attn, {t_out_attn});
-    {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-  #pragma omp parallel for
-      for (int n = 0; n < N; n++){
-        mul_reduce_tpp(attn[0], in_attn[n][0], out_attn_f32[n]);
-      }
-      if(t_out_attn.dtype() != t_out_attn_f32.dtype())
+    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for
+    for (int n = 0; n < N; n++) {
+      mul_reduce_tpp(attn[0], in_attn[n][0], out_attn_f32[n]);
+    }
+    if (t_out_attn.dtype() != t_out_attn_f32.dtype()) {
+#pragma omp parallel
       {
-  #pragma omp parallel
-        {
-          int tid = omp_get_thread_num();
-          int threads = omp_get_num_threads();
-          int work = N;
-          int chunk =
+        int tid = omp_get_thread_num();
+        int threads = omp_get_num_threads();
+        int work = N;
+        int chunk =
             (work % threads == 0) ? (work / threads) : (work / threads) + 1;
-          int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
-          int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
+        int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
+        int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
 
-          for(int r=chunk_start; r<chunk_end; r++)
-            cvt_tpp(out_attn_f32[r], out_attn[r]);
-        }
+        for (int r = chunk_start; r < chunk_end; r++)
+          cvt_tpp(out_attn_f32[r], out_attn[r]);
       }
     }
   }
+}
 
 return {t_out_mlp, t_out_attn.view({N, H, 1}), t_relu_mask};

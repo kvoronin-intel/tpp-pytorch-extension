@@ -6,6 +6,7 @@ from setuptools import find_packages
 from torch.utils.cpp_extension import CppExtension, BuildExtension
 from subprocess import check_call, check_output
 import pathlib
+import torch
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
@@ -94,6 +95,7 @@ sources = [
     "src/csrc/optim.cpp",
     "src/csrc/xsmm.cpp",
     "src/csrc/embedding.cpp",
+    "src/csrc/bfloat8.cpp",
 ]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
@@ -101,6 +103,13 @@ sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
 sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 sources += glob.glob("src/csrc/gnn/common/*.cpp")
 sources += glob.glob("src/csrc/gnn/gat/*.cpp")
+
+extra_compile_args = ["-fopenmp", "-g", "-march=native"]
+
+if hasattr(torch, "bfloat8"):
+    extra_compile_args.append("-DPYTORCH_SUPPORTS_BFLOAT8")
+
+print("extra_compile_args = ", extra_compile_args)
 
 print(sources)
 
@@ -128,7 +137,7 @@ setup(
         CppExtension(
             "pcl_pytorch_extension._C",
             sources,
-            extra_compile_args=["-fopenmp", "-g", "-march=native"],
+            extra_compile_args=extra_compile_args,
             include_dirs=[
                 xsmm_include,
                 "{}/src/csrc".format(cwd),

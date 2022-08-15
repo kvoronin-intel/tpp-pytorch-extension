@@ -65,7 +65,7 @@ DECL_VLA_PTR_PT(ET, pos_emb, [N][H], t_pos_emb);
 DECL_VLA_PTR_PT(ET, tt_emb, [N][H], t_tt_emb);
 
 auto layer_norm_fwd_tpp =
-    SCOPEIT(LayerNormFwdTPP<T>(N, S2, H, eps), LAYER_NORM);
+    SCOPEIT((LayerNormFwdTPP<T, T>(N, S2, H, eps)), LAYER_NORM);
 auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(N * S2 * H, p), DROPOUT);
 
 {

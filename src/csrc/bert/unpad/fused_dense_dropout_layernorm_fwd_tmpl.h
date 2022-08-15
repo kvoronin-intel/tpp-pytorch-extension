@@ -37,8 +37,8 @@ DECL_VLA_PTR_PT(T, in2, [Nk][S2][Hk], t_in2);
 // DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc / 2][Hk][2], t_wt_V);
 DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
 DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
-DECL_VLA_PTR_PT(T, beta, [Hk], t_beta);
+DECL_VLA_PTR_PT(LT, gamma, [Hk], t_gamma);
+DECL_VLA_PTR_PT(LT, beta, [Hk], t_beta);
 DECL_VLA_PTR_PT(float, mean, [S2], t_mean);
 DECL_VLA_PTR_PT(float, var, [S2], t_var);
 DECL_VLA_PTR_PT(T, dout, [Nk][S2][Hk], t_dout);
@@ -64,7 +64,7 @@ auto brgemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
 auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(S2 * Hk, p), DROPOUT);
 auto add_tpp = SCOPEIT((AddTPP<T, T>(S2 * Hk)), EW_ADD);
 auto layer_norm_fwd_tpp =
-    SCOPEIT(LayerNormFwdTPP<T>(Nk, S2, Hk, eps), LAYER_NORM);
+    SCOPEIT((LayerNormFwdTPP<T, LT>(Nk, S2, Hk, eps)), LAYER_NORM);
 
 {
   RECORD_SCOPE(o_gemm, {t_in, t_wt});

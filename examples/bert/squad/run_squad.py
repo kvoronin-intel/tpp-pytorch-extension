@@ -183,6 +183,7 @@ def train(args, train_dataset, model, tokenizer):
                 find_unused_parameters=True,
             )
 
+    low_prec = args.pcl_bf16 or args.pcl_bf8
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -317,17 +318,18 @@ def train(args, train_dataset, model, tokenizer):
                 tr_loss += step_loss
                 start_opt_time = timeit.default_timer()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
+                    global_norm = 0.0
                     with torch.autograd.profiler.record_function("clip_grad_norm"):
                         if args.fp16:
-                            torch.nn.utils.clip_grad_norm_(
+                            global_norm = torch.nn.utils.clip_grad_norm_(
                                 amp.master_params(optimizer), args.max_grad_norm
                             )
-                        elif args.use_pcl and args.pcl_bf16:
-                            pcl_bert.clip_grad_norm_(
+                        elif args.use_pcl and low_prec:
+                            global_norm = pcl_bert.clip_grad_norm_(
                                 model.parameters(), args.max_grad_norm
                             )
                         else:
-                            torch.nn.utils.clip_grad_norm_(
+                            global_norm = torch.nn.utils.clip_grad_norm_(
                                 model.parameters(), args.max_grad_norm
                             )
 
@@ -395,7 +397,7 @@ def train(args, train_dataset, model, tokenizer):
                 end_time = timeit.default_timer()
                 if args.local_rank in [-1, 0]:
                     print(
-                        f"Step: {global_step-1}, loss: {step_loss:6g}  tr_loss: {tr_loss/(global_step-1):6g} DT: {data_time*1e3:6g} FT: {(start_bwd_time-start_fwd_time)*1e3:6g} BT: {(start_opt_time-start_bwd_time)*1e3:6g} OT: {(end_time-start_opt_time)*1e3:6g} TT: {(end_time-start_fwd_time+data_time)*1e3:6g}"
+                        f"Step: {global_step-1}, loss: {step_loss:6g}  tr_loss: {tr_loss/(global_step-1):6g} DT: {data_time*1e3:6g} FT: {(start_bwd_time-start_fwd_time)*1e3:6g} BT: {(start_opt_time-start_bwd_time)*1e3:6g} OT: {(end_time-start_opt_time)*1e3:6g} TT: {(end_time-start_fwd_time+data_time)*1e3:6g} GN: {global_norm:6g}"
                     )
                 if prof and args.use_pcl:
                     pcl_bert.print_debug_timers()
@@ -919,6 +921,11 @@ def main():
         help="Whether to use PCL Fused impl when available",
     )
     parser.add_argument(
+        "--pcl_bf8",
+        action="store_true",
+        help="Whether to use PCL Fused impl when available",
+    )
+    parser.add_argument(
         "--unpad",
         action="store_true",
         help="Whether to use PCL Fused impl when available",
@@ -982,6 +989,8 @@ def main():
             "examples. This could result in errors when building features from the examples. Please reduce the doc "
             "stride or increase the maximum length to ensure the features are correctly built."
         )
+    if args.pcl_bf16 and args.pcl_bf8:
+        logger.warning("Both BF16 and BF8 precision specified, using BF8")
 
     if (
         os.path.exists(args.output_dir)
@@ -1085,7 +1094,9 @@ def main():
         cache_dir=args.cache_dir if args.cache_dir else None,
         use_fast=False,  # SquadDataset is not compatible with Fast tokenizers which have a smarter overflow handeling
     )
-    with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16, args.unpad):
+
+    low_prec = args.pcl_bf16 or args.pcl_bf8
+    with pcl_bert.pcl_impl(args.use_pcl, low_prec, args.unpad, args.pcl_bf8):
         model = AutoModelForQuestionAnswering.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -1093,10 +1104,8 @@ def main():
             cache_dir=args.cache_dir if args.cache_dir else None,
         )
 
-    for m in model.modules():
-        if hasattr(m, "maybe_block_params"):
-            m.maybe_block_params()
-            # if args.pcl_bf16: m.to(torch.bfloat16)
+    if args.use_pcl:
+        pcl_bert.block(model)
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
@@ -1177,11 +1186,16 @@ def main():
         for checkpoint in checkpoints:
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16, args.unpad):
+            low_prec = args.pcl_bf16 or args.pcl_bf8
+            with pcl_bert.pcl_impl(args.use_pcl, low_prec, args.unpad, args.pcl_bf8):
                 model = AutoModelForQuestionAnswering.from_pretrained(
                     checkpoint
                 )  # , force_download=True)
             model.to(args.device)
+            if args.use_pcl:
+                pcl_bert.block(model)
+            # for n, p in model.named_parameters():
+            #     print(f"{n}: {p.dtype}")
 
             # Evaluate
             result = evaluate(args, model, tokenizer, prefix=global_step)

@@ -18,8 +18,8 @@ get_submodule_list() {
 inline int register_submodule(std::string name, submodule_init_func func) {
   auto& _submodule_list = get_submodule_list();
   _submodule_list.push_back(std::make_pair(name, func));
-  // printf("Registering %s submodule @ %lu\n", name.c_str(),
-  // _submodule_list.size());
+  // printf("Registering %s submodule @ %d\n", name.c_str(),
+  // _submodule_list.size()-1);
   return _submodule_list.size();
 }
 

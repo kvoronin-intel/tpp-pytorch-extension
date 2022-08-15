@@ -27,10 +27,11 @@ long H = sizes[3];
 // long NH = N*H;
 float one_by_sqrt_H = 1.0 / sqrt(H);
 bool null_EHS = false;
-bool dt_bf16 = (t_HS.dtype() == at::kBFloat16);
-bool bf16_training = (training && dt_bf16);
+bool dt_low_prec = (t_HS.dtype() != at::kFloat);
+bool low_prec_training = (training && dt_low_prec);
 auto t_EHS_orig = t_EHS;
 
+constexpr int VBS = get_vnni_block_size<T>();
 // std::cout << "B: " << B << " S1: " << S1 << " S2: " << S2 << " N: " << N << "
 // H: " << H << std::endl;
 if (t_EHS.numel() == 0) {
@@ -51,12 +52,12 @@ auto t_Wv_V = wt_tensor_for_fwd(N, H, N, H, t_Wv);
 auto t_QL = t_HS.new_empty({S1, N, S2, H});
 auto t_QL_T = t_QL;
 auto t_KL_TV = t_EHS.new_empty({S1, N, H, S2});
-if (dt_bf16)
-  t_KL_TV = t_KL_TV.view({S1, N, H / 2, S2, 2});
+if (dt_low_prec)
+  t_KL_TV = t_KL_TV.view({S1, N, H / VBS, S2, VBS});
 auto t_KL_V = t_KL_TV;
 auto t_VL_V = t_EHS.new_empty({S1, N, S2, H});
-if (dt_bf16)
-  t_VL_V = t_VL_V.view({S1, N, S2 / 2, H, 2});
+if (dt_low_prec)
+  t_VL_V = t_VL_V.view({S1, N, S2 / VBS, H, VBS});
 auto t_VL_TV = t_VL_V;
 auto t_AP = t_QL.new_empty({N, SS1, S2, S2});
 auto t_CL = t_AP.new_empty({S1, N, S2, H});
@@ -69,16 +70,16 @@ if (p > 0 || t_HM.numel() != 0) {
 
 auto t_APD_T = t_APD;
 
-if (bf16_training) {
+if (low_prec_training) {
   t_HS_T = t_HS.new_empty({S1, N, H, S2}); // For BWD only
   t_EHS_T = null_EHS ? t_HS_T : t_HS.new_empty({S1, N, H, S2}); // For BWD only
 
   t_QL_T = t_HS.new_empty({S1, N, H, S2}); // For BWD only
 }
 if (training) {
-  if (dt_bf16) {
-    t_KL_V = t_EHS.new_empty({S1, N, S2 / 2, H, 2}); // Saved For BWD
-    t_VL_TV = t_EHS.new_empty({S1, N, H / 2, S2, 2}); // For BWD only
+  if (dt_low_prec) {
+    t_KL_V = t_EHS.new_empty({S1, N, S2 / VBS, H, VBS}); // Saved For BWD
+    t_VL_TV = t_EHS.new_empty({S1, N, H / VBS, S2, VBS}); // For BWD only
   } else {
     t_KL_V = t_EHS.new_empty({S1, N, S2, H}); // Saved For BWD
     t_VL_TV = t_EHS.new_empty({S1, N, H, S2}); // For BWD only
@@ -148,11 +149,11 @@ if (training) {
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < N; nk++) {
-          if (bf16_training && nk == 0)
+          if (low_prec_training && nk == 0)
             xpose_tpp(N, S2 * H, S2 * H, HS[s1][0], HS_T[s1][0]);
           copy_bias_tpp(Bq[nk], QL[s1][nk]);
           qkv_gemm_tpp(HS[s1][0], Wq_V[nk][0], QL[s1][nk], N);
-          if (bf16_training)
+          if (low_prec_training)
             xpose_tpp(QL[s1][nk], QL_T[s1][nk]);
         }
       }
@@ -169,8 +170,8 @@ if (training) {
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < N; nk++) {
           T tmp[S2 * H];
-          T* tmpp = (training && !bf16_training) ? KL_V[s1][nk] : tmp;
-          if (!null_EHS && bf16_training && nk == 0)
+          T* tmpp = (training && !low_prec_training) ? KL_V[s1][nk] : tmp;
+          if (!null_EHS && low_prec_training && nk == 0)
             xpose_tpp(N, S2 * H, S2 * H, EHS[s1][0], EHS_T[s1][0]);
           copy_bias_tpp(Bk[nk], tmpp);
           qkv_gemm_tpp(EHS[s1][0], Wk_V[nk][0], tmpp, N);
@@ -195,7 +196,7 @@ if (training) {
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < N; nk++) {
           T tmp[S2 * H];
-          T* tmpp = (!dt_bf16) ? VL_V[s1][nk] : tmp;
+          T* tmpp = (!dt_low_prec) ? VL_V[s1][nk] : tmp;
           copy_bias_tpp(Bv[nk], tmpp);
           qkv_gemm_tpp(EHS[s1][0], Wv_V[nk][0], tmpp, N);
           v_xpose_tpp_1(tmpp, VL_V[s1][nk]);

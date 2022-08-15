@@ -13,12 +13,14 @@ from contextlib import contextmanager
 
 
 @contextmanager
-def pcl_impl(enable=True, use_bf16=False, use_unpad=True):
+def pcl_impl(enable=True, use_low_prec=False, use_unpad=True, use_bf8=False):
     if use_unpad == True:
-        with fused_bert_unpad.pcl_impl(enable, use_bf16):
+        with fused_bert_unpad.pcl_impl(enable, use_low_prec, use_bf8):
             yield
     else:
-        with fused_bert.pcl_impl(enable, use_bf16):
+        if use_low_prec and use_bf8:
+            raise NotImplementedError("BF8 is only supported with unpad")
+        with fused_bert.pcl_impl(enable, use_low_prec):
             yield
 
 
