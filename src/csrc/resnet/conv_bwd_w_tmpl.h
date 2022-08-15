@@ -12,6 +12,8 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 t_start = getTime();
 #endif
 
+//#define LESS_KERNELS
+
 // Parameters:
 // p_block,  bf16_use_nchw_format,
 // pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
@@ -404,6 +406,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   int trans_tracker_size = 0;
   std::unique_ptr<int[]> trans_tracker;
 
+#ifndef LESS_KERNELS
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         gemm_as_brgemm_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>)               zero_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<T,T>)     wt_reduce0_T_tpp, wt_reduce1_T_tpp;
@@ -426,12 +429,25 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_f32bf16_tpp, wt_reduce1_f32bf16_tpp;
   SCOPEITGEMM_DECL(BrgemmTPP<T, float>)     brgemm_kernel_hybrid_tpp;
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_kernel_hybrid_zerobeta_cvnni_tpp;
+#else
+  SCOPEIT_DECL(XformExtTPP<T>)              transpose_input_pixels_bf16_xform_tpp, vnni_output_compute_pixels_bf16_xform_tpp;
+  SCOPEIT_DECL(XformExtTPP<T>)              wt_vnni_xform_tpp;
+
+  SCOPEITGEMM_DECL(BrgemmTPP<T, float>)     gemm_kernel_non_hybrid_as_brgemm_tpp;
+  SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         gemm_kernel_non_hybrid_zerobeta_cvnni_as_brgemm_tpp;
+  //SCOPEITGEMM_DECL(GemmTPP<T, T>)           gemm_kernel_non_hybrid_zerobeta_cvnni_as_brgemm_tpp;
+  SCOPEIT_DECL(ReduceAddColExtTPP<T,T>)     wt_reduce0_bf16bf16_tpp, wt_reduce1_bf16bf16_tpp;
+  SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_f32bf16_tpp, wt_reduce1_f32bf16_tpp;
+
+  SCOPEIT_DECL(SetZeroTPP<float>)           zero_float_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)               vnni_output_zero_remaining_pixels_bf16_tpp;
+#endif
 
   if (sizeof(T) == 4) {
     gemm_n = bc;
     gemm_m = bk;
     gemm_k = ofw;
-
+#ifndef LESS_KERNELS
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, dtype, dtype, dtype);
     //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
@@ -453,13 +469,13 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
     //gemm_kernel.gemm      = libxsmm_dispatch_gemm_v2( l_shape, l_flags, l_prefetch_flags );
     gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bc*stride_w, bk, bk, 1.0, 1 /*a_trans*/, 1 /*brcount*/)));//, BRGEMM);
-
+#endif
   } else { /* bfloat16 goes here */
 
     gemm_n = bc;
     gemm_m = bk;
     gemm_k = bn;
-
+#ifndef LESS_KERNELS
     //auto tr_unary_shape = libxsmm_create_meltw_unary_shape(bc, bn, C*ifhp*ifwp, bn, dtype, dtype, dtype);
     //trans_xform_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
     //std::cout << "trans_xform_tpp " << std::endl;
@@ -493,20 +509,24 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
     //zero_kernel_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
+#endif
 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(bk*gemm_n, 1, bk*gemm_n, bk*gemm_n, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32);
     //zero_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     zero_float_tpp = SCOPEIT(SetZeroTPP<float>(bk*gemm_n), EW_ZERO);
 
+#ifndef LESS_KERNELS
     //l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
     //fp32bf16_cvt_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     fp32bf16_cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bc, bk, bk, bk)), EW_ZERO);
+#endif
 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, dtype, dtype, dtype);
     //wt_vnni_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     //std::cout << "wt_vnni_xform_tpp " << std::endl;
     wt_vnni_xform_tpp = SCOPEIT(XformExtTPP<T>(bc, bk, bk, bk, XformTPP::XFORM_N2V_TPP, false), XPOSE); /* assuming row-major-ness */
 
+#ifndef LESS_KERNELS
     //l_unary_shape = libxsmm_create_meltw_unary_shape(chunk0, nThreads, K * C *R * S, chunk0, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
     //wt_reduce_kernel0_f32bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ;
     wt_reduce0_float_tpp = SCOPEIT((ReduceAddColExtTPP<float,T>(nThreads, chunk0, K*C*R*S, chunk0)), EW_RED);
@@ -516,11 +536,10 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     //wt_reduce_kernel1_f32bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ; 
     wt_reduce1_float_tpp = SCOPEIT((ReduceAddColExtTPP<float,T>(nThreads, chunk1, K*C*R*S, chunk1)), EW_RED);
     //printf("l_unary_shape m n ldi ldo = %d %d %d %d \n", l_unary_shape.m, l_unary_shape.n, l_unary_shape.ldi, l_unary_shape.ldo);
-
+#endif
     trans_tracker_size = Cb + Kb + 64 - 64%(Cb+Kb);
     //int *trans_tracker = (int*)libxsmm_aligned_malloc( nThreads*trans_tracker_size*sizeof(int), 2097152);
     trans_tracker = std::make_unique<int[]>(nThreads * (Cb + Kb + 64 - 64%(Cb+Kb)));
-
 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(chunk0, weight_copies, K * C *R * S, chunk0, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_F32);
     //wt_reduce_kernel0_bf16bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS ) ;
@@ -540,9 +559,11 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
     if (bf16_use_nchw_format > 0) {
       if (pack_input_upfront) {
+#ifndef LESS_KERNELS
         //auto pack_unary_shape = libxsmm_create_meltw_unary_shape(bc, ofw, stride_w * bc, input_pixels, dtype, dtype, dtype);
         //transposeNpack_input_pixels_bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, pack_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
         transposeNpack_input_pixels_bf16_xform_tpp = SCOPEIT(XformExtTPP<T>(ofw, bc, bc, ofw, stride_w * bc, input_pixels, XformTPP::XFORM_XPOSE_TPP, false), XPOSE); /* assuming row-major-ness */
+#endif
       }
       if (use_hybrid_imgfm_parallelization == 0) {
 
@@ -576,6 +597,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         //printf("Success\n");
 
       } else { /* for use_hybrid_imgfm_parallelization == 0 */
+#ifndef LESS_KERNELS
 /*
         auto new_shape = libxsmm_create_gemm_shape( bk, bc, pixel_blocking, bk, input_pixels, bk, dtype, dtype, LIBXSMM_DATATYPE_F32, dtype);
         auto new_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
@@ -600,7 +622,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         brgemm_kernel_hybrid_zerobeta_cvnni.gemm   = libxsmm_dispatch_brgemm_v2( new_shape, new_flags, new_prefetch_flags, new_brconfig );
 */
         brgemm_kernel_hybrid_zerobeta_cvnni_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(bc, bk, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 1 /*c_vnni */, _n_step /*brcount*/)));//, BRGEMM);
-
+#endif
       } /* else-if for use_hybrid_imgfm_parallelization == 0 */
 
       //auto new_tr_unary_shape = libxsmm_create_meltw_unary_shape(bc, ifwp, bc, input_pixels, dtype, dtype, dtype);
@@ -616,10 +638,12 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         vnni_output_compute_pixels_bf16_xform_tpp = SCOPEIT(XformExtTPP<T>(compute_pixels, bk, compute_pixels, bk, bk, bk, XformTPP::XFORM_N2V_PAD_TPP, false), XPOSE); /* assuming row-major-ness */
         //vnni_output_compute_pixels_bf16 =  libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2_PAD, new_tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
       }
+#ifndef LESS_KERNELS
       //upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
       //auto zero_unary_shape = libxsmm_create_meltw_unary_shape(bk*upd_remaining_pixels, 1, bk*upd_remaining_pixels, bk*upd_remaining_pixels, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
       //vnni_output_zero_remaining_pixels_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, zero_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
       vnni_output_zero_remaining_pixels_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bk*upd_remaining_pixels), EW_ZERO);
+#endif
 
     } else { /* for  bf16_use_nchw_format > 0 */
     } /* else-if for bf16_use_nchw_format > 0 */
@@ -754,6 +778,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
 #ifdef VERBOSE
   std::cout << "gemm_n gemm_m gemm_k for bwd_upd = " << gemm_n << " " << gemm_m << " " << gemm_k << std::endl;
+  std::cout << "nThreads = " << nThreads << std::endl;
   std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
   std::cout << "use_private_trans = " << use_private_trans << std::endl;
   std::cout << "use_mb_par_f32 = " << use_mb_par_f32 << std::endl;
@@ -767,13 +792,13 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     RECORD_SCOPE(conv_bwd_upd, {});
     {
       if (sizeof(T) == 4) {
+#ifndef LESS_KERNELS
         if (use_mb_par_f32 == 0) {
           //printf("Case use_mb_par_f32 == 0 is untested so far!\n"); exit(-1);
 
           conv_loop_f32(
             [&](int* ind) {
               int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
-
               DECL_VLA_PTR_PT_EXT(T,    gradout,   [Kb][ofhp][ofwp][bk],   t_GO, (pad_h_out * ofwp * bk + pad_w_out * bk));
               DECL_VLA_PTR_PT    (T,     inp,      [Cb][ifhp][ifwp][bc],   t_I);
               DECL_VLA_PTR_PT    (T,    weight,    [Cb][R][S][bc][bk],     t_grad_weight);
@@ -837,12 +862,14 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
             [&]() {},
             [&]() {});
         }
+#endif
 
       } else { /* T = bfloat16 goes into else */
         if (bf16_use_nchw_format > 0) {
           //printf("Case bf16_use_nchw_format > 0 is untested so far!\n"); exit(-1);
           if (bf16_fuse_upd_transposes == 0) {
             if (pack_input_upfront > 0) {
+#ifndef LESS_KERNELS
               tr_input_nchw_loop(
                 [&](int* ind) {
                   int i_n = ind[0], i_c = ind[1];
@@ -862,6 +889,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                 },
                 [&]() {},
                 [&]() {});
+#endif
             } else {
               tr_input_nchw_loop(
                 [&](int* ind) {
@@ -930,6 +958,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
             DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, output_mylinearized_pixels, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
             DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, input_mylinearized_pixels,  [Cb][bc][input_pixels],  t_scratch_experimental, input_mylinearized_pixels_offset);
 
+#ifndef LESS_KERNELS
             if (bf16_fuse_upd_transposes == 1 && pix == 0 && i_c == 0 && i_r == 0 && i_s == 0) {
               //printf("Case bf16_fuse_upd_transposes == 1 + bunch of conditions is untested so far!\n"); exit(-1);
               vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
@@ -946,6 +975,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                 transpose_input_pixels_bf16_xform_tpp(input[i_n][i_c][ij][0], &input_mylinearized_pixels[i_n][i_c][0][ij*ifwp]);
               }
             }
+#endif
 
             if (use_f32_wt_reduction_and_external_wt_vnni > 0) {
               if (pix == 0) {
@@ -1017,6 +1047,8 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         }
 
           } else { /* for if use_hybrid_imgfm_parallelization == 0 */
+
+#ifndef LESS_KERNELS
 //            printf("Case else for use_hybrid_imgfm_parallelization == 0 is untested so far!\n"); exit(-1);
 
               DECL_VLA_PTR_PT_EXT_CAST(T,     unsigned char, output_mylinearized_pixels_dbg, [Kb][output_pixels][bk], t_scratch_experimental, output_mylinearized_pixels_offset);
@@ -1111,9 +1143,10 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
             [&]() {},
             [&]() {});
         }
-
+#endif
           } /* if-else for use_hybrid_imgfm_parallelization */
         } else if (bf16_use_chwn_format > 0) { /* for if bf16_use_nchw_format > 0 */
+#ifndef LESS_KERNELS
           //printf("Case bf16_use_chwn_format > 0 is untested so far!\n"); exit(-1);
           if (use_private_trans == 0) {
             //printf("Case use_private_trans == 0 is untested so far!\n"); exit(-1);
@@ -1266,6 +1299,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
               [&]() {});
 
           } /* for if par_over_h_pixels > 0 */
+#endif
         } /* if-else for bf16_use_nchw_format/bf16_use_chwn_format */
       } /* if-else over T */
     } /* end of the scope with recorded parallel for */
@@ -1286,6 +1320,14 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   ptr[0] += t_end - t_conv_start;
   ptr[1] += 0.0;
   ptr[2] += t_end - t_start;
+#endif
+
+#ifdef VERBOSE
+  #undef VERBOSE
+#endif
+
+#ifdef TIMING
+  #undef TIMING
 #endif
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));

@@ -4108,8 +4108,8 @@ class SplitSGDTPP : public BaseTPP {
     auto out_hi = (libxsmm_bfloat16*)hi;
     auto out_lo = (libxsmm_bfloat16*)lo;
     for (int i = 0; i < N; i++) {
-      union libxsmm_bfloat16_hp bf16_hp;
-      union libxsmm_bfloat16_hp bf16_wt;
+      union libxsmm_bfloat_f32 bf16_hp;
+      union libxsmm_bfloat_f32 bf16_wt;
       bf16_wt.i[0] = 0;
       bf16_wt.i[1] = dwt[i];
       bf16_hp.i[0] = out_lo[i];
@@ -4564,7 +4564,7 @@ class FusedSplitAdamWTPP {
     float beta2_1 = 1.0f - beta2;
 #ifndef __AVX512F__
     for (long i = 0; i < sz; i++) {
-      union libxsmm_bfloat16_hp data_hp;
+      union libxsmm_bfloat_f32 data_hp;
       float avg_i = exp_avg[i];
       float avg_sq_i = exp_avg_sq[i];
       float grad_i = grad[i];

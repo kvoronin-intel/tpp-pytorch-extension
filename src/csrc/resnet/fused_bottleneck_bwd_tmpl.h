@@ -7,6 +7,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
 //#define VERBOSE
 
+//#define CHECK_FOR_NANS
+
   auto grad_output  = inputs[0];
   auto conv1_input  = inputs[1];
   auto conv1_weight = inputs[2];
@@ -229,6 +231,19 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
   auto bn2_grad_input = bn2_grad_ret[0];
   bn2_grad_gamma      = bn2_grad_ret[1];
   bn2_grad_beta       = bn2_grad_ret[2];
+
+#ifdef CHECK_FOR_NANS
+  {
+  auto check_length = bn2_grad_input.numel();
+  int nan_count = 0;
+  for (int i = 0; i < check_length; i++)
+    if (aten::isnan((bn2_grad_input.data_ptr<T>())[i])
+      nan_count++;
+  if (nan_count) {
+    printf("nan_count is not zero in bn2_grad_input: %d \n", nan_count);
+  }
+  }
+#endif
 
 #ifdef TIMING
   time_b2 = getTime() - t_start;

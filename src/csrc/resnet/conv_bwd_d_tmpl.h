@@ -375,5 +375,13 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   ptr[2] += t_end - t_start;
 #endif
 
+#ifdef VERBOSE
+  #undef VERBOSE
+#endif
+
+#ifdef TIMING
+  #undef TIMING
+#endif
+
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 return t_grad_input;

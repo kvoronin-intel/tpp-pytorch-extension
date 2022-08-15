@@ -11,7 +11,7 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-#define VERBOSE
+//#define VERBOSE
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
@@ -284,11 +284,20 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   t_end = getTime();
 #endif
 
+
 #ifdef TIMING
   auto buf = tuning_timings.request();
   float* ptr = (float*)buf.ptr;
   ptr[0] += t_end - t_conv_start;
   ptr[1] += t_end - t_start;
 #endif
-return t_O;
 
+#ifdef VERBOSE
+  #undef VERBOSE
+#endif
+
+#ifdef TIMING
+  #undef TIMING
+#endif
+
+return t_O;
