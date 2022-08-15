@@ -9,6 +9,7 @@ from pcl_pytorch_extension.utils.blocked_layout import (
     BlockedModule,
     BlockedTensor,
     get_blocking_signature,
+    get_vnni_blocking,
 )
 from pcl_pytorch_extension._C import _fused_bert_unpad as fused_bert_cpp
 import time
@@ -21,18 +22,6 @@ USE_LOW_PREC_PARAMS = True
 LAYER_NORM_USE_FP32_PARAMS = True
 global_layer_dtype = torch.float32
 print_cou = 0
-
-
-def get_vnni_blocking(dtype):
-    if dtype == torch.float32:
-        return 1
-    elif dtype == torch.bfloat16:
-        return 2
-    elif dtype == torch.bfloat8:
-        return 4
-    else:
-        raise ValueError(f"Unsupported dtype {dtype}")
-
 
 def print_grad_hook(var, name):
     if not hasattr(var, "grad_fn"):
