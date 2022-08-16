@@ -13,6 +13,7 @@ def _prod(myList):
         ret = ret * x
     return ret
 
+
 def get_vnni_blocking(dtype):
     if dtype == torch.float32:
         return 1
@@ -22,6 +23,7 @@ def get_vnni_blocking(dtype):
         return 4
     else:
         raise ValueError(f"Unsupported dtype {dtype}")
+
 
 class BlockingManager(object):
     def __init__(self, orig_shape, blocking_factors=None, permute=None):

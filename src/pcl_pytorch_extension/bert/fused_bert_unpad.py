@@ -23,6 +23,7 @@ LAYER_NORM_USE_FP32_PARAMS = True
 global_layer_dtype = torch.float32
 print_cou = 0
 
+
 def print_grad_hook(var, name):
     if not hasattr(var, "grad_fn"):
         return
