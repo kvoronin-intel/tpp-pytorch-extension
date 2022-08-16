@@ -369,7 +369,7 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
                                            pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
                                            bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
-  std::vector<std::string> default_tuning_strings_w{"Abcdef", "Abcdef", "Abcdef", "Abcdef"};
+  std::vector<std::string> default_tuning_strings_w{"Aefbcd", "Aefbcd", "Aefbcd", "Aefbcd"};
 
   pybind11::array_t<float> default_tuning_timings(16);
   float *ptr = default_tuning_timings.mutable_data();
