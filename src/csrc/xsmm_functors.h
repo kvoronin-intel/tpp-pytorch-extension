@@ -802,6 +802,47 @@ class AddTPP {
   BinaryTPP kernel;
 };
 
+
+template <typename Tin, typename Tout = Tin>
+class MulTPP {
+ public:
+  MulTPP() {}
+  MulTPP(int N) : MulTPP(1, N) {}
+  MulTPP(int rows, int cols) : MulTPP(rows, cols, cols, cols) {}
+  MulTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        kernel(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_NONE,
+            LIBXSMM_MELTW_TYPE_BINARY_MUL) {}
+  void operator()(Tin* in0, Tin* in1, Tout* out) {
+    kernel((void*)in0, (void*)in1, (void*)out);
+  }
+  void ref(Tin* in0, Tin* in1, Tout* out) {
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        out[r * ldo + c] = (float)in0[r * ldi + c] * (float)in1[r * ldi + c];
+      }
+    }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi;
+  int ldo;
+  BinaryTPP kernel;
+};
+
 template <typename Tin>
 class GradBiasTPP {
  public:

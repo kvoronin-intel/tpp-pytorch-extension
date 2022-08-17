@@ -5,6 +5,7 @@ from torch.nn import functional as F
 import numpy as np
 import math
 
+import pcl_pytorch_extension
 from pcl_pytorch_extension.alphafold.Alpha_Attention import GatingAttentionOpti
 
 
@@ -69,10 +70,32 @@ class GatingAttention(nn.Module):
     output = torch.einsum('bqhc,hco->bqo', weighted_avg, self.output_w) + self.output_b
     return output
 
+set = 1
+
+if set == 1:
+  B, S, HS = 512, 768, 256
+  N, H = 8, 32
+
+if set == 2:
+  B, S, HS = 764, 764, 64
+  N, H = 4, 16
+
+if set == 3:
+  B, S, HS = 320, 764, 64
+  N, H = 8, 8
+
+if set == 4:
+  B, S, HS = 764, 764, 128
+  N, H = 4, 32
+
+if set == 5:
+  B, S, HS = 764, 512, 256
+  N, H = 8, 32
+
 class Net1(nn.Module):                      # First network containing original attention layer
     def __init__(self):
         super(Net1, self).__init__()
-        self.attention = GatingAttention(num_head=8, a_dim=256, m_dim=256, output_dim=256)                # Attention layer
+        self.attention = GatingAttention(num_head=N, a_dim=HS, m_dim=HS, output_dim=HS)                # Attention layer
 
     def forward(self, q_data, m_data, bias, nonbatched_bias):
         x = self.attention(q_data, m_data, bias, nonbatched_bias)
@@ -81,7 +104,7 @@ class Net1(nn.Module):                      # First network containing original 
 class Net2(nn.Module):                      # Second network containing optimized attention layer
     def __init__(self):
         super(Net2, self).__init__()
-        self.attention = GatingAttentionOpti(num_head=8, a_dim=256, m_dim=256, output_dim=256)                # Attention layer
+        self.attention = GatingAttentionOpti(num_head=N, a_dim=HS, m_dim=HS, output_dim=HS)                # Attention layer
 
     def forward(self, q_data, m_data, bias, nonbatched_bias):
         x = self.attention(q_data, m_data, bias, nonbatched_bias)
@@ -90,19 +113,21 @@ class Net2(nn.Module):                      # Second network containing optimize
 net1 = Net1()
 net2 = Net2()
 
+torch.manual_seed(11) # Set random seed for reproducibility
 
-q_data = torch.randn(512, 764, 256, requires_grad=False)
-m_data = torch.randn(512, 764, 256, requires_grad=False)
-bias = torch.randn(512, 1, 1, 764, requires_grad=False)
-nonbatched_bias = torch.randn(8, 764, 764, requires_grad=False)
+q_data = torch.randn(B, S, HS, requires_grad=False)
+m_data = torch.randn(B, S, HS, requires_grad=False)
+bias = torch.randn(B, 1, 1, S, requires_grad=False)
+nonbatched_bias = torch.randn(N, S, S, requires_grad=False)
+# nonbatched_bias = torch.Tensor()
 
-query_w = torch.randn(256, 8, 32)
-key_w = torch.randn(256, 8, 32)
-value_w = torch.randn(256, 8, 32)
-gating_w = torch.randn(256, 8, 32)
-gating_b = torch.randn(8, 32)
-output_w = torch.randn(8, 32, 256)
-output_b = torch.randn(256)
+query_w = torch.randn(HS, N, H)
+key_w = torch.randn(HS, N, H)
+value_w = torch.randn(HS, N, H)
+gating_w = torch.randn(HS, N, H)
+gating_b = torch.randn(N, H)
+output_w = torch.randn(N, H, HS)
+output_b = torch.randn(HS)
 
 net1.attention.query_w.data = query_w
 net1.attention.key_w.data  = key_w
@@ -121,10 +146,10 @@ net2.attention.output_w.data  = output_w
 net2.attention.output_b.data  = output_b
 
 
-Y1 = net1.forward(q_data, m_data, bias, nonbatched_bias)
-Y2 = net2.forward(q_data, m_data, bias, nonbatched_bias)
+Y1 = net1(q_data, m_data, bias, nonbatched_bias)
+Y2 = net2(q_data, m_data, bias, nonbatched_bias)
 r = Y1.max() - Y1.min()
-print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.00001).sum() == 512*764*256).item())
+print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.00001).sum() == B*S*HS).item())
 
 
 forward1 = 0                    # variables to store time values
@@ -133,13 +158,14 @@ forward2 = 0
 N = 5                                      # Number of iterations
 for _ in range(N):                          # MKLDNN PyTorch layer Forward and Backward pass timing
     start = time.time()
-    Y1 = net1.forward(q_data, m_data, bias, nonbatched_bias)
+    Y1 = net1(q_data, m_data, bias, nonbatched_bias)
     forward1 += time.time() - start
 
-
+pcl_pytorch_extension.reset_debug_timers()
 for _ in range(N):                          # Optimized PyTorch layer Forward and Backward pass timing
     start = time.time()
-    Y2 = net2.forward(q_data, m_data, bias, nonbatched_bias)
+    Y2 = net2(q_data, m_data, bias, nonbatched_bias)
     forward2 += time.time() - start
+pcl_pytorch_extension.print_debug_timers()
 
 print('Forward pass time (PyTorch layer): {:.3f} ms | Forward pass time (Optimized layer): {:.3f} ms'.format(forward1 * 1e3/N, forward2 * 1e3/N))

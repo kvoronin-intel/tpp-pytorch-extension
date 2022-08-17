@@ -96,7 +96,7 @@ X = torch.randn(Batch_size_2, Channels, Input_width, requires_grad=True)        
 if enable_BF16 == True:                     # if BFloat16 computation is enabled
     X = X.to(torch.bfloat16)
 
-pcl_pytorch_extension.reset_debug_timers()
+# pcl_pytorch_extension.reset_debug_timers()
 for _ in range(N):                          # Optimized PyTorch layer Forward and Backward pass timing
     start = time.time()
     Y2 = net2(X)
@@ -106,7 +106,7 @@ for _ in range(N):                          # Optimized PyTorch layer Forward an
     Y2.sum().backward()
     backward2 += time.time() - start
 
-pcl_pytorch_extension.print_debug_timers()
+# pcl_pytorch_extension.print_debug_timers()
 print('Forward pass time (PyTorch layer): {:.3f} ms | Forward pass time (Optimized layer): {:.3f} ms'.format(forward1 * 1e3/N, forward2 * 1e3/N))
 print('Backward pass time (PyTorch layer): {:.3f} ms | Backward pass time (Optimized layer): {:.3f} ms'.format(backward1 * 1e3/N, backward2 * 1e3/N))
 
