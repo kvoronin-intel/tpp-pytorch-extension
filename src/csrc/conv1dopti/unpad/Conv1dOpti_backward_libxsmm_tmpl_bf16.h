@@ -279,20 +279,8 @@
     int64_t cvt_m = 1;
     int64_t cvt_n = F_t*C_t*WW_t;
 
-    // auto eltwise_kernel = SCOPEIT(ConvertTPP<float, T>(cvt_n, cvt_m, cvt_m, cvt_m), EW_ZERO);
-    // eltwise_kernel(flip_d_weight_a, flip_d_weight_bf16);
-    libxsmm_meltw_unary_shape unary_shape = libxsmm_create_meltw_unary_shape( cvt_m, cvt_n, cvt_m, cvt_m, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16 );
-    libxsmm_meltwfunction_unary eltwise_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
-    if ( eltwise_kernel == NULL ) {
-        fprintf( stderr, "JIT unary TPP to convert FP32 to BF16 failed. Bailing...!\n");
-        exit(-1);
-    }
-
-    libxsmm_meltw_unary_param eltwise_params;
-    eltwise_params.in.primary = flip_d_weight_a;
-    eltwise_params.out.primary = flip_d_weight_bf16;
-    eltwise_kernel(&eltwise_params);
-
+    auto eltwise_kernel = SCOPEIT((ConvertTPP<float, T>(cvt_n, cvt_m, cvt_m, cvt_m)), EW_COPY);
+    eltwise_kernel(flip_d_weight_a, flip_d_weight_bf16);
 
     /* jited tranpose to permute the array dimensions
         Overall Convert (WW_t, C_t, F_t) -----> (F_t, C_t, WW_t)*/
