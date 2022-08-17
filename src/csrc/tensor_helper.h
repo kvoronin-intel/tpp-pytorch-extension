@@ -3,18 +3,21 @@
 
 #include "utils.h"
 
-template<typename T>
+template <typename T>
 inline constexpr int get_vnni_block_size() {
   return 4 / sizeof(T);
 }
 
 inline int get_vnni_block_size(caffe2::TypeMeta dtype) {
-  if (dtype == at::kBFloat16) return 2;
-  else if (dtype == at::kBFloat8) return 4;
-  else return 1;
+  if (dtype == at::kBFloat16)
+    return 2;
+  else if (dtype == at::kBFloat8)
+    return 4;
+  else
+    return 1;
 }
 
-template<typename T>
+template <typename T>
 inline at::Tensor wt_tensor_n2v(
     long Nk,
     long Hk,
@@ -31,8 +34,7 @@ inline at::Tensor wt_tensor_n2v(
   DECL_VLA_PTR_PT(T, out, [Hcp2 * Hk * BS], output);
   DECL_VLA_PTR_PT(T, in, [Hc * Hk], input);
   auto n2v_tpp = SCOPEIT(
-      XformExtTPP<T>(Hc, Hk, Hcp2 * BS, Hk, XformTPP::XFORM_N2V_TPP),
-      VNNI);
+      XformExtTPP<T>(Hc, Hk, Hcp2 * BS, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
   for (int n = 0; n < Nk * Nc; n++) {
@@ -42,7 +44,7 @@ inline at::Tensor wt_tensor_n2v(
 #endif
 }
 
-template<typename T>
+template <typename T>
 inline at::Tensor wt_tensor_trans_n2v(
     long Nk,
     long Hk,
@@ -71,7 +73,7 @@ inline at::Tensor wt_tensor_trans_n2v(
 #endif
 }
 
-template<typename T>
+template <typename T>
 inline at::Tensor wt_tensor_trans_v2v(
     long Nk,
     long Hk,
@@ -188,7 +190,7 @@ inline at::Tensor act_tensor_trans(
     DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
     DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
     auto trans_tpp =
-      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+        SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -200,7 +202,7 @@ inline at::Tensor act_tensor_trans(
     DECL_VLA_PTR_PT(bfloat8, out, [H * S2], output);
     DECL_VLA_PTR_PT(bfloat8, in, [H * S2], input);
     auto trans_tpp =
-      SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+        SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -230,7 +232,7 @@ inline at::Tensor act_tensor_trans(
     DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
     DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
     auto trans_tpp =
-      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+        SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -242,7 +244,7 @@ inline at::Tensor act_tensor_trans(
     DECL_VLA_PTR_PT(bfloat8, out, [H * S2], output);
     DECL_VLA_PTR_PT(bfloat8, in, [H * S2], input);
     auto trans_tpp =
-      SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+        SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -270,7 +272,9 @@ inline at::Tensor act_tensor_n2v(
   const int BS = get_vnni_block_size(input.dtype());
   PCL_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
 #if 1
-  return input.view({B, S1, N, S2/BS, BS, H}).permute({0,1,2,3,5,4}).contiguous();
+  return input.view({B, S1, N, S2 / BS, BS, H})
+      .permute({0, 1, 2, 3, 5, 4})
+      .contiguous();
 #else
   auto output = input.new_empty({B, S1, N, S2 / 2, H, 2});
   DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
@@ -298,7 +302,9 @@ inline at::Tensor act_tensor_n2v(
   const int BS = get_vnni_block_size(input.dtype());
   PCL_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
 #if 1
-  return input.view({S1, N, S2/BS, BS, H}).permute({0,1,2,4,3}).contiguous();
+  return input.view({S1, N, S2 / BS, BS, H})
+      .permute({0, 1, 2, 4, 3})
+      .contiguous();
 #else
   auto output = input.new_empty({S1, N, S2 / BS, H, BS});
   DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);

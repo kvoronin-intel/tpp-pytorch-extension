@@ -152,13 +152,22 @@ class BertSelfAttention(BlockedModule):
         ), "self.position_embedding_type other than absolute not supported"
 
         self.query.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.key.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.value.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.blocked_input_signature = get_blocking_signature("BSF", "BSFSF")
         self.use_bf16 = False
@@ -183,9 +192,11 @@ class BertSelfAttention(BlockedModule):
         assert past_key_value == None, "past_key_value not supported"
         self.maybe_block_params()
         if encoder_hidden_states is not None:
-            assert encoder_hidden_states.shape == hidden_states.shape, (
-                "Different shapes not supported(%s != %s)"
-                % (encoder_hidden_states.shape, hidden_states.shape,)
+            assert (
+                encoder_hidden_states.shape == hidden_states.shape
+            ), "Different shapes not supported(%s != %s)" % (
+                encoder_hidden_states.shape,
+                hidden_states.shape,
             )
             encoder_hidden_states = self.get_blocked_tensor(
                 encoder_hidden_states,
@@ -228,9 +239,8 @@ class BertSelfAttention(BlockedModule):
             # encoder_attention_mask = encoder_attention_mask.expand([B, N, S, S]).view([B, N, S1, S2, S1, S2]).permute([0, 2, 1, 4, 3, 5]).contiguous()
             assert (
                 encoder_attention_mask.size(1) == encoder_attention_mask.size(2) == 1
-            ), (
-                "unsupported encoder_attention_mask shape %s"
-                % (encoder_attention_mask.shape,)
+            ), "unsupported encoder_attention_mask shape %s" % (
+                encoder_attention_mask.shape,
             )
             encoder_attention_mask = encoder_attention_mask.contiguous()
         inputs.append(attention_mask if attention_mask is not None else torch.Tensor())
@@ -361,7 +371,10 @@ class BertOutputBase(BlockedModule):
         self.attention_head_size = config.hidden_size // config.num_attention_heads
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.dense.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         self.blocked_input_signature = get_blocking_signature("BSF", "BSFSF")
         self.use_bf16 = False
@@ -474,7 +487,10 @@ class BertIntermediate(BlockedModule):
         self.dense = DummyLinear(config.hidden_size, config.intermediate_size)
         self.attention_head_size = config.hidden_size // config.num_attention_heads
         self.dense.weight.set_blocking_param(
-            ([self.attention_head_size, self.attention_head_size], [0, 2, 3, 1],)
+            (
+                [self.attention_head_size, self.attention_head_size],
+                [0, 2, 3, 1],
+            )
         )
         assert config.hidden_act in ["gelu", "gelu_new"], (
             "Currently, only GELU new is supported in fused op, %s is given"

@@ -8,7 +8,11 @@ from ogb.nodeproppred import DglNodePropPredDataset
 
 
 class Callback:
-    def __init__(self, patience: int, monitor: str,) -> None:
+    def __init__(
+        self,
+        patience: int,
+        monitor: str,
+    ) -> None:
         self._patience = patience
         self._monitor = monitor
         self._lookback = 0
@@ -195,7 +199,8 @@ def load_ogbn_mag(root: str = None) -> OGBDataset:
 
 
 def process_dataset(
-    name: str, root: str = None,
+    name: str,
+    root: str = None,
 ) -> Tuple[OGBDataset, dgl.DGLHeteroGraph, torch.Tensor]:
     if root is None:
         root = "datasets"

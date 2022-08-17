@@ -14,6 +14,17 @@ def _prod(myList):
     return ret
 
 
+def get_vnni_blocking(dtype):
+    if dtype == torch.float32:
+        return 1
+    elif dtype == torch.bfloat16:
+        return 2
+    elif dtype == torch.bfloat8:
+        return 4
+    else:
+        raise ValueError(f"Unsupported dtype {dtype}")
+
+
 class BlockingManager(object):
     def __init__(self, orig_shape, blocking_factors=None, permute=None):
         dims = len(orig_shape)
@@ -161,7 +172,10 @@ class BlockedTensor(object):
         plain_dtype = self.get_plain_dtype()
         # print("BlockedTensor returning unblocked tensor with shape %s" % (plain_shape,))
         return (
-            self._t.permute(permute_list).contiguous().view(plain_shape).cvt_to(plain_dtype)
+            self._t.permute(permute_list)
+            .contiguous()
+            .view(plain_shape)
+            .cvt_to(plain_dtype)
         )
 
     def get_signature(self):
@@ -246,7 +260,9 @@ class BlockedParameter(torch.nn.Parameter):
         if not self.blocked:
             return
         assert self.blocking_manager is not None
-        self.data = self.blocking_manager.unblock(self.data).cvt_to(self.unblocked_dtype)
+        self.data = self.blocking_manager.unblock(self.data).cvt_to(
+            self.unblocked_dtype
+        )
         if self.grad is not None:
             self.grad.data = self.blocking_manager.unblock(self.grad.data).cvt_to(
                 self.unblocked_dtype
@@ -366,7 +382,12 @@ class TestModule(BlockedModule):
     def __init__(self):
         super(BlockedModule, self).__init__()
         self.param1 = BlockedParameter(torch.arange(10.0))
-        self.param1.set_blcoking_param(([5], [1, 0],))
+        self.param1.set_blcoking_param(
+            (
+                [5],
+                [1, 0],
+            )
+        )
         self.param2 = torch.nn.Parameter(torch.arange(3.0))
 
     def forward(self):

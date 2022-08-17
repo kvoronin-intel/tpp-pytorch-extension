@@ -108,14 +108,30 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
     std::vector<at::Tensor> inputs,
     bool training) {
   GlobalPass _gp(FWD);
-  if (inputs[0].dtype() == at::kFloat) {
+  if (inputs[0].dtype() == at::kFloat && inputs[4].dtype() == at::kFloat) {
     typedef float T;
+    typedef float LT;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
-  } else if (inputs[0].dtype() == at::kBFloat16) {
+  } else if (
+      inputs[0].dtype() == at::kBFloat16 && inputs[4].dtype() == at::kFloat) {
     typedef bfloat16 T;
+    typedef float LT;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
-  } else if (inputs[0].dtype() == at::kBFloat8) {
+  } else if (
+      inputs[0].dtype() == at::kBFloat8 && inputs[4].dtype() == at::kFloat) {
     typedef bfloat8 T;
+    typedef float LT;
+#include "fused_dense_dropout_layernorm_fwd_tmpl.h"
+  } else if (
+      inputs[0].dtype() == at::kBFloat16 &&
+      inputs[4].dtype() == at::kBFloat16) {
+    typedef bfloat16 T;
+    typedef bfloat16 LT;
+#include "fused_dense_dropout_layernorm_fwd_tmpl.h"
+  } else if (
+      inputs[0].dtype() == at::kBFloat8 && inputs[4].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+    typedef bfloat8 LT;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
   } else {
     PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
@@ -126,14 +142,30 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
     float p,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(BWD);
-  if (inputs[0].dtype() == at::kFloat) {
+  if (inputs[0].dtype() == at::kFloat && inputs[3].dtype() == at::kFloat) {
     typedef float T;
+    typedef float LT;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
-  } else if (inputs[0].dtype() == at::kBFloat16) {
+  } else if (
+      inputs[0].dtype() == at::kBFloat16 && inputs[3].dtype() == at::kFloat) {
     typedef bfloat16 T;
+    typedef float LT;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
-  } else if (inputs[0].dtype() == at::kBFloat8) {
+  } else if (
+      inputs[0].dtype() == at::kBFloat8 && inputs[3].dtype() == at::kFloat) {
     typedef bfloat8 T;
+    typedef float LT;
+#include "fused_dense_dropout_layernorm_bwd_tmpl.h"
+  } else if (
+      inputs[0].dtype() == at::kBFloat16 &&
+      inputs[3].dtype() == at::kBFloat16) {
+    typedef bfloat16 T;
+    typedef bfloat16 LT;
+#include "fused_dense_dropout_layernorm_bwd_tmpl.h"
+  } else if (
+      inputs[0].dtype() == at::kBFloat8 && inputs[3].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+    typedef bfloat8 LT;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
   } else {
     PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
@@ -207,6 +239,21 @@ static std::vector<at::Tensor> fused_embedding_layernorm_dropout_fwd(
       inputs[6].dtype() == at::kBFloat16) {
     typedef bfloat16 T;
     typedef bfloat16 ET;
+#include "fused_embedding_layernorm_dropout_fwd_tmpl.h"
+  } else if (
+      inputs[4].dtype() == at::kBFloat8 && inputs[6].dtype() == at::kFloat) {
+    typedef bfloat8 T;
+    typedef float ET;
+#include "fused_embedding_layernorm_dropout_fwd_tmpl.h"
+  } else if (
+      inputs[4].dtype() == at::kBFloat8 && inputs[6].dtype() == at::kBFloat8) {
+    typedef bfloat8 T;
+    typedef bfloat8 ET;
+#include "fused_embedding_layernorm_dropout_fwd_tmpl.h"
+  } else if (
+      inputs[4].dtype() == at::kFloat && inputs[6].dtype() == at::kBFloat8) {
+    typedef float T;
+    typedef bfloat8 ET;
 #include "fused_embedding_layernorm_dropout_fwd_tmpl.h"
   } else {
     PCL_ASSERT(0, "Should not come here\n");

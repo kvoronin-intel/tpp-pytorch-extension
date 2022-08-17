@@ -165,16 +165,16 @@ inline __m512 _mm512_convert_bf8_ps(__m128i a) {
   return _mm512_cvtph_ps(_mm256_slli_epi16(_mm256_cvtepi8_epi16(a), 8));
 }
 inline __m128i _mm_convert_ps_bf8(__m512 a) {
-  return _mm256_cvtepi16_epi8(_mm256_srai_epi16(_mm512_cvtps_ph(a, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC), 8));
+  return _mm256_cvtepi16_epi8(_mm256_srai_epi16(
+      _mm512_cvtps_ph(a, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC), 8));
 }
 
 inline __m512 _mm512_loadu_ps_auto(bfloat8 const* mem_addr) {
   return _mm512_convert_bf8_ps(_mm_loadu_si128((__m128i const*)mem_addr));
 }
-inline __m512 _mm512_maskz_loadu_ps_auto(
-    __mmask16 k,
-    bfloat8 const* mem_addr) {
-  return _mm512_convert_bf8_ps(_mm_maskz_loadu_epi8(k, (__m128i const*)mem_addr));
+inline __m512 _mm512_maskz_loadu_ps_auto(__mmask16 k, bfloat8 const* mem_addr) {
+  return _mm512_convert_bf8_ps(
+      _mm_maskz_loadu_epi8(k, (__m128i const*)mem_addr));
 }
 inline void _mm512_storeu_ps_auto(bfloat8* mem_addr, __m512 a) {
   _mm_storeu_si128((__m128i*)mem_addr, _mm_convert_ps_bf8(a));
@@ -286,7 +286,9 @@ class BaseTPP {
     return kernel;
   }
   // We should make hash_str() public
-  std::string get_hash_str() { return hash_str();}
+  std::string get_hash_str() {
+    return hash_str();
+  }
 
  protected:
   std::unordered_map<std::string, void*>& get_kernel_cache() {
@@ -322,7 +324,8 @@ class UnaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_unary)get_kernel();
-    if (kernel) initialized = true;
+    if (kernel)
+      initialized = true;
   }
 
   void operator()(void* in, void* out) {
@@ -462,7 +465,8 @@ class BinaryTPP : public BaseTPP {
         flags(flags),
         type(type) {
     kernel = (libxsmm_meltwfunction_binary)get_kernel();
-    if (kernel) initialized = true;
+    if (kernel)
+      initialized = true;
   }
 
   void operator()(void* in0, void* in1, void* out) {
@@ -1325,7 +1329,10 @@ class XformExtTPP {
           "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
           (int)xtype);
     }
-    const int BS = (dtype == LIBXSMM_DATATYPE_BF8 ? 4 : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
+    const int BS =
+        (dtype == LIBXSMM_DATATYPE_BF8
+             ? 4
+             : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
     if (xtype == XformTPP::XFORM_N2V_TPP) {
       in_rows_p = out_rows;
       in_cols_p = out_cols;
@@ -1419,7 +1426,10 @@ class XformExtTPP {
     }
   }
   void ref(T* in, T* out) {
-    const int BS = (dtype == LIBXSMM_DATATYPE_BF8 ? 4 : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
+    const int BS =
+        (dtype == LIBXSMM_DATATYPE_BF8
+             ? 4
+             : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {
@@ -3250,7 +3260,7 @@ class VarSoftMaxBwdTPP {
   Eqn eqn0, eqn1;
 };
 
-template <typename T>
+template <typename T, typename LT = T>
 class LayerNormFwdTPP {
  public:
   LayerNormFwdTPP() {}
@@ -3280,7 +3290,13 @@ class LayerNormFwdTPP {
             LIBXSMM_MELTW_FLAG_UNARY_REDUCE_ROWS,
             LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD),
         eqn(S1, S2, S3) {}
-  void operator()(T* inp, T* gamma, T* beta, float* mean, float* var, T* out) {
+  void operator()(
+      T* inp,
+      LT* gamma,
+      LT* beta,
+      float* mean,
+      float* var,
+      T* out) {
     LIBXSMM_ALIGNED(float tmp[2 * S3], 64);
     const float c = 1.0 / ((float)S1 * S3);
     float m, v, s, b;
@@ -3308,12 +3324,12 @@ class LayerNormFwdTPP {
       eqn(&eqn_param);
     }
   }
-  void ref(T* pinp, T* pgamma, T* pbeta, float* mean, float* var, T* pout) {
+  void ref(T* pinp, LT* pgamma, LT* pbeta, float* mean, float* var, T* pout) {
     int s1, s2, s3;
     LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
     LIBXSMM_VLA_DECL(3, T, out, pout, S2, S3);
-    LIBXSMM_VLA_DECL(2, T, gamma, pgamma, S3);
-    LIBXSMM_VLA_DECL(2, T, beta, pbeta, S3);
+    LIBXSMM_VLA_DECL(2, LT, gamma, pgamma, S3);
+    LIBXSMM_VLA_DECL(2, LT, beta, pbeta, S3);
     for (s2 = 0; s2 < S2; s2++) {
       float m = 0;
       float v = 0;
@@ -3362,8 +3378,9 @@ class LayerNormFwdTPP {
       snprintf(
           hash,
           200,
-          "layernorm_fwd_eqn_t%d_S1%d_S2%d_S3%d",
+          "layernorm_fwd_eqn_t1%d_t2%d_S1%d_S2%d_S3%d",
           XsmmDtype<T>(),
+          XsmmDtype<LT>(),
           S1,
           S2,
           S3);
@@ -3371,6 +3388,7 @@ class LayerNormFwdTPP {
     }
     void* build_kernel() override {
       auto in_dt = XsmmDtype<T>();
+      auto bg_dt = XsmmDtype<LT>();
       auto out_dt = XsmmDtype<T>();
       libxsmm_blasint tmp_ld = 1;
       libxsmm_blasint tmp_ld2 = S3;
@@ -3389,8 +3407,8 @@ class LayerNormFwdTPP {
       meqn_push_arg(my_eqn0, S3, S1, ld, 0, 0, in_dt);
       meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 1, 0, LIBXSMM_DATATYPE_F32);
       meqn_push_arg(my_eqn0, 1, 1, tmp_ld, 2, 0, LIBXSMM_DATATYPE_F32);
-      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, in_dt);
-      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, in_dt);
+      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 3, 0, bg_dt);
+      meqn_push_arg(my_eqn0, S3, S1, tmp_ld2, 4, 0, bg_dt);
       debug_print_eqn_tree(my_eqn0); // printf
       return (void*)meqn_dispatch(S3, S1, &ld, out_dt, my_eqn0);
     }
@@ -3408,7 +3426,7 @@ class LayerNormFwdTPP {
   Eqn eqn;
 };
 
-template <typename T>
+template <typename T, typename LT = T>
 class LayerNormBwdTPP {
  public:
   LayerNormBwdTPP() {}
@@ -3426,7 +3444,7 @@ class LayerNormBwdTPP {
       T* inp,
       float* mean,
       float* var,
-      T* gamma,
+      LT* gamma,
       T* din,
       float* dgamma,
       float* dbeta) {
@@ -3473,7 +3491,7 @@ class LayerNormBwdTPP {
       T* pinp,
       float* mean,
       float* var,
-      T* pgamma,
+      LT* pgamma,
       T* pdin,
       float* pdgamma,
       float* pdbeta) {
@@ -3481,7 +3499,7 @@ class LayerNormBwdTPP {
     LIBXSMM_VLA_DECL(3, T, din, pdin, S2, S3);
     LIBXSMM_VLA_DECL(3, T, inp, pinp, S2, S3);
     LIBXSMM_VLA_DECL(3, T, dout, pdout, S2, S3);
-    LIBXSMM_VLA_DECL(2, T, gamma, pgamma, S3);
+    LIBXSMM_VLA_DECL(2, LT, gamma, pgamma, S3);
     LIBXSMM_VLA_DECL(2, float, dgamma, pdgamma, S3);
     LIBXSMM_VLA_DECL(2, float, dbeta, pdbeta, S3);
     for (s2 = 0; s2 < S2; s2++) {
@@ -3537,9 +3555,10 @@ class LayerNormBwdTPP {
       snprintf(
           hash,
           200,
-          "layernorm_bwd_eqn%d_t%d_S1%d_S2%d_S3%d",
+          "layernorm_bwd_eqn%d_t1%d_t2%d_S1%d_S2%d_S3%d",
           eqn_no,
           XsmmDtype<T>(),
+          XsmmDtype<LT>(),
           S1,
           S2,
           S3);
@@ -3547,6 +3566,7 @@ class LayerNormBwdTPP {
     }
     void* build_kernel() override {
       auto in_dt = XsmmDtype<T>();
+      auto bg_dt = XsmmDtype<LT>();
       // auto out_dt = XsmmDtype<T>();
       libxsmm_blasint tmp_ld = S3;
       libxsmm_blasint tmp_ld2 = 1;
@@ -3586,7 +3606,7 @@ class LayerNormBwdTPP {
         meqn_push_binary_op(
             my_eqn3, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
         meqn_push_arg(my_eqn3, S3, S1, ld, 3, 0, in_dt);
-        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, in_dt);
+        meqn_push_arg(my_eqn3, S3, S1, tmp_ld, 6, 0, bg_dt);
         func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn3);
       } else if (eqn_no == 4) {
         /* ds equation */
@@ -3595,7 +3615,7 @@ class LayerNormBwdTPP {
             my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL_AND_REDUCE_TO_SCALAR_OP_ADD);
         meqn_push_binary_op(my_eqn4, LIBXSMM_MELTW_TYPE_BINARY_MUL);
         meqn_push_arg(my_eqn4, S3, S1, ld, 3, 0, in_dt);
-        meqn_push_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, in_dt);
+        meqn_push_arg(my_eqn4, S3, S1, tmp_ld, 6, 0, bg_dt);
         meqn_push_arg(my_eqn4, S3, S1, ld, 0, 0, in_dt);
         func = meqn_dispatch(1, 1, &tmp_ld2, LIBXSMM_DATATYPE_F32, my_eqn4);
       } else if (eqn_no == 5) {
@@ -3609,7 +3629,7 @@ class LayerNormBwdTPP {
             my_eqn5,
             LIBXSMM_MELTW_TYPE_BINARY_MUL,
             LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_1);
-        meqn_push_arg(my_eqn5, S3, S1, tmp_ld, 6, 0, in_dt);
+        meqn_push_arg(my_eqn5, S3, S1, tmp_ld, 6, 0, bg_dt);
         meqn_push_arg(my_eqn5, 1, 1, 1, 1, 0, LIBXSMM_DATATYPE_F32);
         meqn_push_arg(my_eqn5, S3, S1, ld, 3, 0, in_dt);
         meqn_push_ternary_op(

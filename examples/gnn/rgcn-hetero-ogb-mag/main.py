@@ -180,7 +180,11 @@ def validate(
             total_accuracy /= step + 1
         elif inference_mode == "full_neighbor_sampler":
             logits = model.inference(
-                hg, eval_batch_size, eval_num_workers, embedding_layer, device,
+                hg,
+                eval_batch_size,
+                eval_num_workers,
+                embedding_layer,
+                device,
             )[predict_category][mask]
 
             total_loss = loss_function(logits, valid_labels)
@@ -212,7 +216,8 @@ def run(args: argparse.ArgumentParser) -> None:
     torch.manual_seed(args.seed)
 
     dataset, hg, train_idx, valid_idx, test_idx = utils.process_dataset(
-        args.dataset, root=args.dataset_root,
+        args.dataset,
+        root=args.dataset_root,
     )
     predict_category = dataset.predict_category
     labels = hg.nodes[predict_category].data["labels"]
@@ -498,7 +503,9 @@ if __name__ == "__main__":
         "--use_bf16", action="store_true", help="Whether to use BF16 datatype"
     )
     argparser.add_argument(
-        "--profile", action="store_true", help="Whether to profile or not",
+        "--profile",
+        action="store_true",
+        help="Whether to profile or not",
     )
 
     args = argparser.parse_args()

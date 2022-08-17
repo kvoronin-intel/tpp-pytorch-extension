@@ -231,7 +231,12 @@ class OptGraphConv(BlockedModule):
 
         if weight:
             self.weight = BlockedParameter(th.Tensor(self._in_feats, self._out_feats))
-            self.weight.set_blocking_param(([self.bc, self.bk], [2, 0, 1, 3],))
+            self.weight.set_blocking_param(
+                (
+                    [self.bc, self.bk],
+                    [2, 0, 1, 3],
+                )
+            )
         else:
             self.register_parameter("weight", None)
 
@@ -471,7 +476,10 @@ class OptRelGraphConvLayer(BlockedModule):
                 outs = len(self.rel_names)
                 for i in range(outs):
                     self.weight[i].set_blocking_param(
-                        ([self.bc, self.bk], [2, 0, 1, 3],)
+                        (
+                            [self.bc, self.bk],
+                            [2, 0, 1, 3],
+                        )
                     )
                     nn.init.xavier_uniform_(
                         self.weight[i], gain=nn.init.calculate_gain("relu")
@@ -484,7 +492,12 @@ class OptRelGraphConvLayer(BlockedModule):
         # weight for self loop
         if self.self_loop:
             self.loop_weight = BlockedParameter(th.Tensor(in_feat, out_feat))
-            self.loop_weight.set_blocking_param(([self.bc, self.bk], [2, 0, 1, 3],))
+            self.loop_weight.set_blocking_param(
+                (
+                    [self.bc, self.bk],
+                    [2, 0, 1, 3],
+                )
+            )
             nn.init.xavier_uniform_(
                 self.loop_weight, gain=nn.init.calculate_gain("relu")
             )
