@@ -36,7 +36,7 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
     DECL_VLA_PTR_PT(T, gating_b_a, [H_t], gating_b);
 
     auto weighted_avg = q_data.new_empty({B_t, S_t, N_t, H_t});         /* [512, 764, 8, 32] */
-    // DECL_VLA_PTR_PT(T, weighted_avg_a, [S_t][N_t][H_t], weighted_avg);
+    DECL_VLA_PTR_PT(T, weighted_avg_a, [S_t][N_t][H_t], weighted_avg);
 
     auto output = q_data.new_empty({B_t, S_t, HS_t});                   /* [512, 764, 256] */
     // DECL_VLA_PTR_PT(T, output_a, [S_t][HS_t], output);
@@ -112,6 +112,7 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
     auto a_cpy_tpp = SCOPEIT(CpyTPP<T>(A_BLOCKSIZE, H_t, N_t*H_t, H_t), EW_COPY);
 
     auto a_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(A_BLOCKSIZE, A_BLOCKSIZE, H_t, 0, 0, lda, ldb, ldc, 0.0, 0, 1)));
+    // auto a_brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(A_BLOCKSIZE, H_t, A_BLOCKSIZE, 0, 0, S_t, ldb, ldc, 0.0, 0, 1)));
 
     auto a_addbias_tpp = SCOPEIT(AddBiasTPP<T>(A_BLOCKSIZE, A_BLOCKSIZE, ldc), BIAS);
     auto a_add_nbbias_tpp = SCOPEIT((AddTPP<T,T>(A_BLOCKSIZE, A_BLOCKSIZE, ldc, ldc)), BIAS);
@@ -184,7 +185,7 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
                 for(int j=0; j < S_t; j += C_BLOCKSIZE){
                     T tmp[C_BLOCKSIZE * N_t * H_t];
                     // T tmp_gate_values[C_BLOCKSIZE][N_t][H_t];
-                    c_zero_tpp(&tmp[0]);
+                    // c_zero_tpp(&tmp[0]);
                     c_brgemm_tpp(&q_data_a[i][j][0], &gating_w_a[0][0][0], &tmp[0], 1);
                     c_addbias_tpp(&gating_b_a[0][0], &tmp[0]);
                     c_sigmoid_tpp(&tmp[0], &tmp[0], &gate_values_a[i][j][0][0]);
