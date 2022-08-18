@@ -8,7 +8,7 @@ import math
 import pcl_pytorch_extension
 from pcl_pytorch_extension.alphafold.Alpha_Attention import GatingAttentionOpti
 
-
+torch.set_default_tensor_type(torch.FloatTensor)
 
 class GatingAttention(nn.Module):
   """Multihead attention w/ Gating"""
@@ -149,7 +149,12 @@ net2.attention.output_b.data  = output_b
 Y1 = net1(q_data, m_data, bias, nonbatched_bias)
 Y2 = net2(q_data, m_data, bias, nonbatched_bias)
 r = Y1.max() - Y1.min()
-print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.00001).sum() == B*S*HS).item())
+
+print(Y1[3,3,10:15])
+print(Y2[3,3,10:15])
+print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.0001).sum() == B*S*HS).item())
+print("diff: ", r)
+print(" Number of errors: ", B*S*HS - (torch.abs(Y1 - Y2)/r < 0.0001).sum())
 
 
 forward1 = 0                    # variables to store time values
