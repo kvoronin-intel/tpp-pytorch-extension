@@ -131,8 +131,8 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
 
                     T tmp_q[A_BLOCKSIZE * H_t];
                     T tmp_k[A_BLOCKSIZE * H_t];   
-
                     T tmp_logits[A_BLOCKSIZE][S_t];
+
                     for(int k=0; k < N_t; k++){
 
                         a_cpy_tpp(&q_a[i][j1][k][0], &tmp_q[0]);
@@ -141,10 +141,11 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
                     
                             a_trans_tpp(&k_a[i][j2][k][0], &tmp_k[0]);                               // [A_BLOCKSIZE, 8, 32]  ----> [8, 32, A_BLOCKSIZE]
 
-                            // a_brgemm_tpp(&tmp_qT[k*H_t*A_BLOCKSIZE], &tmp_k[k*H_t*A_BLOCKSIZE], &logits_a[i][k][j1][j2], 1);
+                            // a_brgemm_tpp(&tmp_q[0], &tmp_k[0], &logits_a[i][k][j1][j2], 1);
                             // a_addbias_tpp(&bias_a[i][0][0][j2], &logits_a[i][k][j1][j2]);
                             // if(flag)
                             //     a_add_nbbias_tpp(&nonbatched_bias_a[0][k][j1][j2], &logits_a[i][k][j1][j2], &logits_a[i][k][j1][j2]);
+
                             a_brgemm_tpp(&tmp_q[0], &tmp_k[0], &tmp_logits[0][j2], 1);
                             a_addbias_tpp(&bias_a[i][0][0][j2], &tmp_logits[0][j2]);
                             if(flag)
@@ -152,12 +153,6 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
                         }
                         a_softmax_tpp(1, &tmp_logits[0][0], &weights_a[i][k][j1][0]);
                     }
-                    // for(int k=0; k < N_t; k++){
-                    //     // for(int b = 0; b < A_BLOCKSIZE; b++){
-                    //         // a_softmax_tpp(1, &logits_a[i][k][j1 + b][0], &weights_a[i][k][j1 + b][0]);
-                    //         a_softmax_tpp(1, &tmp_logits[k][0][0], &weights_a[i][k][j1][0]);
-                    //     // }
-                    // }
                 }
             }
         }
