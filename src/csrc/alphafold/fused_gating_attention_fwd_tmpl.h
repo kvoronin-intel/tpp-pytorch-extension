@@ -107,10 +107,8 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
     lda = H_t;
     ldb = A_BLOCKSIZE;
     ldc = S_t;
-    auto a_trans1_tpp = SCOPEIT(XformExtTPP<T>(A_BLOCKSIZE, N_t*H_t, XformTPP::XFORM_XPOSE_TPP), XPOSE);
-    auto a_trans2_tpp = SCOPEIT(XformExtTPP<T>(H_t, A_BLOCKSIZE, XformTPP::XFORM_XPOSE_TPP), XPOSE);
-    auto a_trans3_tpp = SCOPEIT(XformExtTPP<T>(A_BLOCKSIZE, H_t, H_t, A_BLOCKSIZE, N_t*H_t, A_BLOCKSIZE, XformTPP::XFORM_XPOSE_TPP), XPOSE);
-
+    
+    auto a_trans_tpp = SCOPEIT(XformExtTPP<T>(A_BLOCKSIZE, H_t, H_t, A_BLOCKSIZE, N_t*H_t, A_BLOCKSIZE, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     auto a_cpy_tpp = SCOPEIT(CpyTPP<T>(A_BLOCKSIZE, H_t, N_t*H_t, H_t), EW_COPY);
 
     auto a_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(A_BLOCKSIZE, A_BLOCKSIZE, H_t, 0, 0, lda, ldb, ldc, 0.0, 0, 1)));
@@ -130,26 +128,24 @@ RECORD_FUNCTION("Gating attention forward", std::vector<c10::IValue>({q_data, m_
             #pragma omp parallel for collapse(2) 
             for(int i=0; i < B_t; i++){
                 for(int j1=0; j1 < S_t; j1 += A_BLOCKSIZE){
-                    T tmp_q[A_BLOCKSIZE * N_t * H_t];
-                    T tmp_qT[A_BLOCKSIZE * H_t];
-                    T tmp_k[A_BLOCKSIZE * H_t];
-                    // a_trans1_tpp(&q_a[i][j1][0][0], &tmp_q[0]);                               // [A_BLOCKSIZE, 8, 32]  ----> [8, 32, A_BLOCKSIZE]     
+
+                    T tmp_q[A_BLOCKSIZE * H_t];
+                    T tmp_k[A_BLOCKSIZE * H_t];   
 
                     T tmp_logits[A_BLOCKSIZE][S_t];
                     for(int k=0; k < N_t; k++){
-                        // a_trans2_tpp(&tmp_q[k*H_t*A_BLOCKSIZE], &tmp_qT[0]);                              // [k, 32, A_BLOCKSIZE]  ----> [A_BLOCKSIZE, 32]
-                        a_cpy_tpp(&q_a[i][j1][k][0], &tmp_qT[0]);
+
+                        a_cpy_tpp(&q_a[i][j1][k][0], &tmp_q[0]);
                         
                         for(int j2=0; j2 < S_t; j2 += A_BLOCKSIZE){
                     
-                            a_trans3_tpp(&k_a[i][j2][k][0], &tmp_k[0]);                               // [A_BLOCKSIZE, 8, 32]  ----> [8, 32, A_BLOCKSIZE]
+                            a_trans_tpp(&k_a[i][j2][k][0], &tmp_k[0]);                               // [A_BLOCKSIZE, 8, 32]  ----> [8, 32, A_BLOCKSIZE]
 
-                        
                             // a_brgemm_tpp(&tmp_qT[k*H_t*A_BLOCKSIZE], &tmp_k[k*H_t*A_BLOCKSIZE], &logits_a[i][k][j1][j2], 1);
                             // a_addbias_tpp(&bias_a[i][0][0][j2], &logits_a[i][k][j1][j2]);
                             // if(flag)
                             //     a_add_nbbias_tpp(&nonbatched_bias_a[0][k][j1][j2], &logits_a[i][k][j1][j2], &logits_a[i][k][j1][j2]);
-                            a_brgemm_tpp(&tmp_qT[0], &tmp_k[0], &tmp_logits[0][j2], 1);
+                            a_brgemm_tpp(&tmp_q[0], &tmp_k[0], &tmp_logits[0][j2], 1);
                             a_addbias_tpp(&bias_a[i][0][0][j2], &tmp_logits[0][j2]);
                             if(flag)
                                 a_add_nbbias_tpp(&nonbatched_bias_a[0][k][j1][j2], &tmp_logits[0][j2], &tmp_logits[0][j2]);
