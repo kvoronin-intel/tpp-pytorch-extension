@@ -4,7 +4,7 @@ RECORD_FUNCTION("gsage_mlp_bwd", std::vector<c10::IValue>());
 at::Tensor t_in, t_in_res, t_wt, t_wt_res;
 int i = 0;
 
-const int threads = atoi(getenv("OMP_NUM_THREADS")); // omp_get_max_threads();
+const int threads = omp_get_max_threads();
 auto t_grad_out = inputs[i++].contiguous();
 
 if (res) {
