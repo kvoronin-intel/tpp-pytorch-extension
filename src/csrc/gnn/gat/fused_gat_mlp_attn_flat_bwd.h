@@ -225,7 +225,7 @@ auto brgemm_dw_bf16_tpp_b1 =
 #pragma omp for // collapse(2)
         for (int n = 0; n < nn; n++) {
         // attention computation
-#if 0
+#if 1
           mul_bcast_tpp(attn_grad_out[n][0], attn[0], attn_grad_in_H_F[n][0][0]);
           add_tpp(attn_grad_in_H_F[n][0][0], grad_out_H_F[n][0][0], grad_out_H_F[n][0][0]);                // grad_attn_in + grad_out = grad_out
           for (int b = 0; b < bn; b++) {
@@ -476,7 +476,7 @@ auto trans_tpp = SCOPEIT(
 
 #if 1
       upd_n_weight_copies = nk * nc < 4 * threads ? threads : 1;
-      BF = 32;
+      BF = 256; //32;
 #else
       BF = atoi(getenv("BF"));
       upd_n_weight_copies = atoi(getenv("UPD_WEIGHT_COPIES"));
