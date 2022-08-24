@@ -415,6 +415,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_acc_pixel_zerobeta_cvnni_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>)               zero_bf16_tpp;
   SCOPEIT_DECL(SetZeroTPP<float>)           zero_float_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)               zero_pad_bf16_tpp;
   SCOPEIT_DECL(ConvertTPP<float, T>)        fp32bf16_cvt_tpp;
   SCOPEIT_DECL(XformExtTPP<T>)              trans_xform_tpp, vnni_xform_tpp, wt_vnni_xform_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_float_tpp, wt_reduce1_float_tpp;
@@ -431,6 +432,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_kernel_hybrid_zerobeta_cvnni_tpp;
 #else
   SCOPEIT_DECL(XformExtTPP<T>)              transpose_input_pixels_bf16_xform_tpp, vnni_output_compute_pixels_bf16_xform_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)               zero_pad_bf16_tpp;
   SCOPEIT_DECL(XformExtTPP<T>)              wt_vnni_xform_tpp;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, float>)     gemm_kernel_non_hybrid_as_brgemm_tpp;
@@ -558,6 +560,18 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     wt_reduce1_f32bf16_tpp = SCOPEIT((ReduceAddColExtTPP<float,T>(weight_copies, chunk1, K*C*R*S, chunk1)), EW_RED);
 
     if (bf16_use_nchw_format > 0) {
+
+      //std::cout << "zero_pad_bf16_tpp " << std::endl;
+      //if (pack_input_upfront)
+      //  l_unary_shape = libxsmm_create_meltw_unary_shape(remainder_pixels, bc, input_pixels, input_pixels, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
+      //else
+      //  l_unary_shape = libxsmm_create_meltw_unary_shape(input_compute_pad, bc, input_pixels, input_pixels, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16);
+      //zero_input_pad_kernel_bf16 = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+      if (pack_input_upfront)
+        zero_pad_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bc, remainder_pixels, input_pixels), EW_ZERO);
+      else
+        zero_pad_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bc, input_compute_pad, input_pixels), EW_ZERO);
+
       if (pack_input_upfront) {
 #ifndef LESS_KERNELS
         //auto pack_unary_shape = libxsmm_create_meltw_unary_shape(bc, ofw, stride_w * bc, input_pixels, dtype, dtype, dtype);
@@ -886,6 +900,12 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                   for (int ij = 0; ij < ofh; ij++) {
                     transposeNpack_input_pixels_bf16_xform_tpp(input[i_n][i_c][ij*stride_h][0], &input_mylinearized_pixels[i_n][i_c][0][ij*(ifwp/stride_w)]);
                   }
+                  if (remainder_pixels > 0) {
+                    //libxsmm_meltw_unary_param zero_param;
+                    //zero_param.out.primary = (void*) LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, ofh*(ifwp/stride_w), Cb, bc, input_pixels);
+                    //zero_input_pad_kernel_bf16( &zero_param );
+                    zero_pad_bf16_tpp(&input_mylinearized_pixels[i_n][i_c][0][ofh*(ifwp/stride_w)]);
+                  }
                 },
                 [&]() {},
                 [&]() {});
@@ -906,6 +926,13 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                   DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char, input_mylinearized_pixels,  [Cb][bc][input_pixels], t_scratch_experimental, input_mylinearized_pixels_offset);
                   for (int ij = 0; ij < ifhp; ij++) {
                     transpose_input_pixels_bf16_xform_tpp(input[i_n][i_c][ij][0], &input_mylinearized_pixels[i_n][i_c][0][ij*ifwp]);
+                  }
+
+                  if (input_compute_pad > 0) {
+                    //libxsmm_meltw_unary_param zero_param;
+                    //zero_param.out.primary = (void*) LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, ifhp*ifwp, Cb, bc, input_pixels);
+                    //zero_input_pad_kernel_bf16( &zero_param );
+                    zero_pad_bf16_tpp(&input_mylinearized_pixels[i_n][i_c][0][ifhp*ifwp]);
                   }
                 },
                 [&]() {},
@@ -973,6 +1000,12 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
               //printf("Case bf16_fuse_upd_transposes == 1 + bunch of conditions is untested so far!\n"); exit(-1);
               for (int ij = 0; ij < ifhp; ij++) {
                 transpose_input_pixels_bf16_xform_tpp(input[i_n][i_c][ij][0], &input_mylinearized_pixels[i_n][i_c][0][ij*ifwp]);
+              }
+              if (input_compute_pad > 0) {
+                //libxsmm_meltw_unary_param zero_param;
+                //zero_param.out.primary = (void*) LIBXSMM_ACCESS_RAW(4, sizeof(DType), input_linearized_pixels, i_n, i_c, 0, ifhp*ifwp, Cb, bc, input_pixels);
+                //zero_input_pad_kernel_bf16( &zero_param );
+                zero_pad_bf16_tpp(&input_mylinearized_pixels[i_n][i_c][0][ifhp*ifwp]);
               }
             }
 #endif
