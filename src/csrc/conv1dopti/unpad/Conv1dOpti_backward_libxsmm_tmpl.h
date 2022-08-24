@@ -200,8 +200,8 @@
 
     /* Dispatch brGEMM kernel for normal and edge cases*/
 
-    auto main_gemm_backweight_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, XS_TILE_WBACKWARD, 0, 0, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
-    auto edge_gemm_backweight_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, (W_t - tile_multiple), 0, 0, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
+    auto main_gemm_backweight_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, XS_TILE_WBACKWARD, 1, 1, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
+    auto edge_gemm_backweight_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(C_t, F_t, (W_t - tile_multiple), 1, 1, lda_g, ldb_trans_g, ldc_g, 1.0, 0, 1)));
 
     /* Main compute loop for backward weight */
     {
