@@ -734,11 +734,11 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
 
         if self.use_hardcoded_tunings:
             if self.inplanes == 64 and self.planes == 64: # Bottleneck type #0
-                self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1, # h,w blocks
+                self.tuning_params_fwd = [4, 1, 4, 1, 4, 1, 4, 1, # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['Afgbdced', 'Afgbdced', 'Afgbdced', 'Afgbdced'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1, # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -750,11 +750,12 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                         0, 0, 0] #hybrid, n_img_teams, n_ofm_teams
                 self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
             elif self.inplanes == 256 and self.planes == 64:  # Bottleneck type #1
-                self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
+                self.tuning_params_fwd = [4, 1, 4, 1, 4, 1, 4, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['Afgbdced', 'Afgbdced', 'Afgbdced', 'Afgbdced'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                #self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -770,7 +771,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                #self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['Afgbedc', 'Afgbedc', 'Afgbedc', 'Afgbedc'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -781,60 +783,12 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                         0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
                                         0, 0, 0] #hybrid, n_img_teams, n_ofm_teams
                 self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
-            elif self.inplanes == 256 and self.planes == 128:  # Bottleneck type #2
-                self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                          1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                        1, 1, 1, 1, # use nchw formats
-                                        1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                        0, 0, 0] #hybrid, n_img_teams, n_ofm_teams
-                self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
-            elif self.inplanes == 256 and self.planes == 128:  # Bottleneck type #2
-                self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                          1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                        1, 1, 1, 1, # use nchw formats
-                                        1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                        0, 0, 0] #hybrid, n_img_teams, n_ofm_teams
-                self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
-            elif self.inplanes == 256 and self.planes == 128:  # Bottleneck type #2
-                self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                          1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                        1, 1, 1, 1, # use nchw formats
-                                        1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                        0, 0, 0] #hybrid, n_img_teams, n_ofm_teams
-                self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
             elif self.inplanes == 512 and self.planes == 128:  # Bottleneck type #3
-                self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
+                self.tuning_params_fwd = [7, 1, 7, 1, 7, 1, 7, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['Afgbdecd', 'Afgbdecd', 'Afgbdecd', 'Afgbdecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -847,10 +801,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
             elif self.inplanes == 512 and self.planes == 256:  # Bottleneck type #4
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                          1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                                          1, 1, 1, 1, 1, 8, 1, 8 , # c,k blocks
+                                          1, 1, 2, 2, # h_in_gemms
+                                          1, 0 ] # pack_input, fuse_stats
+                self.tuning_strings_fwd = ['Afgbcdce', 'Afgbcdce', 'Afgbcdce', 'Afgbcdce' ]
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -863,10 +817,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
             elif self.inplanes == 1024 and self.planes == 256:  # Bottleneck type #5
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                          1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
+                                          1, 2, 1, 1, 1, 2, 1, 1 , # c,k blocks
+                                          2, 2, 2, 2, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -879,10 +833,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
             elif self.inplanes == 1024 and self.planes == 512:  # Bottleneck type #6
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                          1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
+                                          1, 8, 1, 4, 1, 8, 1, 4 , # c,k blocks
+                                          2, 1, 7, 7, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
@@ -896,9 +850,9 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
             elif self.inplanes == 2048 and self.planes == 512:  # Bottleneck type #7
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                          1, 1, 1, 1, # h_in_gemms
+                                          7, 7, 7, 7, # h_in_gemms
                                           0, 1 ] # pack_input, fuse_stats
-                self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_fwd = ['ACfgbdec', 'ACfgbdec', 'ACfgbdec', 'ACfgbdec']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
