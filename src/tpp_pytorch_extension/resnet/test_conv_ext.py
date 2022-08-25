@@ -117,8 +117,8 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         if inc % 2 != 0:
             inc = inc + 1
 
-    if (bc != None or bk != None) and test_module != 'ext_tpp':
-        print("Custom block sizes can only be used for ext_tpp test_module")
+    if (bc != None or bk != None) and (test_module != 'ext_tpp' and test_module != 'cnn_tpp'):
+        print("Custom block sizes can only be used for ext_tpp and cnn_tpp test_modules")
         exit()
 
     opt_has_physical_padding = False
@@ -126,21 +126,18 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     torch.manual_seed(0)
     if test_module == 'cnn_tpp':
         print("info: testing TPP module from CNN (pcl_cgbp)")
-        opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype)
-        hardcoded_bc=64
+        opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk)
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
         print("caution: TPP module from extensions only works with physical padding")
         opt_conv = conv_py.DummyConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk)
         opt_has_physical_padding = True
-        hardcoded_bc=64
     elif test_module == 'handlebased':
         print("info: testing handle-based module")
         if opt_dtype != torch.float:
             print("error: handlebased testing is only implemented for float")
             exit()
         opt_conv = pcl_cgbp.XsmmConv2d(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode)
-        hardcoded_bc=64
     else:
         print("test_module not supported, test_module = ", test_module)
         exit()
@@ -236,23 +233,6 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
     [bc, bk, lp_block] = [opt_conv.Cblock, opt_conv.Kblock, opt_conv.lp_block]
 
-    """
-    if test_module == 'ext_tpp' and hasattr(conv_cpp,'conv_get_feature_map_blocks'):
-        [bc, bk, lp_block] = conv_cpp.conv_get_feature_map_blocks(inc, outc, 0 if opt_dtype == torch.float else 1)
-    if test_module == 'cnn_tpp' and hasattr(pcl_cgbp_cpp,'conv_get_feature_map_blocks'):
-        [bc, bk, lp_block] = pcl_cgbp_cpp.conv_get_feature_map_blocks(inc, outc, 0 if opt_dtype == torch.float else 1)
-    else:
-        print("Warning: could not use pcl_cgbp_cpp.conv_get_feature_map_blocks/conv_cpp.conv_get_feature_map_blocks, hence used hardcoded block sizes in the test")
-        if inc % hardcoded_bc == 0:
-          bc = hardcoded_bc
-        else:
-          bc = inc
-
-        if outc % hardcoded_bc == 0:
-          bk = hardcoded_bc
-        else:
-          bk = 1
-    """
     print("Info: bc, bk = ", bc, bk)
 
     #y1 = opt_conv(x1, x1_add)
@@ -335,7 +315,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
             y1_numel = y1.unblocked_tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
             print("z1 for zeroed rim (with account for padding)", y1_zeroed_rim.mean() * y1_numel / y2.numel())
         else:
-            y1_numel = y1.tensor().numel() # if hasattr(y1,unblocked_tensor) else y1.numel() does not work as a check
+            y1_numel = y1.unblocked_tensor().numel()  if hasattr(y1,'unblocked_tensor') else y1.numel() #does not work as a check
             print("z1                         ", z1)
         print("z2                         ", z2)
 
@@ -446,6 +426,9 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
     #return
     #exit()
+
+    if test_module != 'ext_tpp':
+        return
 
     conv_cfg = opt_conv.config
 

@@ -56,8 +56,8 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         print("Error: padding should have four elements [pad_h_in, pad_w_in, pad_h_out, pad_w_out]")
         exit()
 
-    if bc != None and test_module != 'ext_tpp':
-        print("Custom block sizes can only be used for ext_tpp test_module")
+    if bc != None and (test_module != 'ext_tpp' and test_module != 'cnn_tpp'):
+        print("Custom block sizes can only be used for ext_tpp and cnn_tpp test_modules")
         exit()
 
     if opt_padding != None:
@@ -72,16 +72,13 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         if opt_padding != None and opt_padding != [0, 0, 0, 0]:
             print("Error: Python side of batchnorm in cnn_tpp does not support padding")
             exit()
-        opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
-        hardcoded_bc=64
+        opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
         opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
-        hardcoded_bc=64
     else:
         print("test_module not supported, test_module = ", test_module)
         exit()
-    print("info: hardcoded_bc = ", hardcoded_bc)
     torch.manual_seed(0)
     torch_bn   = torch.nn.BatchNorm2d(C, eps=eps, track_running_stats=track_running_stats, device=None, dtype=ref_dtype)
     torch_relu = torch.nn.ReLU()
@@ -178,18 +175,6 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
 
      # should be available if setup script has been called (once implemented)
     bc = opt_bn.Cblock
-    """
-    if test_module == 'ext_tpp' and hasattr(batchnorm_cpp,'batchnorm_get_c_block'):
-        bc = batchnorm_cpp.batchnorm_get_c_block(C)
-    if test_module == 'cnn_tpp' and hasattr(pcl_cgbp_cpp,'bnorm_get_c_block'):
-        bc = pcl_cgbp_cpp.bnorm_get_c_block(C)
-    else:
-        print("Warning: could not use batchnorm_cpp.batchnorm_get_c_block/pcl_cgbp_cpp.bnorm_get_c_block, hence used hardcoded block sizes in the test")
-        if C % hardcoded_bc == 0:
-          bc = hardcoded_bc
-        else:
-          bc = C
-    """
     print("Info: bc = ", bc)
 
     """
@@ -387,7 +372,7 @@ def main():
             integer_map = map(int, string_list[:4])
             #print(integer_map)
             [N, C, H, W] = list(integer_map)
-            opt_padding = [0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
+            opt_padding = [0, 0, 0, 0] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
             run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
     exit()
     

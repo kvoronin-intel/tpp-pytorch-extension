@@ -47,7 +47,7 @@ class Bottleneck_base(nn.Module):
         self.bc_conv3          = bc_conv3
         self.bk_conv3          = bk_conv3
         self.avoid_fmas_in_rim = avoid_fmas_in_rim if avoid_fmas_in_rim != None else False
-        if self.bc_conv1 is not None or self.bc_conv2 is not None or self.bc_conv3 is not None or self.bk_conv3 is not None:
+        if self.bc_conv1 is not None and self.bc_conv2 is not None and self.bc_conv3 is not None and self.bk_conv3 is not None:
             self.preset_blocksizes = True
         else:
             self.preset_blocksizes = False
@@ -301,6 +301,7 @@ class BottleneckApplyBNTPP(Function):
                 exit(-1)
         """
 
+        """
         rank = int(os.environ.get("PMI_RANK", -1))
         if rank < 0:
             rank = 0
@@ -330,6 +331,7 @@ class BottleneckApplyBNTPP(Function):
             if c1w_nan_count > 0 or c2w_nan_count > 0 or c3w_nan_count > 0 or c4w_nan_count > 0 or b1w_nan_count > 0 or b2w_nan_count > 0 or b3w_nan_count > 0 or b4w_nan_count > 0:
                 print("Exiting before doing fwd because nan count is not zero")
                 exit(-1)
+        """
 
         if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
             (output,
@@ -370,7 +372,7 @@ class BottleneckApplyBNTPP(Function):
             print("ind out", ind, output.view(-1)[ind].item())
         """
 
-        
+        """
         rank = int(os.environ.get("PMI_RANK", -1))
         if rank < 0:
             rank = 0
@@ -426,7 +428,7 @@ class BottleneckApplyBNTPP(Function):
             if conv1_nan_count > 0 or conv2_nan_count > 0 or conv3_nan_count > 0 or conv4_nan_count > 0 or bn1_nan_count > 0 or bn2_nan_count > 0 or bn3_nan_count > 0 or bn4_nan_count > 0 or c1w_nan_count > 0 or c2w_nan_count > 0 or c3w_nan_count > 0 or c4w_nan_count > 0:
                 print("Exiting after doing fwd because nan count is not zero")
                 exit(-1)
-        
+        """
 
         """
         dump = False
@@ -575,7 +577,7 @@ class BottleneckApplyBNTPP(Function):
 
         grad_input = grad_c1i + grad_c4i
 
-        
+        """
         rank = int(os.environ.get("PMI_RANK", -1))
         if rank < 0:
             rank = 0
@@ -603,7 +605,7 @@ class BottleneckApplyBNTPP(Function):
             if grad_b1w_nan_count > 0 or grad_b2w_nan_count > 0 or grad_b3w_nan_count > 0 or grad_b4w_nan_count > 0 or grad_c1w_nan_count > 0 or grad_c2w_nan_count > 0 or grad_c3w_nan_count > 0 or grad_c4w_nan_count > 0:
                 print("Exiting because nan count is not zero")
                 exit(-1)
-        
+        """
 
         """
         print("debug: pad_h = ", param_struct.pad_h)
@@ -972,7 +974,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
             else:
                 if torch.distributed.is_initialized():
                     if torch.distributed.get_rank() == 0:
-                      print("BottleneckTPP Create BN-powered handle: ", N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.dtype)
+                      print("BottleneckTPP Create BN-powered handle: ", N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.dtype, self.preset_blocksizes)
                 if self.preset_blocksizes:
                     self.config = bottleneck_cpp.bottleneck_bn_setup_fused_fwd_tuner(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
                                                                  1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1,

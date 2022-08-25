@@ -41,6 +41,8 @@ parser.add_argument('--use-groupnorm', action="store_true", default=False, dest=
 
 parser.add_argument('--use-hardcoded-tunings', action="store_true", default=False, dest='use_hardcoded_tunings')
 
+parser.add_argument('--channel-block-size', type=int, default=None, dest='channel_block_size')
+
 #import pdb
 
 # When physical padding is on, rims can be nans
@@ -51,9 +53,11 @@ def gn_init(m, zero_init=False):
     m.weight.data.fill_(0. if zero_init else 1.)
     m.bias.data.zero_()
 
-def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module, use_hardcoded_tunings):
-    print("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf test_module ref_module use_hardcoded_tunings = ",
-            N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module, use_hardcoded_tunings)
+def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf,
+                        test_module, ref_module,
+                        use_hardcoded_tunings, channel_block_size):
+    print("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf test_module ref_module use_hardcoded_tunings channel_block_size = ",
+            N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module, use_hardcoded_tunings, channel_block_size)
 
     pcl_cgbp.init_libxsmm()
 
@@ -91,19 +95,20 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
         if test_module == 'tpp_bottleneck' or test_module == 'pt_tpp':
             torch.manual_seed(0)
-            opt_downsample1 = pcl_cgbp.XsmmConv2dTPP(inc, outc * expansion, kernel_size=1, stride=stride, bias=False, dtype=opt_dtype)
+            opt_downsample1 = pcl_cgbp.XsmmConv2dTPP(inc, outc * expansion, kernel_size=1, stride=stride, bias=False, dtype=opt_dtype, bc = channel_block_size, bk = channel_block_size)
             torch.manual_seed(0)
             if use_groupnorm:
                 opt_downsample2 = pcl_cgbp.XsmmGroupNormTPP(32, outc * expansion, eps, dtype=opt_dtype)
                 gn_init(opt_downsample2)
             else:
-                opt_downsample2 = pcl_cgbp.XsmmBatchNormTPP(outc * expansion, eps, dtype=opt_dtype)
+                opt_downsample2 = pcl_cgbp.XsmmBatchNormTPP(outc * expansion, eps, dtype=opt_dtype, bc = channel_block_size)
         elif test_module == 'ext_bottleneck':
             if not use_physical_3x3_padding:
                 print("Error, for test_module = ext_bottleneck only physical padding for 3x3 convolutions is supported")
                 exit()
             torch.manual_seed(0)
-            opt_downsample1 = conv_py.DummyConv2dTPP(inc, outc * expansion, kernel_size=1, stride=stride, bias=False, dtype=opt_dtype)
+            opt_downsample1 = conv_py.DummyConv2dTPP(inc, outc * expansion, kernel_size=1, stride=stride, bias=False, dtype=opt_dtype,
+                                                     bc=channel_block_size, bk=channel_block_size)
             torch.manual_seed(0)
             if use_groupnorm:
                 print("For test_module = ext_bottleneck groupnorm has not been implemented")
@@ -111,7 +116,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
                 #gn_init(opt_downsample2)
             else:
                 #opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
-                opt_downsample2 = batchnorm_py.DummyBatchNormTPP(outc * expansion, padding=[0, 0, 0, 0],eps=eps, dtype=opt_dtype)
+                opt_downsample2 = batchnorm_py.DummyBatchNormTPP(outc * expansion, padding=[0, 0, 0, 0],eps=eps, dtype=opt_dtype, bc=channel_block_size)
     else:
         torch_downsample1 = None
         torch_downsample2 = None
@@ -136,13 +141,17 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     if test_module == 'ext_bottleneck':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
-        opt_bottleneck = bottleneck_py.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype, use_hardcoded_tunings=use_hardcoded_tunings)
+        opt_bottleneck = bottleneck_py.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype,
+                                                      use_hardcoded_tunings=use_hardcoded_tunings,
+                                                      bc_conv1=channel_block_size, bc_conv2=channel_block_size, bc_conv3=channel_block_size, bk_conv3=channel_block_size)
     elif test_module == 'tpp_bottleneck':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
-        opt_bottleneck = pcl_cgbp.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype)
+        opt_bottleneck = pcl_cgbp.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype,
+                                                bc_conv1=channel_block_size, bc_conv2=channel_block_size, bc_conv3=channel_block_size, bk_conv3=channel_block_size)
     elif test_module == 'pt_tpp':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
-        opt_bottleneck = pcl_cgbp.Bottleneck_base(inc, outc, eps, stride, opt_downsample1, opt_downsample2, use_ref_conv=False, use_ref_norm=False, use_groupnorm=use_groupnorm, dtype=opt_dtype)
+        opt_bottleneck = pcl_cgbp.Bottleneck_base(inc, outc, eps, stride, opt_downsample1, opt_downsample2, use_ref_conv=False, use_ref_norm=False, use_groupnorm=use_groupnorm, dtype=opt_dtype,
+                                                  channel_block_size=channel_block_size)
     else:
         print("test_module not supported, test_module = ", test_module)
         exit()
@@ -276,7 +285,7 @@ def main():
             eps = float(eps)
             print("eps, type(eps) = ", eps, type(eps))
             run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module, args.use_hardcoded_tunings)
+                                opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module, args.use_hardcoded_tunings, args.channel_block_size)
     exit()
 
     # Just a single size run
@@ -292,7 +301,9 @@ def main():
     expansion = 4 # Fixed
     has_downsample = True
 
-    run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module, args.use_hardcoded_tunings)
+    run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype, args.with_perf,
+                        args.test_module, args.ref_module,
+                        args.use_hardcoded_tunings, args.channel_block_size)
 
 if __name__ == "__main__":
     args = parser.parse_args()
