@@ -961,7 +961,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                 vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
                 if (upd_remaining_pixels > 0) {
                   printf("Case upd_remaining_pixels > 0 is untested so far!\n"); exit(-1);
-                  vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][(compute_pixels+1)/2]);
+                  vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+1)/2)*2]);
                 }
               },
               [&]() {},
@@ -992,7 +992,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
               if (upd_remaining_pixels > 0) {
                 printf("Case upd_remaining_pixels > 0 is untested so far!\n");
                 exit(-1);
-                vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][(compute_pixels+1)/2]);
+                vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+1)/2)*2]);
               }
             }
 
