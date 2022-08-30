@@ -301,6 +301,13 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 
 
 #ifdef VERBOSE
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), conv_fwd_loop_specs_str,
+                                        N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, R, S, stride_h, stride_w, conv_pad_h_out, conv_pad_w_out,
+                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input);
+#endif
+
+
+#ifdef VERBOSE
 std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 #endif
 

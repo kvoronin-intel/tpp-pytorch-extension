@@ -187,6 +187,11 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   std::cout << "loop_specs_str = " << loop_specs_str << std::endl;
 #endif
 
+#ifdef VERBOSE
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %s %s %s %s %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+                                        N, ifhp - 2 * pad_h_out, ifwp - 2 * pad_w_out, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim);
+#endif
+
   auto conv_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},//, true},
       LoopSpecs{0, Cb, c_step},
