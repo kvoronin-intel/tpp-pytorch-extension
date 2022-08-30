@@ -339,7 +339,7 @@ class BottleneckApplyBNTPP(Function):
             bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
             b1s_out, b2s_out, b3s_out, b4s_out ) = bottleneck_cpp.bottleneck_bn_fwd(config, training, inputs) #_tensors)
         else:
-            if tuning_timings_fwd == None:
+            if tuning_timings_fwd is None:
                 tuning_timings_fwd = np.zeros(16, dtype=np.float32)
             (output,
             conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, bn4_out,
@@ -553,14 +553,14 @@ class BottleneckApplyBNTPP(Function):
                 else:
                     print("Unsupported mode with tuning params for both w and d empty but non-empty tuning_timings")
             else:
-                if tuning_timings_bwd == None:
+                if tuning_timings_bwd is None:
                     tuning_timings_bwd = np.zeros(16, dtype=np.float32)
                 (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
                  grad_b1w, grad_b2w, grad_b3w, grad_b4w,
                  grad_b1b, grad_b2b, grad_b3b, grad_b4b,
                  grad_c1i, grad_c4i) = bottleneck_cpp.bottleneck_bn_bwd_defaultd_ext(config, inputs, tuning_params_w, tuning_strings_w, tuning_timings_bwd)
         else:
-            if tuning_timings_bwd == None:
+            if tuning_timings_bwd is None:
                 tuning_timings_bwd = np.zeros(16, dtype=np.float32)
             if (tuning_params_w is None or tuning_strings_w is None or len(tuning_params_w) == 0 or len(tuning_strings_w) == 0):
                 (grad_c1w, grad_c2w, grad_c3w, grad_c4w,
@@ -662,8 +662,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         super(BottleneckTPP, self).__init__(inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm=use_groupnorm, dtype=dtype,
                                             bc_conv1=bc_conv1, bc_conv2=bc_conv2, bc_conv3=bc_conv3, bk_conv3=bk_conv3, avoid_fmas_in_rim=avoid_fmas_in_rim)
 
-        print("debug: BottleneckTPP constructor called with inplanes, planes, eps, stride, downsample1, downsample2 use_groupnorm dtype bc_conv1 bc_conv2 bc_conv3 bk_conv3 avoid_fmas_in_rim = ",
-                  inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm, dtype, bc_conv1, bc_conv2, bc_conv3, bk_conv3, avoid_fmas_in_rim)
+        print("debug: BottleneckTPP constructor called with inplanes, planes, eps, stride, downsample1, downsample2 use_groupnorm dtype bc_conv1 bc_conv2 bc_conv3 bk_conv3 avoid_fmas_in_rim use_hardcoded_tunings = ",
+                  inplanes, planes, eps, stride, downsample1, downsample2, use_groupnorm, dtype, bc_conv1, bc_conv2, bc_conv3, bk_conv3, avoid_fmas_in_rim, use_hardcoded_tunings)
 
         #self.xsmm_handle = None
         self.config = None
@@ -835,7 +835,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                           1, 8, 1, 4, 1, 8, 1, 4 , # c,k blocks
                                           2, 1, 7, 7, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          1, 1 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -887,6 +887,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                   self.inplanes, self.planes, self.stride, self.downsample1, self.downsample2, self.use_groupnorm, self.dtype, self.bc_conv1, self.bc_conv2, self.bc_conv3, self.bk_conv3)
         """
 
+        #print("in btlnk forward(), use_hardcoded_tunings, self.tuning_params_fwd tuning_params_fwd = ", self.use_hardcoded_tunings, self.tuning_params_fwd, tuning_params)
+
         l_tuning_params_fwd  = tuning_params_fwd if tuning_params is not None else self.tuning_params_fwd
         l_tuning_strings_fwd = tuning_strings_fwd if tuning_strings is not None else self.tuning_strings_fwd
         l_tuning_params_d    = tuning_params_d if tuning_params_d is not None else self.tuning_params_d
@@ -894,13 +896,15 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         l_tuning_params_w    = tuning_params_w if tuning_params_w is not None else self.tuning_params_w
         l_tuning_strings_w   = tuning_strings_w if tuning_strings_w is not None else self.tuning_strings_w
 
+        #print("in btlnk forward(), l_tuning_params_fwd = ", l_tuning_params_fwd)
+
         self.maybe_block()
 
         N = input.size(0)
         self.H = input.size(2)
         self.W = input.size(3)
 
-        if self.config == None:
+        if self.config is None:
             if self.use_groupnorm:
                 print("use_groupnorm not implemented in the bottleneck in extensions")
                 exit()
