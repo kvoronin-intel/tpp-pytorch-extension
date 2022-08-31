@@ -40,6 +40,8 @@ parser.add_argument("--perf-fwd", action="store_true", default=False, help='if t
 parser.add_argument("--perf-bwd-d", action="store_true", default=False, help='if true, runs backward over data perf', dest='perf_bwd_d')
 parser.add_argument("--perf-bwd-w", action="store_true", default=False, help='if true, runs backward over weights perf', dest='perf_bwd_w')
 
+parser.add_argument("--preallocated-output", action="store_true", default=False, help='if true, allocates output and calls in perf section conv wihtout preallocated output tensor', dest='preallocated_output')
+
 
 #import pdb
 
@@ -48,10 +50,10 @@ global_counter = 0
 #torch.autograd.set_detect_anomaly(True)
 
 def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
-                  with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters, niters_warmup):
+                  with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters, niters_warmup, preallocated_output):
     time_start = time.time()
-    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters",
-            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters, niters_warmup)
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output",
+            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters, niters_warmup, preallocated_output)
 
     global global_counter
 
@@ -212,6 +214,14 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     x1 = opt_x_init.clone().detach().requires_grad_()
     x1.retain_grad()
     x2 = ref_x_init.clone().detach().requires_grad_()
+
+    if preallocated_output:
+        allocated_y = torch.randn(N, outc, H//stride + 2 * output_hw_padding[0], W//stride + 2*output_hw_padding[2], requires_grad=False)
+        print("allocated_y.shape = ", allocated_y.shape)
+        #x = torch.ones_like(x, requires_grad=True)
+        if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
+            allocated_y_bf16 = allocated_y.to(torch.bfloat16)
+            allocated_y      = allocated_y_bf16.to(torch.float)
 
     opt_conv.weight.data   = opt_weight_init.clone() # blocked_layout.py is taking care of blocking
     #print("opt_conv_weight shape = ", opt_conv.weight.shape)
@@ -458,7 +468,11 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
             if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or dummy_tuning_timings is None:
                 conv_cpp.conv_fwd(conv_cfg, inputs)
             else:
-                conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+                if preallocated_output:
+                    conv_cpp.conv_fwd_preallocated_output_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings, allocated_y_bf16)
+                else:
+                    #conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+                    conv_cpp.conv_fwd_as_fused_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
 
         time_end = time.time()
         print("Warmup took (s) ", time_end - time_start)
@@ -476,8 +490,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
             if tuning_params is None or tuning_string is None or len(tuning_params) == 0 or len(tuning_string) == 0 or tuning_timings is None:
                 conv_cpp.conv_fwd(conv_cfg, inputs)
             else:
-                #print("calling conv_fwd_ext")
-                conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings)
+                if preallocated_output:
+                    conv_cpp.conv_fwd_preallocated_output_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings, allocated_y_bf16)
+                else:
+                    #print("calling conv_fwd_ext")
+                    #conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings)
+                    conv_cpp.conv_fwd_as_fused_ext(conv_cfg, inputs, tuning_params, tuning_string, tuning_timings)
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 
@@ -489,12 +507,16 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride)
         print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_string: " + str(tuning_string))
 
+        print("PERFDUMP,FP,na,"  + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(R) + "," + str(R) + "," + str(stride) + "," + str(padding) + "," + str(padding) + "," + str(time_per_iter) + "," + str(gflop/time_per_iter))
+
         # Checking the timings
         print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop, gflop / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
 
         sum_timings = tuning_timings[0]
         print("timing diff (per iter) for PT vs pure conv_fwd scope (part of conv_fwd_tmpl) (abs and %) = ", (time_end - time_start - sum_timings) / timed_niters, (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
         print("Final conv_fwd perf GFLOPs: ", str(gflop/(sum_timings / timed_niters)) + " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_string: " + str(tuning_string))
+
+        print("PERFDUMP,FP,na2," + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(R) + "," + str(R) + "," + str(stride) + "," + str(padding) + "," + str(padding) + "," + str(sum_timings / timed_niters) + "," + str(gflop/(sum_timings / timed_niters)))
 
         sum_timings = tuning_timings[1]
         print("timing diff (per iter) for PT vs conv_fwd_tmpl (abs and %) = ", (time_end - time_start - sum_timings) / timed_niters, (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
@@ -503,8 +525,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         #H, W, R, S, stride_h, pad_h, pad_w, ((double)((t_end - t_start)/n_iters)), (gflop)/(t_end - t_start), norms.l1_ref, norms.l1_tst,
         #norms.l2_abs, norms.l2_rel, norms.linf_abs, norms.linf_rel, norms.normf_rel);
 
-        print("PERFDUMP,FP,na,"  + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(R) + "," + str(R) + "," + str(stride) + "," + str(padding) + "," + str(padding) + "," + str(time_per_iter) + "," + str(gflop/time_per_iter))
-        print("PERFDUMP,FP,na2," + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(R) + "," + str(R) + "," + str(stride) + "," + str(padding) + "," + str(padding) + "," + str(sum_timings / timed_niters) + "," + str(gflop/(sum_timings / timed_niters)))
+        print("PERFDUMP,FP,na3," + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(R) + "," + str(R) + "," + str(stride) + "," + str(padding) + "," + str(padding) + "," + str(sum_timings / timed_niters) + "," + str(gflop/(sum_timings / timed_niters)))
 
     if perf_bwd_d:
 
@@ -648,7 +669,7 @@ def main():
         padding_mode='zeros'
         run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
                       args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
-                      args.tuning_params, args.tuning_string, args.niters, args.niters_warmup)
+                      args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output)
     else:
         with open(args.test_data_file) as f:
             contents = f.readlines()
@@ -662,7 +683,7 @@ def main():
                 [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
                 run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
                               args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
-                              args.tuning_params, args.tuning_string, args.niters, args.niters_warmup)
+                              args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output)
     exit()
 
     # Just a single size run
