@@ -27,13 +27,13 @@ static int my_rank = guess_mpi_rank();
 #   include "threaded_loops.h"
 #endif
 
-//#define TIMING
-
 REGISTER_SCOPE(conv_fwd,     "conv_fwd");
 
 REGISTER_SCOPE(conv_bwd_upd, "conv_bwd_upd");
 
 REGISTER_SCOPE(conv_bwd_d,   "conv_bwd_d");
+
+REGISTER_SCOPE(fusedbtlnk_conv_nobatchnorm_fwd, "fusedbtlnk_conv_nobatchnorm_fwd");
 
 /* Has the conv_config and all setters */
 #include "conv_setup_full.h"
@@ -60,6 +60,94 @@ at::Tensor conv_fwd_ext(
 #include "conv_fwd_tmpl.h"
   }
 }
+
+at::Tensor conv_fwd_preallocated_output_ext(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::string tuning_string,
+    pybind11::array_t<float>& tuning_timings,
+    at::Tensor t_O) {
+  GlobalPass _gp(FWD);
+
+  const long h_block = tuning_params[0];
+  const long w_block = tuning_params[1];
+  const long c_block = tuning_params[2];
+  const long k_block = tuning_params[3];
+  const long h_in_gemm = tuning_params[4];
+        long pack_input = tuning_params[5];
+#define TIMING
+#define PREALLOCATED_OUTPUT
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#include "conv_fwd_tmpl.h"
+  } else {
+    typedef bfloat16 T;
+#include "conv_fwd_tmpl.h"
+  }
+#undef PREALLOCATED_OUTPUT
+#undef TIMING
+}
+
+at::Tensor conv_fwd_as_fused_ext(
+    conv_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::string tuning_string,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(FWD);
+  at::Tensor conv1_out;
+//for (int i = 0; i < 1000; i++) {
+#define NO_BATCHNORM
+#define TIMING
+  const long h_block = tuning_params[0];
+  const long w_block = tuning_params[1];
+  const long c_block = tuning_params[2];
+  const long k_block = tuning_params[3];
+  const long h_in_gemm = tuning_params[4];
+        long pack_input = tuning_params[5];
+
+
+  auto t_CI  = inputs[0];//input;
+  auto t_CW  = inputs[1];//conv1_weight;
+
+  auto conv_cfg = cfg;//cfg.conv1;
+  #define CONV_OUT          conv1_out
+
+  auto fuse_scaling = 0; /* fusion of scaling for the previous batchnorm into the conv */
+  auto fuse_stats = 0;
+  auto conv_loop_string = tuning_string;
+
+  double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
+
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#include "fused_conv_bn_fwd.h"
+  } else {
+    typedef bfloat16 T;
+#include "fused_conv_bn_fwd.h"
+  }
+
+  #undef CONV_OUT
+#ifdef TIMING
+  auto time_c1        = t_conv_end - t_conv_start;
+#endif
+
+#ifdef TIMING
+  auto buf = tuning_timings.request();
+  float* ptr = (float*)buf.ptr;
+  ptr[0] += t_end - t_conv_start;
+  ptr[1] += t_end - t_start;
+//  printf("updating timings here in conv fwd\n");
+#endif
+
+#undef TIMING
+#undef NO_BATCHNORM
+//}
+  return conv1_out;
+}
+
+
 
 at::Tensor conv_fwd(
     conv_config cfg,
@@ -400,5 +488,6 @@ REGISTER_SUBMODULE(_conv, m) {
   m.def("conv_bwd_d_ext", &conv_bwd_d_ext, "Pcl CONV backward input update with extra (tuning) parameters");
   m.def("conv_bwd_d_get_gflop", &conv_bwd_d_get_gflop, "Pcl CONV get gflop count for bwd d");
   m.def("conv_bwd_ext", &conv_bwd_ext, "Pcl CONV backward with extra (tuning) parameters");
+  m.def("conv_fwd_as_fused_ext", &conv_fwd_as_fused_ext, "Pcl CONV forward with extra (tuning) parameters caled through fused conv bn code");
+  m.def("conv_fwd_preallocated_output_ext", &conv_fwd_preallocated_output_ext, "Pcl CONV forward with extra (tuning) parameters and preallocated output");
 }
-

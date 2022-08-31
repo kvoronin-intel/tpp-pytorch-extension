@@ -45,7 +45,11 @@ const long N  = sizes[0];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
 
+#ifndef PREALLOCATED_OUTPUT
 auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
+#else
+//printf("PREALLOCATED_OUTPUT is enabled\n");
+#endif
 //return std::vector<at::Tensor>({t_O});
 
 /* hardcoded here unlike the fused bottleneck where it is an external parameter */
@@ -190,7 +194,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %s %s %s %s %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
                                         N, ifhp - 2 * pad_h_out, ifwp - 2 * pad_w_out, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim);
 #endif
 
@@ -297,6 +301,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   float* ptr = (float*)buf.ptr;
   ptr[0] += t_end - t_conv_start;
   ptr[1] += t_end - t_start;
+//  printf("updating timings here in conv fwd\n");
 #endif
 
 #ifdef VERBOSE

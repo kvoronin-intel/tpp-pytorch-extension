@@ -20,6 +20,10 @@ const int separate_stats_reduction = 1; /* only value currently supported is 1 *
 char conv_fwd_loop_specs_str[256];
 std::strcpy(conv_fwd_loop_specs_str, conv_loop_string.c_str());
 
+#ifdef NO_BATCHNORM
+fuse_stats = 0;
+#endif
+
 #ifdef VERBOSE
 std::cout << "CONV+BN meta setup info"           << std::endl;
 std::cout << "fuse_stats    = " << fuse_stats    << std::endl;
@@ -71,6 +75,7 @@ std::cout << "conv_pad_h_out conv_pad_w_out = " << conv_pad_h_out << " " << conv
 CONV_OUT = at::empty(conv_output_size, torch::TensorOptions().dtype(t_CI.dtype()));
 auto t_CO = CONV_OUT;
 
+#ifndef NO_BATCHNORM
 const long bn_pad_h_in  = bn_padding[0];
 const long bn_pad_w_in  = bn_padding[1];
 const long bn_pad_h_out = bn_padding[2];
@@ -172,6 +177,7 @@ std::cout << "use_hw_blocking_in_fusion      = " << use_hw_blocking_in_fusion <<
 std::cout << "use_hw_blocking_outside_fusion = " << use_hw_blocking_outside_fusion << " and spatial_block_size_outside_fusion = " << spatial_block_size_outside_fusion
           << " and num blocks = " << (use_hw_blocking_outside_fusion ? num_HW_blocks_outside_fusion : num_W_blocks_outside_fusion) << std::endl;
 #endif
+#endif /* for #ifndef NO_BATCHNORM */
 
 #ifdef VERBOSE
 std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
@@ -313,7 +319,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
                                         conv_fwd_loop_specs_str);
 #endif
 
-
+#ifndef NO_BATCHNORM
 #ifdef VERBOSE
 std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 #endif
@@ -380,6 +386,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
   auto kb_loop = ThreadedLoop<1>({
       LoopSpecs{0, Kb, bn_kb_step, {/*l1_k_step, l0_k_step*/}}},  // Logical Kb loop specs
       kb_loop_specs_str);
+#endif /* #ifndef NO_BATCHNORM */
 
 #ifdef VERBOSE
 std::cout << "Running conv part in conv/bn fusion" << std::endl;
@@ -389,8 +396,15 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
   t_conv_start = getTime();
 #endif
 
+//for (int i = 0; i < 1000; i++) {
+
+
   {
+#ifdef NO_BATCHNORM
+    RECORD_SCOPE(fusedbtlnk_conv_nobatchnorm_fwd, {});
+#else
     RECORD_SCOPE(fusedbtlnk_conv_fwd, {});
+#endif
     {
       conv_loop(
         [&](int* ind) {
@@ -446,6 +460,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                          true);
             }
 
+#ifndef NO_BATCHNORM
             /* Computing local stats */
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
@@ -464,6 +479,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                 reduce_beta1_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
 
             } /* for computing local stats */
+#endif /*#ifndef NO_BATCHNORM */
           } else { /* for if avoid_fmas_in_rim == 0 */
 
             if (fuse_scaling && i_k == 0 && i_r == 0 && i_s == 0) {
@@ -497,7 +513,9 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
                          Cb_step,
                          true);
             }
-                        /* Computing local stats */
+
+#ifndef NO_BATCHNORM
+            /* Computing local stats */
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
@@ -514,7 +532,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
               else
                 reduce_beta1_fusion_tpp(output_off[i_n][i_k][i_h][i_w], sums_N[i_k][i_n]);
             } /* for computing local stats */
-
+#endif /* #ifndef NO_BATCHNORM */
           } /* for if-else avoid_fmas_in_rim == 0 */
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
@@ -525,6 +543,8 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
 #ifdef TIMING
   t_conv_end = getTime();
 #endif
+
+#ifndef NO_BATCHNORM
 
 #ifdef VERBOSE
 std::cout << "Running bn part in conv/bn fusion" << std::endl;
@@ -673,8 +693,19 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
     } /* end of the fusedbtlnk_bn_fwd_scale scope with recorded parallel for */
   } /* if (!fuse_scaling) */
 
+
 #ifdef TIMING
   t_bn_end = getTime();
   t_end = t_bn_end;
 #endif
+
+#else /* #ifndef NO_BATCHNORM */
+
+#ifdef TIMING
+  t_end = getTime();
+#endif
+
+#endif /* #ifndef NO_BATCHNORM */
 } /* end of the scope for conv1 + bn1 */
+
+//} // for the dummy 1000 iter loop while perf debugging
