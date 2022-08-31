@@ -54,7 +54,11 @@ parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_2
 
 parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride for the bottleneck')
 
-parser.add_argument('--niters', type=int, default=10, help='number of timed iterations (warmup hardcoded)')
+parser.add_argument('--niters', type=int, default=1, help='number of timed iterations')
+
+parser.add_argument('--niters-warmup', type=int, default=10, help='number of warmup iterations')
+
+parser.add_argument('--use-hardcoded-tunings', action="store_true", default=False, dest='use_hardcoded_tunings')
 #import pdb
 
 # When physical padding is on, rims can be nans
@@ -65,13 +69,19 @@ def gn_init(m, zero_init=False):
     m.weight.data.fill_(0. if zero_init else 1.)
     m.bias.data.zero_()
 
-def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, tuning_params, tuning_strings, niters):
+def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype,
+                        with_perf, with_validation, test_module, ref_module, tuning_params, tuning_strings, niters, niters_warmup, use_hardcoded_tunings):
     time_start = time.time()
     #logging.info("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module",
     #        N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module)
-    print("info: run_test_bottleneck called with N H W inc outc bc_conv1 bc_conv2 bc_conv3 bk_conv3 stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module niters",
-            N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters)
+    print("info: run_test_bottleneck called with N H W inc outc bc_conv1 bc_conv2 bc_conv3 bk_conv3 stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf with_validation, test_module ref_module niters niters_warmup use_hardcoded_tunings",
+            N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters, niters_warmup, use_hardcoded_tunings)
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
+
+    if use_hardcoded_tunings:
+        print("Using hardcoded tunings hence no tuning params are used")
+        tuning_params  = None
+        tuning_strings = None
 
     tuning_params_count = 22
     if tuning_params is not None and len(tuning_params) != tuning_params_count:
@@ -203,9 +213,8 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     time_start = time.time()
 
     if test_module == 'ext_bottleneck':
-        #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
         opt_bottleneck = bottleneck_py.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype,
-                                                     bc_conv1=bc_conv1, bc_conv2=bc_conv2, bc_conv3=bc_conv3, bk_conv3=bk_conv3)
+                                                     bc_conv1=bc_conv1, bc_conv2=bc_conv2, bc_conv3=bc_conv3, bk_conv3=bk_conv3, use_hardcoded_tunings=use_hardcoded_tunings)
     elif test_module == 'tpp_bottleneck':
         #with XsmmBatchNormTPP as torch.nn.BatchNorm2d, XsmmConv2dTPP as torch.nn.Conv2d:
         opt_bottleneck = pcl_cgbp.BottleneckTPP(inc, outc, eps, stride, use_physical_3x3_padding, opt_downsample1, opt_downsample2, use_groupnorm=use_groupnorm, dtype=opt_dtype)
@@ -256,7 +265,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     time_start = time.time()
 
     basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride) + " " + str(has_downsample)
-    print("Bottleneck tuning parameters ", " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: "+ str(tuning_params) + " tuning_strings: " + str(tuning_strings))
+    print("Bottleneck tuning parameters ", " basic: " + basic_params_string + " channel bs: " + str(channel_block_sizes) + " tuning params: " + str(tuning_params) + " tuning_strings: " + str(tuning_strings))
 
     #logging.debug("running opt bottleneck forward")
     print("running opt bottleneck forward")
@@ -361,7 +370,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
                       opt_bottleneck.bn1.mean, opt_bottleneck.bn2.mean, opt_bottleneck.bn3.mean, opt_bottleneck.dummy_tensor,
                       opt_bottleneck.bn1.var, opt_bottleneck.bn2.var, opt_bottleneck.bn3.var, opt_bottleneck.dummy_tensor]
 
-        warmup_niter = 10
+        warmup_niter = niters_warmup
         #logging.info("warmup_niter = ", warmup_niter)
         print("warmup_niter = ", warmup_niter)
 
@@ -391,6 +400,11 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         tuning_timings = np.zeros(16, dtype=np.float32)
         #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
+        if use_hardcoded_tunings:
+            print("Setting tuning params and strings from the hardcoded tunings")
+            tuning_params  = opt_bottleneck.tuning_params_fwd
+            tuning_strings = opt_bottleneck.tuning_strings_fwd
+
         time_start = time.time()
         for i in range(timed_niters):
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or tuning_timings is None:
@@ -413,18 +427,31 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         # Checking the timings
         gflop_details = bottleneck_cpp.bottleneck_bn_fwd_get_gflop_details(bottleneck_cfg)
         #print("timings c1 gflop_c1 c2 gflop_c2 c3 gflop_c3 c4 gflop_c4: ", tuning_timings[0], gflop_details[0], tuning_timings[1], gflop_details[1], tuning_timings[2], gflop_details[2], tuning_timings[3], gflop_details[3])
-        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], gflop_details[0], gflop_details[0] / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
-        print("timings: c2 gflop_c2 gflops_c2: ", tuning_timings[1], gflop_details[1], gflop_details[1] / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
-        print("timings: c3 gflop_c3 gflops_c3: ", tuning_timings[2], gflop_details[2], gflop_details[2] / (tuning_timings[2] / timed_niters) if tuning_timings[2] != 0.0 else 0.0)
-        print("timings: c4 gflop_c4 gflops_c4: ", tuning_timings[3], gflop_details[3], gflop_details[3] / (tuning_timings[3] / timed_niters) if tuning_timings[3] != 0.0 else 0.0)
+        print("timings: c1 gflop_c1 gflops_c1: ", tuning_timings[0], tuning_timings[0] / timed_niters, gflop_details[0], gflop_details[0] / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
+        print("timings: c2 gflop_c2 gflops_c2: ", tuning_timings[1], tuning_timings[1] / timed_niters, gflop_details[1], gflop_details[1] / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
+        print("timings: c3 gflop_c3 gflops_c3: ", tuning_timings[2], tuning_timings[2] / timed_niters, gflop_details[2], gflop_details[2] / (tuning_timings[2] / timed_niters) if tuning_timings[2] != 0.0 else 0.0)
+        print("timings: c4 gflop_c4 gflops_c4: ", tuning_timings[3], tuning_timings[3] / timed_niters, gflop_details[3], gflop_details[3] / (tuning_timings[3] / timed_niters) if tuning_timings[3] != 0.0 else 0.0)
         #print("timings b1 gflop_b1 b2 gflop_b2 b3 gflop_b3 b4 gflop_b4: ", tuning_timings[4], gflop_details[4], tuning_timings[5], gflop_details[5], tuning_timings[6], gflop_details[6], tuning_timings[7], gflop_details[7])
-        print("timings: b1 gflop_b1 gflops_b1: ", tuning_timings[4], gflop_details[4], gflop_details[4] / (tuning_timings[4] / timed_niters) if tuning_timings[4] != 0.0 else 0.0)
-        print("timings: b2 gflop_b2 gflops_b2: ", tuning_timings[5], gflop_details[5], gflop_details[5] / (tuning_timings[5] / timed_niters) if tuning_timings[5] != 0.0 else 0.0)
-        print("timings: b3 gflop_b3 gflops_b3: ", tuning_timings[6], gflop_details[6], gflop_details[6] / (tuning_timings[6] / timed_niters) if tuning_timings[6] != 0.0 else 0.0)
-        print("timings: b4 gflop_b4 gflops_b4: ", tuning_timings[7], gflop_details[7], gflop_details[7] / (tuning_timings[7] / timed_niters) if tuning_timings[7] != 0.0 else 0.0)
+        print("timings: b1 gflop_b1 gflops_b1: ", tuning_timings[4], tuning_timings[4] / timed_niters, gflop_details[4], gflop_details[4] / (tuning_timings[4] / timed_niters) if tuning_timings[4] != 0.0 else 0.0)
+        print("timings: b2 gflop_b2 gflops_b2: ", tuning_timings[5], tuning_timings[5] / timed_niters, gflop_details[5], gflop_details[5] / (tuning_timings[5] / timed_niters) if tuning_timings[5] != 0.0 else 0.0)
+        print("timings: b3 gflop_b3 gflops_b3: ", tuning_timings[6], tuning_timings[6] / timed_niters, gflop_details[6], gflop_details[6] / (tuning_timings[6] / timed_niters) if tuning_timings[6] != 0.0 else 0.0)
+        print("timings: b4 gflop_b4 gflops_b4: ", tuning_timings[7], tuning_timings[7] / timed_niters, gflop_details[7], gflop_details[7] / (tuning_timings[7] / timed_niters) if tuning_timings[7] != 0.0 else 0.0)
+
+        print("timings: c1b1 total: ", tuning_timings[8], tuning_timings[8] / timed_niters)
+        print("timings: c2b2 total: ", tuning_timings[9], tuning_timings[9] / timed_niters)
+        print("timings: c3b3 total: ", tuning_timings[10], tuning_timings[10] / timed_niters)
+        print("timings: c4b4 total: ", tuning_timings[11], tuning_timings[11] / timed_niters)
+
+        print("timings: c1b1 extra: ", tuning_timings[12], tuning_timings[12] / timed_niters)
+        print("timings: c2b2 extra: ", tuning_timings[13], tuning_timings[13] / timed_niters)
+        print("timings: c3b3 extra: ", tuning_timings[14], tuning_timings[14] / timed_niters)
+        print("timings: c4b4 extra: ", tuning_timings[15], tuning_timings[15] / timed_niters)
 
         sum_timings = tuning_timings[0] + tuning_timings[1] + tuning_timings[2] + tuning_timings[3] + tuning_timings[4] + tuning_timings[5] + tuning_timings[6] + tuning_timings[7]
         print("timing diff (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
+
+        internal_timings = (tuning_timings[8] + tuning_timings[9] + tuning_timings[10] + tuning_timings[11]) / timed_niters
+        print("internal timings, final external, diff (abs and %) = ", internal_timings, time_per_iter, time_per_iter - internal_timings, ((time_per_iter - internal_timings) / (time_per_iter) * 100))
 
         #print("Error: performance part is not implemented for this test!")
         #exit()
@@ -467,7 +494,8 @@ def main():
         else:
             has_downsample = False
         run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                            opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
+                            opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters, args.niters_warmup,
+                            args.use_hardcoded_tunings)
     else:
         with open(args.test_data_file) as f:
             contents = f.readlines()
@@ -482,7 +510,8 @@ def main():
                 [N, H, W, inc, outc, stride, expansion] = list(integer_map)
                 eps = float(eps)
                 run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                    opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
+                                    opt_dtype, ref_dtype, args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters, args.niters_warmup,
+                                    args.use_hardcoded_tunings)
     exit()
 
     # Just a single size run
@@ -499,7 +528,8 @@ def main():
     has_downsample = True
 
     run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype,
-                        args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters)
+                        args.with_perf, args.with_validation, args.test_module, args.ref_module, args.tuning_params, args.tuning_strings, args.niters, args.niters_warmup,
+                        args.use_hardcoded_tunings)
 
 if __name__ == "__main__":
     args = parser.parse_args()
