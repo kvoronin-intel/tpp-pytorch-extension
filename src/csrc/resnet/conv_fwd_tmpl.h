@@ -122,7 +122,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
         printf("Error: R = %d and S = %d are incompatible with pack_input = %d\n", R, S, pack_input);
         exit(-1);
       }
-      input_pack_tpp = SCOPEIT(CpyTPP<T>(gemm_n, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
+      input_pack_tpp = SCOPEIT(CpyTPP<T>(w_gemm_pixels, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
 
       brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     }
