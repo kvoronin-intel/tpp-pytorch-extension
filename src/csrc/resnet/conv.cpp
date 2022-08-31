@@ -27,7 +27,7 @@ static int my_rank = guess_mpi_rank();
 #   include "threaded_loops.h"
 #endif
 
-#define TIMING
+//#define TIMING
 
 REGISTER_SCOPE(conv_fwd,     "conv_fwd");
 

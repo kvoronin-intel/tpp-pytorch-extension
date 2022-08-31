@@ -1,6 +1,8 @@
 
 RECORD_FUNCTION("conv_fwd", std::vector<c10::IValue>());
 
+#define TIMING
+
 #ifdef TIMING
   double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0;
 #endif

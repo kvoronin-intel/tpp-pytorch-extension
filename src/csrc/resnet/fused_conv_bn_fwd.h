@@ -304,6 +304,13 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), conv_fwd_loop_specs_str,
                                         N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, R, S, stride_h, stride_w, conv_pad_h_out, conv_pad_w_out,
                                         bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input);
+
+//200~--with-bwd --bc 64 --bk 64 --basic-sizes 28 7 7 2048 512 1 1 --tuning-params  1  1  0 0 0 0 0 0 0 7 4 --tuning-string Aefbcd --perf-bwd-w201~
+  printf("conv_ext fwd string: python -u test_conv_ext.py --test-module ext_tpp %s --perf-fwd --bc %d --bk %d --basic-sizes %d %d %d %d %d %d %d --tuning-params %d %d %d %d %d %d --tuning-string %s --niters 1000 --niters-warmup 100 \n",
+                                        (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
+                                        N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, stride_h, R,
+                                        h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
+                                        conv_fwd_loop_specs_str);
 #endif
 
 

@@ -2,6 +2,8 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 
 // ( grad_output, input, weight) = inputs
 
+#define TIMING
+
 //#define VERBOSE
 
 #ifdef TIMING
