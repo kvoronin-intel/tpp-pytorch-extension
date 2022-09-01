@@ -116,9 +116,15 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   }
 
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
+  float beta;
+  if (Cb_step == Cb && r_step == R && s_step == S)
+    beta = 0.0;
+  else
+    beta = 1.0;
+
   if ((R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1)) {
     if (pack_input == 0) {
-      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     } else {
       if (cfg.avoid_fmas_in_rim) {
         printf("Error: cfg.avoid_fmas_in_rim = %d is incompatible with pack_input = %d\n", cfg.avoid_fmas_in_rim, pack_input);
@@ -130,14 +136,14 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
       }
       input_pack_tpp = SCOPEIT(CpyTPP<T>(w_gemm_pixels, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
 
-      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     }
 
-    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   } else {
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, 1.0, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
 
@@ -226,8 +232,10 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
           if (cfg.avoid_fmas_in_rim == 0) {
 
-            if (i_c == 0 && i_r == 0 && i_s == 0) {
-              zero_tpp(output_off[i_n][i_k][i_h][i_w]);
+            if (Cb_step != Cb || r_step != R || s_step != S) {
+              if (i_c == 0 && i_r == 0 && i_s == 0) {
+                zero_tpp(output_off[i_n][i_k][i_h][i_w]);
+              }
             }
 
             if (pack_input > 0 && i_r == 0 && i_s == 0 && i_k == 0 && i_c == 0) {
@@ -256,9 +264,12 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                          true);
             }
           } else { /* for if cfg.avoid_fmas_in_rim == 0 */
-            if (i_c == 0 && i_r == 0 && i_s == 0) {
-              zero_tpp(output_off[i_n][i_k][i_h][i_w]);
+            if (Cb_step != Cb || r_step != R || s_step != S) {
+              if (i_c == 0 && i_r == 0 && i_s == 0) {
+                zero_tpp(output_off[i_n][i_k][i_h][i_w]);
+              }
             }
+
             if (i_r == 0 && i_h == 0) {
               /* Do no FLOPS  */
             } else if (i_r == R-1 && i_h == ofh-1 ) {
