@@ -49,7 +49,7 @@ parser.add_argument('--block-sizes', nargs="+", type=int, help='block sizes: bc_
 parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h1_block, w1_block, ... h4/w4 (8 numbers); c1_block, k1_block, ... (8 numbers);  h_in_gemm; ... (4 numbers); pack_input fuse_stats')
 parser.add_argument('--tuning-strings', nargs="+", default=None, type=str, help='conv1_string, conv2_string, conv3_string, conv4_string')
 
-parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_28thr.data', type=str,
+parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_56thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
 parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride for the bottleneck')
@@ -446,6 +446,12 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("timings: c2b2 extra: ", tuning_timings[13], tuning_timings[13] / timed_niters)
         print("timings: c3b3 extra: ", tuning_timings[14], tuning_timings[14] / timed_niters)
         print("timings: c4b4 extra: ", tuning_timings[15], tuning_timings[15] / timed_niters)
+
+        print("PERFDUMP,FP,c1,"  + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(1) + "," + str(1) + "," + str(1) + "," + str(0) + "," + str(0) + "," + str(time_per_iter) + "," + str(gflop_details[0] / (tuning_timings[0] / timed_niters)))
+        print("PERFDUMP,FP,c2,"  + str(N) + "," + str(N) + "," + str(outc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(3) + "," + str(3) + "," + str(stride) + "," + str(1) + "," + str(1) + "," + str(time_per_iter) + "," + str(gflop_details[1] / (tuning_timings[1] / timed_niters)))
+        print("PERFDUMP,FP,c3,"  + str(N) + "," + str(N) + "," + str(outc) + "," + str(4*outc) + "," + str(H) + "," + str(W) + "," + str(1) + "," + str(1) + "," + str(1) + "," + str(0) + "," + str(0) + "," + str(time_per_iter) + "," + str(gflop_details[2] / (tuning_timings[2] / timed_niters)))
+        if has_downsample:
+            print("PERFDUMP,FP,c4,"  + str(N) + "," + str(N) + "," + str(inc) + "," + str(4*outc) + "," + str(H) + "," + str(W) + "," + str(1) + "," + str(1) + "," + str(stride) + "," + str(0) + "," + str(0) + "," + str(time_per_iter) + "," + str(gflop_details[3] / (tuning_timings[3] / timed_niters)))
 
         sum_timings = tuning_timings[0] + tuning_timings[1] + tuning_timings[2] + tuning_timings[3] + tuning_timings[4] + tuning_timings[5] + tuning_timings[6] + tuning_timings[7]
         print("timing diff (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)

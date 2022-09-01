@@ -1,4 +1,5 @@
 import argparse
+import time
 import torch
 #import pcl_cgbp
 #import pcl_cgbp_cpp
@@ -42,13 +43,44 @@ parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='
 
 parser.add_argument('--bc',  nargs='?', type=int)
 
+parser.add_argument('--tuning-string-ncp', default=None, type=str, help='tuning string for ncp loop')
+parser.add_argument('--tuning-string-cp', default=None, type=str, help='tuning string for cp loop')
+
+parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_28thr.data', type=str,
+                    help='file to read test input data from', dest='test_data_file')
+
+parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N, H, W, C, has_relu, has_eltwise, track_running_stats for the bn')
+
+parser.add_argument('--niters', type=int, default=100, help='number of timed iterations')
+parser.add_argument('--niters-warmup', type=int, default=10, help='number of warmup iterations')
+
+parser.add_argument("--perf-fwd", action="store_true", default=False, help='if true, runs forward perf', dest='perf_fwd')
+
 torch.autograd.set_detect_anomaly(True)
 
-def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module):
-    print("debug: run_test_bn called with N H W C bc, opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module ",
-            N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module)
+def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module, tuning_string_ncp, tuning_string_cp, niters, niters_warmup, perf_fwd):
+    print("debug: run_test_bn called with N H W C bc, opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module tuning_string_ncp tuning_string_cp niters niters_warmup perf_fwd",
+            N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module, tuning_string_ncp, tuning_string_cp, niters, niters_warmup, perf_fwd)
 
     eps=1.e-7
+
+    #if (perf_fwd and perf_bwd_w) or (perf_fwd and perf_bwd_d) or (perf_bwd_d and perf_bwd_w):
+    #    print("Error: only one of perf-fwd, perf-bwd-w and perf-bwd-d can be active")
+    #    exit()
+
+    if tuning_string_ncp is not None or tuning_string_cp is not None:
+        if test_module != 'ext_tpp':
+            print("Custom tuning strings can only be used for ext_tpp test_module")
+            exit()
+        ncp_loop_string = tuning_string_ncp
+        cp_loop_string  = tuning_string_cp
+        print("info: tuning string: ncp_string = ", ncp_loop_string)
+        print("info: tuning string:  cp_string = ", cp_loop_string)
+    else:
+        tuning_string_ncp = None
+        tuning_string_cp  = None
+        print("info: tuning strings are empty")
+
 
     #opt_padding = [0, 0, 0, 0]
 
@@ -200,10 +232,16 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
     #y2 = relu(torch_conv(x2) + x2_add)
     if has_eltwise == True:
         #y1 = opt_bn(xp, xp_add)
-        y1 = opt_bn(x1, x1_add)
+        if perf_fwd:
+            y1 = opt_bn(x1, x1_add, tuning_string_ncp=tuning_string_ncp, tuning_string_cp=tuning_string_cp)
+        else:
+            y1 = opt_bn(x1, x1_add)
     else:
         #y1 = opt_bn(xp)
-        y1 = opt_bn(x1)
+        if perf_fwd:
+            y1 = opt_bn(x1, tuning_string_ncp=tuning_string_ncp, tuning_string_cp=tuning_string_cp)
+        else:
+            y1 = opt_bn(x1)
 
     if has_relu == False and has_eltwise == False:
         y2 = torch_bn(x2)
@@ -340,6 +378,77 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         #print("torch_bn.running_mean = ", torch_bn.running_mean);
         #print("torch_bn.running_var  = ", torch_bn.running_var);
 
+    if perf_fwd:
+
+        blocked_input = opt_bn.get_blocked_tensor(
+            x1,
+            opt_bn.blocked_input_signature,
+            [None, bc, None, None],
+        )
+        if has_eltwise:
+            blocked_input_add = opt_bn.get_blocked_tensor(x1_add, opt_bn.blocked_input_signature, [None, bc, None, None])
+            inputs = [blocked_input, block_input_add, opt_bn.weight, opt_bn.bias, opt_bn.mean, opt_bn.var]
+        else:
+            inputs = [blocked_input, opt_bn.weight, opt_bn.bias, opt_bn.mean, opt_bn.var]
+
+        warmup_niter = niters_warmup
+        #logging.info("warmup_niter = ", warmup_niter)
+        print("warmup_niter = ", warmup_niter)
+
+        #time_end = time.time()
+        #print("Reference forward took (s) ", time_end - time_start)
+
+        #dummy_tuning_timings = [0.0] * 16
+        dummy_tuning_timings = np.zeros(16, dtype=np.float32)
+        time_start = time.time()
+
+        training = True
+        eps = 1e-7
+        for i in range(warmup_niter):
+            if tuning_string_ncp is None or tuning_string_cp is None or len(tuning_string_ncp) == 0 or len(tuning_string_cp) == 0 or dummy_tuning_timings is None:
+                batchnorm_cpp.batchnorm_fwd(training, has_relu, has_eltwise, eps, opt_padding, inputs)
+            else:
+                #if preallocated_output:
+                #    conv_cpp.conv_fwd_preallocated_output_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings, allocated_y_bf16)
+                #else:
+                    #conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+                #    conv_cpp.conv_fwd_as_fused_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+                batchnorm_cpp.batchnorm_fwd_ext(training, has_relu, has_eltwise, eps, opt_padding, tuning_string_ncp, tuning_string_cp, inputs)
+
+        time_end = time.time()
+        print("Warmup took (s) ", time_end - time_start)
+
+        timed_niters = niters
+        #logging.info("timed_niters = ", timed_niters)
+        print("timed_niters = ", timed_niters)
+
+        #tuning_timings = [0.0] * 16
+        tuning_timings = np.zeros(16, dtype=np.float32)
+        #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+
+        time_start = time.time()
+        for i in range(timed_niters):
+            if tuning_string_ncp is None or tuning_string_cp is None or len(tuning_string_ncp) == 0 or len(tuning_string_cp) == 0 or tuning_timings is None:
+                batchnorm_cpp.batchnorm_fwd(training, has_relu, has_eltwise, eps, opt_padding, inputs)
+            else:
+                #if preallocated_output:
+                #    conv_cpp.conv_fwd_preallocated_output_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings, allocated_y_bf16)
+                #else:
+                    #conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+                #    conv_cpp.conv_fwd_as_fused_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
+                batchnorm_cpp.batchnorm_fwd_ext(training, has_relu, has_eltwise, eps, opt_padding, tuning_string_ncp, tuning_string_cp, inputs)
+        time_end = time.time()
+        time_per_iter = (time_end - time_start) / timed_niters
+
+        #print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
+
+        print("Timed loop took (s) ", time_end - time_start)
+        print("Final perf time: ", time_per_iter)
+        gflop = batchnorm_cpp.batchnorm_fwd_get_gflop(N, C, H, W)
+        basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(C) + " " + str(has_relu) + " " + str(has_eltwise) + " " + str(track_running_stats)
+        print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(bc) + " tuning_string_ncp: " + str(tuning_string_ncp) + " tuning_string_cp: " + str(tuning_string_cp))
+
+
     if with_perf:
         print("Performance part is not implemented for this test!")
 
@@ -352,30 +461,42 @@ def main():
 
     bc = args.bc
 
-    
-    with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
-        contents = f.readlines()
-        for line in contents:
-            #print("line")
-            #print(type(line))
-            #print(line)
-            [N, C, H, W, has_relu, has_eltwise, track_running_stats] = list(line.split(" "))
-            #[inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
-            string_list = list(line.strip().split(" "))
-            has_relu    = False if has_relu.strip()    == 'False' else True
-            has_eltwise = False if has_eltwise.strip() == 'False' else True
-            track_running_stats = False if track_running_stats.strip() == 'False' else True
-            #print(string_list)
-            #print(string_list[:7])
-            #integer_map = map(int, string_list[:7])
-            #print(string_list[:4])
-            integer_map = map(int, string_list[:4])
-            #print(integer_map)
-            [N, C, H, W] = list(integer_map)
-            opt_padding = [0, 0, 0, 0] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
-            run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module)
+    if args.basic_sizes is not None:
+        if len(args.basic_sizes) != 7:
+            print("Error: basic sizes must have exactly 7 elements if defined (N, H, W, C, has_relu, has_eltwise, track_running_stats)")
+            exit()
+        [N, H, W, C, has_relu_int, has_eltwise_int, track_running_stats_int] = args.basic_sizes
+        has_relu            = False if has_relu_int == 0 else 1
+        has_eltwise         = False if has_eltwise_int == 0 else 1
+        track_running_stats = False if track_running_stats_int == 0 else 1
+        opt_padding = [0, 0, 0, 0] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
+        run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module,
+                        args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd)
+
+    else:
+        with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
+            contents = f.readlines()
+            for line in contents:
+                #print("line")
+                #print(type(line))
+                #print(line)
+                [N, C, H, W, has_relu, has_eltwise, track_running_stats] = list(line.split(" "))
+                #[inc, outc, K, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
+                string_list = list(line.strip().split(" "))
+                has_relu    = False if has_relu.strip()    == 'False' else True
+                has_eltwise = False if has_eltwise.strip() == 'False' else True
+                track_running_stats = False if track_running_stats.strip() == 'False' else True
+                #print(string_list)
+                #print(string_list[:7])
+                #integer_map = map(int, string_list[:7])
+                #print(string_list[:4])
+                integer_map = map(int, string_list[:4])
+                #print(integer_map)
+                [N, C, H, W] = list(integer_map)
+                opt_padding = [0, 0, 0, 0] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
+                run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module,
+                            args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd)
     exit()
-    
 
     # Just a single size run
     N=24 #16

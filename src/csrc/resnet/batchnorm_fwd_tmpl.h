@@ -125,14 +125,16 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
   auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
 
 #ifdef THREADED_LOOPS
-  char ncp_loop_specs_str[256] = "AB";
+  char ncp_loop_specs_str[256];// = "AB";
+  std::strcpy(ncp_loop_specs_str, tuning_string_ncp.c_str());
   const long n_step = 1, cp_step = 1;
   auto ncp_loop = ThreadedLoop<2>({
       LoopSpecs{0, N,  n_step,  {/*l1_k_step, l0_k_step*/}},   // Logical N  loop specs
       LoopSpecs{0, CP, cp_step, {/*l1_n_step, l0_n_step*/}}},  // Logical CP loop specs
       ncp_loop_specs_str);
 
-  char cp_loop_specs_str[256] = "A";
+  char cp_loop_specs_str[256];// = "A";
+  std::strcpy(cp_loop_specs_str, tuning_string_cp.c_str());
   auto cp_loop = ThreadedLoop<1>({
       LoopSpecs{0, CP, cp_step, {/*l1_k_step, l0_k_step*/}}},  // Logical CP loop specs
       cp_loop_specs_str);

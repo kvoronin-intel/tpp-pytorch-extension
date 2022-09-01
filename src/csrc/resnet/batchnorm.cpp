@@ -34,12 +34,14 @@ REGISTER_SCOPE(bn_bwd_d,        "bn_bwd_d");
 #   define BITS_PER_CHAR (8)
 #endif
 
-std::vector<at::Tensor> batchnorm_fwd(
+std::vector<at::Tensor> batchnorm_fwd_ext(
     bool  training,
     bool  relu,
     bool  eltwise,
     float eps,
     std::vector<long> padding,
+    std::string tuning_string_ncp,
+    std::string tuning_string_cp,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
@@ -49,6 +51,18 @@ std::vector<at::Tensor> batchnorm_fwd(
     typedef bfloat16 T;
 #include "batchnorm_fwd_tmpl.h"
   }
+}
+
+std::vector<at::Tensor> batchnorm_fwd(
+    bool  training,
+    bool  relu,
+    bool  eltwise,
+    float eps,
+    std::vector<long> padding,
+    std::vector<at::Tensor> inputs) {
+  std::string default_string_ncp{"AB"};
+  std::string default_string_cp {"A"};
+  return batchnorm_fwd_ext(training, relu, eltwise, eps, padding, default_string_ncp, default_string_cp, inputs);
 }
 
 std::vector<at::Tensor> batchnorm_bwd_ext(
@@ -92,6 +106,17 @@ int batchnorm_get_c_block( int C /*, datatype as an int flag? */ )
   return bc;
 }
 
+double batchnorm_fwd_get_gflop(int N, int C, int H, int W)
+{
+  double gflop = 0.0;
+  /* gflop count for batchnorms */
+  double coeff_batchnorm = 7.0; /* 3 for stats + 4 for scaling */
+  gflop += coeff_batchnorm * (double)N * (double)C * (double)H * (double)W / (1000*1000*1000);
+
+  return gflop;
+}
+
+
 REGISTER_SUBMODULE(_batchnorm, m) {
   m.def(
       "batchnorm_fwd",
@@ -105,6 +130,8 @@ REGISTER_SUBMODULE(_batchnorm, m) {
       "batchnorm_get_c_block",
       &batchnorm_get_c_block,
       "Pcl BN get_c_block");
+  m.def("batchnorm_fwd_ext", &batchnorm_fwd_ext, "Pcl BN forward with tuning parameters (strings)");
   m.def("batchnorm_bwd_ext", &batchnorm_bwd_ext, "Pcl BN backward with tuning parameters (strings)");
+  m.def("batchnorm_fwd_get_gflop", &batchnorm_fwd_get_gflop, "Pcl BN forward get gflop count (7NCHW)");
 }
 

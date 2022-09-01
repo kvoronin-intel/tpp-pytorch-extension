@@ -16,7 +16,7 @@ from contextlib import contextmanager
 
 class DummyBatchNormFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, training, relu, eltwise, eps, padding, *inputs):
+    def forward(ctx, training, relu, eltwise, eps, padding, tuning_string_ncp, tuning_string_cp, *inputs):
         # print("DummyBatchNormFunction FWD Called")
 
         #( input, input_add, weight, bias, mean, var, scratch ) = inputs
@@ -29,7 +29,10 @@ class DummyBatchNormFunction(torch.autograd.Function):
         #for t in inputs:
         #    print("shape dtype of t = ", t.shape, t.dtype)
 
-        ( output, relu_mask, scratch ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
+        if tuning_string_ncp is not None and tuning_string_cp is not None:
+            ( output, relu_mask, scratch ) = batchnorm_cpp.batchnorm_fwd_ext(training, relu, eltwise, eps, padding, tuning_string_ncp, tuning_string_cp, inputs)
+        else:
+            ( output, relu_mask, scratch ) = batchnorm_cpp.batchnorm_fwd(training, relu, eltwise, eps, padding, inputs)
 
         if training:
             ctx.save_for_backward(input, weight, mean, var, relu_mask, scratch)
@@ -123,9 +126,13 @@ class DummyBatchNormFunction(torch.autograd.Function):
 
         # print("Returning from DummyBatchNormFunction BWD")
         if ctx.eltwise:
-            return (None, None, None, None, None, grad_input, grad_input_add, grad_weight, grad_bias, None, None) #, None)
+            return (None, None, None, None, None, # for training, relu, eltwise, eps, padding,
+                    None, None, # for two tuning strings
+                    grad_input, grad_input_add, grad_weight, grad_bias, None, None) #, None)
         else:
-            return (None, None, None, None, None, grad_input,                 grad_weight, grad_bias, None, None) #, None)
+            return (None, None, None, None, None, # for training, relu, eltwise, eps, padding,
+                    None, None, # for two tuning strings
+                    grad_input,                 grad_weight, grad_bias, None, None) #, None)
 
 class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
@@ -201,7 +208,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         self.weight.data.fill_(1.)
         self.bias.data.zero_()
 
-    def forward(self, input, input_add = None):
+    def forward(self, input, input_add = None, tuning_string_ncp = None, tuning_string_cp = None):
         N = input.size(0)
         self.H = input.size(2)
         self.W = input.size(3)
@@ -240,7 +247,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
                 inputs = [ blocked_input,                    self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
-        output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, *inputs) #output_size, *inputs)
+        output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, tuning_string_ncp, tuning_string_cp, *inputs) #output_size, *inputs)
 
         if self.training and self.track_running_stats:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.mean
