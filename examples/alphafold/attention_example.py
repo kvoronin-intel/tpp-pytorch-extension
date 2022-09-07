@@ -160,7 +160,7 @@ print(" Number of errors: ", B*S*HS - (torch.abs(Y1 - Y2)/r < 0.0001).sum())
 forward1 = 0                    # variables to store time values
 forward2 = 0
 
-N = 5                                      # Number of iterations
+N = 20                                      # Number of iterations
 for _ in range(N):                          # MKLDNN PyTorch layer Forward and Backward pass timing
     start = time.time()
     Y1 = net1(q_data, m_data, bias, nonbatched_bias)

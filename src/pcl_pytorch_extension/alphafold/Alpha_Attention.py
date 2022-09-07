@@ -24,6 +24,22 @@ class AlphaAttentionFunction(Function):
       gating_w, gating_b, output_w, output_b, key_dim, value_dim )
     return result
 
+def GatingAttentionOpti_forward(self, q_data, m_data, bias, nonbatched_bias=torch.Tensor()):
+    """Builds Attention module.
+    Arguments:
+      q_data: A tensor of queries, shape [batch_size, N_queries, q_channels].
+      m_data: A tensor of memories from which the keys and values are
+        projected, shape [batch_size, N_keys, m_channels].
+      bias: A bias for the attention, shape [batch_size, N_queries, N_keys].
+      nonbatched_bias: Shared bias, shape [N_queries, N_keys].
+    Returns:
+      A float32 tensor of shape [batch_size, N_queries, output_dim].
+    """
+
+    output = AlphaAttentionFunction.apply(q_data, m_data, bias, nonbatched_bias, 
+                 self.query_w, self.key_w, self.value_w,
+                 self.gating_w, self.gating_b, self.output_w, self.output_b, self.key_dim, self.value_dim )
+    return output
 
 class GatingAttentionOpti(nn.Module):
   """Multihead attention w/ Gating"""
