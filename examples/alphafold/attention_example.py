@@ -73,7 +73,7 @@ class GatingAttention(nn.Module):
 set = 1
 
 if set == 1:
-  B, S, HS = 512, 768, 256
+  B, S, HS = 512, 764, 256
   N, H = 8, 32
 
 if set == 2:
@@ -150,10 +150,10 @@ Y1 = net1(q_data, m_data, bias, nonbatched_bias)
 Y2 = net2(q_data, m_data, bias, nonbatched_bias)
 r = Y1.max() - Y1.min()
 
-print(Y1[3,3,10:15])
-print(Y2[3,3,10:15])
+# print(Y1[3,3,10:15])
+# print(Y2[3,3,10:15])
 print("    Foward pass check: ", ((torch.abs(Y1 - Y2)/r < 0.0001).sum() == B*S*HS).item())
-print("diff: ", r)
+# print("diff: ", r)
 print(" Number of errors: ", B*S*HS - (torch.abs(Y1 - Y2)/r < 0.0001).sum())
 
 

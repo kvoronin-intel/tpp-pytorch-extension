@@ -18,21 +18,16 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
-#define QKV_BLOCKSIZE 64
-#define A_BLOCKSIZE 64
-#define C_BLOCKSIZE 64
-#define W_BLOCKSIZE 64
-#define OUT_BLOCKSIZE 64
+#define QKV_BLOCKSIZE 128
+#define A_BLOCKSIZE 128
+#define C_BLOCKSIZE 128
 
 REGISTER_SCOPE(alpha_q_gemm, "alpha_q_gemm");
 REGISTER_SCOPE(alpha_k_gemm, "alpha_k_gemm");
 REGISTER_SCOPE(alpha_v_gemm, "alpha_v_gemm");
 
 REGISTER_SCOPE(alpha_a_gemm, "alpha_a_gemm");
-REGISTER_SCOPE(alpha_w_gemm, "alpha_w_gemm");
 REGISTER_SCOPE(alpha_c_gemm, "alpha_c_gemm");
-
-REGISTER_SCOPE(output_linear, "output_linear");
 
 at::Tensor fused_gating_attention_fwd(at::Tensor& q_data, at::Tensor& m_data, at::Tensor& bias, at::Tensor& nonbatched_bias,
                                     at::Tensor& query_w, at::Tensor& key_w, at::Tensor& value_w, 
