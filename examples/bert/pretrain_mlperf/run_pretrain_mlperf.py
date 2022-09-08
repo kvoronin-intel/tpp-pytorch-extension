@@ -635,6 +635,12 @@ def parse_args():
         action="store_true",
         help="Whether to use DistLamb from pcl_bert",
     )
+    parser.add_argument(
+        "--fused_param_norm",
+        default=False,
+        action="store_true",
+        help="Enable Fused Param Norm optimization with DistLamb from pcl_bert",
+    )
 
     parser.add_argument(
         "--weight_decay", type=float, default=0.0, help="Weight decay to use."
@@ -869,6 +875,7 @@ def prepare_model_and_optimizer(args, device):
             optimizer_grouped_parameters,
             lr=args.learning_rate,
             betas=(args.opt_lamb_beta_1, args.opt_lamb_beta_2),
+            fused_param_norm=args.fused_param_norm,
         )
     else:
         optimizer = Lamb(
