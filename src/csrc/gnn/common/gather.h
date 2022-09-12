@@ -27,7 +27,7 @@
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(int64_t, idx, [0], t_idx);
+      DECL_VLA_PTR_PT(int64_t, idx, [1], t_idx);
       DECL_VLA_PTR_PT(T, out, [E], t_out);
       auto gather_tpp =
           SCOPEIT((EmbeddingFwdTPP<T, int64_t, T>(rem, E, E, E)), ROW_GT);

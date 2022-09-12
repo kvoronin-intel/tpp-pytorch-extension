@@ -1,6 +1,7 @@
 #ifndef _BERT_TIMING_H_
 #define _BERT_TIMING_H_
 
+#include <immintrin.h>
 #include <omp.h>
 #include "utils.h"
 
