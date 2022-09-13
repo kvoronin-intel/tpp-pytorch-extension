@@ -285,6 +285,96 @@ std::vector<at::Tensor> node_sampling(
   }
 }
 
+void mapped_spmm(std::vector<at::Tensor> inputs, long doffset, long soffset, string op, string redop) {
+  auto t_dest   = inputs[0];
+  auto t_ind    = inputs[1];
+  auto t_didx   = inputs[2];
+  auto t_sidx   = inputs[3];
+  auto t_omap   = inputs[4];
+  auto t_source = inputs[5];
+
+  if(t_dest.dtype() == at::kFloat) {
+    typedef float T;
+    {
+      long *ind = t_ind.data_ptr<long>();
+      T *dest = t_dest.data_ptr<T>();
+      T *source = t_source.data_ptr<T>();
+      int *omap = t_omap.data_ptr<int>();
+      long *didx = t_didx.data_ptr<long>();
+      long *sidx = t_sidx.data_ptr<long>();
+
+      auto t_sidx_val = get_valid_indices(t_omap, t_sidx, t_ind);
+      int *sidx_val = t_sidx_val.data_ptr<int>();
+      auto N = t_ind.size(0);
+
+      libxsmm_meltw_opreduce_vecs_flags opredop_flags;
+      if(op == "add")
+        opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_ADD;
+      else if(op == "sub")
+        opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_SUM;
+      else if(op == "mul")
+        opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_MUL;
+      else if(op == "div")
+        opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_DIV;
+      else if(op == "copylhs") {
+        opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_COPY;
+      }
+      else if(op == "copyrhs") {
+        opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_COPY;
+      }
+
+      if(op == "copylhs")
+        opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags | 
+            LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OPORDER_VECIDX_VECIN);
+      else if(op == "copyrhs") {
+        opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags | 
+            LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OPORDER_VECIN_VECIDX);
+        if(!has_idx)
+          opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+              LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_IMPLICIT_INDEXED_VECIDX);
+      }
+      else {
+        opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+            LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OPORDER_VECIDX_VECIN);
+        if (has_idx) {
+          opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+              LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_INDEXED_VEC);
+        } else {
+          opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+              LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_IMPLICIT_INDEXED_VEC);
+        }
+      }
+
+      if(redop == "sum") 
+        opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+            LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_REDOP_SUM);
+      else if(redop == "min")
+        opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+            LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_REDOP_MIN);
+      else if(redop == "max")
+        opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
+            LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_REDOP_MAX);
+    }
+    libxsmm_meltwfunction_opreduce_vecs_idx kernel = nullptr;
+    kernel = libxsmm_dispatch_meltw_opreduce_vecs_idx(
+        N, &N, &N, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32,
+        (sizeof(ind) == 8) ? LIBXSMM_DATATYPE_I64 : LIBXSMM_DATATYPE_I32, opredop_flags);
+
+#pragma omp parallel 
+    {
+#pragma omp for schedule(dynamic)
+      for(int i=0; i<N-1; i++) {
+        long row_start = indptr[i];
+        long row_end = indptr[i+1];
+        long 
+      }
+    }
+  }
+  else if(t_dest.dtype() == at::kBFloat16) {
+    typedef bfloat16 T;
+  }
+}
+
 void affinitize_cores(const int nthreads, const int num_workers) {
 #pragma omp parallel
   {
