@@ -13,6 +13,10 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
+
 static int my_rank = guess_mpi_rank();
 
 #define THREADED_LOOPS
@@ -42,6 +46,7 @@ std::vector<at::Tensor> batchnorm_fwd_ext(
     std::vector<long> padding,
     std::string tuning_string_ncp,
     std::string tuning_string_cp,
+    pybind11::array_t<float>& tuning_timings,
     std::vector<at::Tensor> inputs) {
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
@@ -62,7 +67,12 @@ std::vector<at::Tensor> batchnorm_fwd(
     std::vector<at::Tensor> inputs) {
   std::string default_string_ncp{"AB"};
   std::string default_string_cp {"A"};
-  return batchnorm_fwd_ext(training, relu, eltwise, eps, padding, default_string_ncp, default_string_cp, inputs);
+  pybind11::array_t<float> default_tuning_timings(16);
+  float *ptr = default_tuning_timings.mutable_data();
+  for (int i = 0; i < 16; i++)
+      ptr[i] = 0.0;
+
+  return batchnorm_fwd_ext(training, relu, eltwise, eps, padding, default_string_ncp, default_string_cp, default_tuning_timings, inputs);
 }
 
 std::vector<at::Tensor> batchnorm_bwd_ext(

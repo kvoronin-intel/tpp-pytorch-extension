@@ -49,18 +49,20 @@ parser.add_argument('--tuning-string-cp', default=None, type=str, help='tuning s
 parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_28thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
-parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N, H, W, C, has_relu, has_eltwise, track_running_stats for the bn')
+parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N, H, W, C, has_relu, has_eltwise, track_running_stats, pad_in, pad_out for the bn')
 
 parser.add_argument('--niters', type=int, default=100, help='number of timed iterations')
 parser.add_argument('--niters-warmup', type=int, default=10, help='number of warmup iterations')
 
 parser.add_argument("--perf-fwd", action="store_true", default=False, help='if true, runs forward perf', dest='perf_fwd')
 
+parser.add_argument("--scale-only", action="store_true", default=False, help='if true, runs only scale part of the batchnorm in fwd perf', dest='scale_only')
+
 torch.autograd.set_detect_anomaly(True)
 
-def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module, tuning_string_ncp, tuning_string_cp, niters, niters_warmup, perf_fwd):
-    print("debug: run_test_bn called with N H W C bc, opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module tuning_string_ncp tuning_string_cp niters niters_warmup perf_fwd",
-            N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module, tuning_string_ncp, tuning_string_cp, niters, niters_warmup, perf_fwd)
+def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module, tuning_string_ncp, tuning_string_cp, niters, niters_warmup, perf_fwd, scale_only):
+    print("debug: run_test_bn called with N H W C bc, opt_padding has_relu has_eltwise track_running_stats opt_dtype ref_dtype with_perf test_module tuning_string_ncp tuning_string_cp niters niters_warmup perf_fwd scale_only",
+            N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, with_perf, test_module, tuning_string_ncp, tuning_string_cp, niters, niters_warmup, perf_fwd, scale_only)
 
     eps=1.e-7
 
@@ -230,16 +232,17 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
 
     #y1 = opt_conv(x1, x1_add)
     #y2 = relu(torch_conv(x2) + x2_add)
+    dummy_tuning_timings = np.zeros(16, dtype=np.float32)
     if has_eltwise == True:
         #y1 = opt_bn(xp, xp_add)
         if perf_fwd:
-            y1 = opt_bn(x1, x1_add, tuning_string_ncp=tuning_string_ncp, tuning_string_cp=tuning_string_cp)
+            y1 = opt_bn(x1, x1_add, tuning_string_ncp=tuning_string_ncp, tuning_string_cp=tuning_string_cp, tuning_timings=dummy_tuning_timings)
         else:
             y1 = opt_bn(x1, x1_add)
     else:
         #y1 = opt_bn(xp)
         if perf_fwd:
-            y1 = opt_bn(x1, tuning_string_ncp=tuning_string_ncp, tuning_string_cp=tuning_string_cp)
+            y1 = opt_bn(x1, tuning_string_ncp=tuning_string_ncp, tuning_string_cp=tuning_string_cp, tuning_timings=dummy_tuning_timings)
         else:
             y1 = opt_bn(x1)
 
@@ -387,7 +390,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         )
         if has_eltwise:
             blocked_input_add = opt_bn.get_blocked_tensor(x1_add, opt_bn.blocked_input_signature, [None, bc, None, None])
-            inputs = [blocked_input, block_input_add, opt_bn.weight, opt_bn.bias, opt_bn.mean, opt_bn.var]
+            inputs = [blocked_input, blocked_input_add, opt_bn.weight, opt_bn.bias, opt_bn.mean, opt_bn.var]
         else:
             inputs = [blocked_input, opt_bn.weight, opt_bn.bias, opt_bn.mean, opt_bn.var]
 
@@ -402,7 +405,8 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         dummy_tuning_timings = np.zeros(16, dtype=np.float32)
         time_start = time.time()
 
-        training = True
+        training = not scale_only
+        print("training = ", training)
         eps = 1e-7
         for i in range(warmup_niter):
             if tuning_string_ncp is None or tuning_string_cp is None or len(tuning_string_ncp) == 0 or len(tuning_string_cp) == 0 or dummy_tuning_timings is None:
@@ -413,7 +417,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
                 #else:
                     #conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
                 #    conv_cpp.conv_fwd_as_fused_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
-                batchnorm_cpp.batchnorm_fwd_ext(training, has_relu, has_eltwise, eps, opt_padding, tuning_string_ncp, tuning_string_cp, inputs)
+                batchnorm_cpp.batchnorm_fwd_ext(training, has_relu, has_eltwise, eps, opt_padding, tuning_string_ncp, tuning_string_cp, dummy_tuning_timings, inputs)
 
         time_end = time.time()
         print("Warmup took (s) ", time_end - time_start)
@@ -436,7 +440,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
                 #else:
                     #conv_cpp.conv_fwd_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
                 #    conv_cpp.conv_fwd_as_fused_ext(conv_cfg, inputs, tuning_params, tuning_string, dummy_tuning_timings)
-                batchnorm_cpp.batchnorm_fwd_ext(training, has_relu, has_eltwise, eps, opt_padding, tuning_string_ncp, tuning_string_cp, inputs)
+                batchnorm_cpp.batchnorm_fwd_ext(training, has_relu, has_eltwise, eps, opt_padding, tuning_string_ncp, tuning_string_cp, tuning_timings, inputs)
         time_end = time.time()
         time_per_iter = (time_end - time_start) / timed_niters
 
@@ -448,9 +452,18 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(C) + " " + str(has_relu) + " " + str(has_eltwise) + " " + str(track_running_stats)
         print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(bc) + " tuning_string_ncp: " + str(tuning_string_ncp) + " tuning_string_cp: " + str(tuning_string_cp))
 
+        print("PERFDUMP,FP,na,"  + str(N) + "," + str(N) + "," + str(C) + "," + str(C) + "," + str(H) + "," + str(W) + "," + "na" + "," + "na" + "," + "na" + "," + str(opt_padding[0]) + "," + str(opt_padding[1]) + "," + str(time_per_iter) + "," + str(gflop/time_per_iter) + ',' + str(has_relu) + ',' + str(has_eltwise) + ',' + str(training))
 
-    if with_perf:
-        print("Performance part is not implemented for this test!")
+        print("memory (1 tensor) per core (bytes/Kb/Mb): ", H * W * C * (2 if opt_dtype==torch.bfloat16 else 4),
+                                                            H * W * C * (2 if opt_dtype==torch.bfloat16 else 4) / 1024.0,
+                                                            H * W * C * (2 if opt_dtype==torch.bfloat16 else 4) / 1024.0 / 1024.0)
+
+        # Checking the timings
+        print("timings: b1 full without pre: ", tuning_timings[0], tuning_timings[0] / timed_niters, gflop, gflop / (tuning_timings[0] / timed_niters) if tuning_timings[0] != 0.0 else 0.0)
+        print("timings: b1 full: ", tuning_timings[1], tuning_timings[1] / timed_niters, gflop, gflop / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
+        print("timings: b1 stats: ", tuning_timings[2], tuning_timings[2] / timed_niters)#, gflop, gflop / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
+        print("timings: b1 reduce: ", tuning_timings[3], tuning_timings[3] / timed_niters)#, gflop, gflop / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
+        print("timings: b1 scale: ", tuning_timings[4], tuning_timings[4] / timed_niters)#, gflop, gflop / (tuning_timings[1] / timed_niters) if tuning_timings[1] != 0.0 else 0.0)
 
     return
     #exit()
@@ -462,16 +475,16 @@ def main():
     bc = args.bc
 
     if args.basic_sizes is not None:
-        if len(args.basic_sizes) != 7:
-            print("Error: basic sizes must have exactly 7 elements if defined (N, H, W, C, has_relu, has_eltwise, track_running_stats)")
+        if len(args.basic_sizes) != 9:
+            print("Error: basic sizes must have exactly 7 elements if defined (N, H, W, C, has_relu, has_eltwise, track_running_stats, pad_in, pad_out)")
             exit()
-        [N, H, W, C, has_relu_int, has_eltwise_int, track_running_stats_int] = args.basic_sizes
+        [N, H, W, C, has_relu_int, has_eltwise_int, track_running_stats_int, pad_in, pad_out] = args.basic_sizes
         has_relu            = False if has_relu_int == 0 else 1
         has_eltwise         = False if has_eltwise_int == 0 else 1
         track_running_stats = False if track_running_stats_int == 0 else 1
-        opt_padding = [0, 0, 0, 0] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
+        opt_padding = [pad_in, pad_in, pad_out, pad_out] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
         run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module,
-                        args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd)
+                        args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd, args.scale_only)
 
     else:
         with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
@@ -495,7 +508,7 @@ def main():
                 [N, C, H, W] = list(integer_map)
                 opt_padding = [0, 0, 0, 0] #[0, 0, 1, 1] #[1, 1, 0, 0] #[0, 0, 1, 1] #[4, 4, 6, 6] #[0, 0, 0, 0] #[4, 4, 6, 6]
                 run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_running_stats, opt_dtype, ref_dtype, args.with_perf, args.test_module,
-                            args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd)
+                            args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd, args.scale_only)
     exit()
 
     # Just a single size run

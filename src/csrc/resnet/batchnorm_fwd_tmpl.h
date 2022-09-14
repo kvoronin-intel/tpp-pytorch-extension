@@ -1,6 +1,20 @@
 RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 
 /*        ( input, input_add, weight, bias, mean, var ) = inputs */
+#define TIMING
+
+#define NUM_ITER_PERF_DEBUG 1
+
+// Debugging macro which initializes coeffs and inp for scaling part with simple constants
+//#define SIMPLE_COEFFS
+
+#ifdef TIMING
+  double t_start = 0.0, t_end = 0.0, t_bn_start = 0.0, t_bn_reduce_start = 0.0, t_bn_scale_start = 0.0;
+#endif
+
+#ifdef TIMING
+t_start = getTime();
+#endif
 
 //#define VERBOSE
 
@@ -140,7 +154,12 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
       cp_loop_specs_str);
 #endif
 
+#ifdef TIMING
+  t_bn_start = getTime();
+#endif
+
   if (training) {
+    for (int i = 0; i < NUM_ITER_PERF_DEBUG; i++)
     {
       RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
       {
@@ -205,6 +224,11 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
       } /* end of the scope with recorded parallel for */
     } /* end of the bn_fwd_reduce scope */
 
+#ifdef TIMING
+    t_bn_reduce_start = getTime();
+#endif
+
+    for (int i = 0; i < NUM_ITER_PERF_DEBUG; i++)
     {
       RECORD_SCOPE(bn_fwd_stats, {});
       {
@@ -250,6 +274,11 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
     } /* end of the bn_fwd_stats scope */
   } /* end of if (training) for computing the stats */
 
+#ifdef TIMING
+    t_bn_scale_start = getTime();
+#endif
+
+  for (int i = 0; i < NUM_ITER_PERF_DEBUG; i++)
   {
     RECORD_SCOPE(bn_fwd_scale, {});
     {
@@ -372,6 +401,29 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
   } /* end of the bn_fwd_scale scope */
 
 } /* end of the dummy scope */
+
+#ifdef TIMING
+  t_end = getTime();
+#endif
+
+
+#ifdef TIMING
+  auto buf = tuning_timings.request();
+  float* ptr = (float*)buf.ptr;
+  ptr[0] += t_end - t_bn_start;
+  ptr[1] += t_end - t_start;
+//  ptr[2] += t_bn_reduce_start - t_bn_start;
+//  ptr[3] += t_bn_scale_start  - t_bn_reduce_start;
+  ptr[4] += t_end  - t_bn_scale_start;
+#endif
+
+#ifdef VERBOSE
+  #undef VERBOSE
+#endif
+
+#ifdef TIMING
+  #undef TIMING
+#endif
 
 //return std::vector<at::Tensor>({t_O, t_relu_mask, inputs[6]});
 return std::vector<at::Tensor>({t_O, t_relu_mask, t_scratch});
