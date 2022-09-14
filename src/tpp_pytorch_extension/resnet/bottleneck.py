@@ -28,6 +28,9 @@ import numpy as np
 import pcl_cgbp
 import pcl_cgbp_cpp
 
+# for debugging performance
+import time
+
 # Generic base class for batchnorm/groupnorm bottleneck (with a control flag for the norm in the constructor)
 # Copied from the CNN repo
 class Bottleneck_base(nn.Module):
@@ -254,6 +257,7 @@ class BottleneckApplyBNTPP(Function):
     def forward(ctx, config, training, tuning_params, tuning_strings, tuning_timings_fwd, tuning_params_d, tuning_strings_d, tuning_params_w, tuning_strings_w, tuning_timings_bwd, *inputs ):
 
         #print("dbg: in bottleneck bn apply tpp forward")
+        time_start = time.time()
 
         #bn_norm_type = 0 if training else 1
 
@@ -346,6 +350,31 @@ class BottleneckApplyBNTPP(Function):
             bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
             b1s_out, b2s_out, b3s_out, b4s_out ) = bottleneck_cpp.bottleneck_bn_fwd_ext(config, training, inputs, tuning_params, tuning_strings, tuning_timings_fwd) #_tensors)
         #print("dbg: bottleneck_forward_new called")
+
+        print("perfdebug: checking for bottleneck in bwd with cfg C K H W stride: ", config.inplanes, config.planes, config.H, config.W, config.stride)
+        print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.inplanes) + "," + str(config.planes)   + "," + str(config.H) + "," + str(config.W) + "," + str(1) + "," + str(1) + "," + str(1)             + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[0]) + "," + str(1.0))
+        print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H) + "," + str(config.W) + "," + str(3) + "," + str(3) + "," + str(config.stride) + "," + str(1) + "," + str(1) + "," + str(tuning_timings_fwd[1]) + "," + str(1.0))
+        print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + str(1) + "," + str(1) + "," + str(1)             + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[2]) + "," + str(1.0))
+        if config.has_residual_conv:
+            print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.inplanes) + "," + str(4*config.planes) + "," + str(config.H) + "," + str(config.W) + "," + str(1) + "," + str(1) + "," + str(config.stride) + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[3]) + "," + str(1.0))
+
+        print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H)                  + "," + str(config.W)                  + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(1) + "," + str(tuning_timings_fwd[4]) + "," + str(1.0) + ',' + str(1) + ',' + str(0) + ',' + str(training))
+        print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + "na" + "," + "na" + "," + "na" + "," + str(1) + "," + str(0) + "," + str(tuning_timings_fwd[5]) + "," + str(1.0) + ',' + str(1) + ',' + str(0) + ',' + str(training))
+        print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(4*config.planes) + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[6]) + "," + str(1.0) + ',' + str(1) + ',' + str(1) + ',' + str(training))
+        if config.has_residual_conv:
+            print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(4*config.planes) + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride)                  + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[7]) + "," + str(1.0) + ',' + str(0) + ',' + str(0) + ',' + str(training))
+        #print("time: conv = ", config.inplanes, config.planes, config.H, config.W, 1, 1, tuning_timings_fwd[0], "(c1)")
+        #print("time: conv = ", config.planes, config.planes, config.H, config.W, 1, config.stride, tuning_timings_fwd[1], "(c2)")
+        #print("time: conv = ", config.planes, 4*config.planes, config.H, config.W, 1, 1, tuning_timings_fwd[2], "(c3)")
+        #print("time: conv = ", config.inplanes, 4*config.planes, config.H, config.W, 1, config.stride, tuning_timings_fwd[3], "(c4)")
+        #print("time: b1 = ", tuning_timings_fwd[4])
+        #print("time: b2 = ", tuning_timings_fwd[5])
+        #print("time: b3 = ", tuning_timings_fwd[6])
+        #print("time: b4 = ", tuning_timings_fwd[7])
+        #print("time: c1b1 = ", tuning_timings_fwd[8])
+        #print("time: c2b2 = ", tuning_timings_fwd[9])
+        #print("time: c3b3 = ", tuning_timings_fwd[10])
+        #print("time: c4b4 = ", tuning_timings_fwd[11])
 
         if config.has_residual_conv == 0:
             dummy_tensor = torch.empty(1)
@@ -516,6 +545,10 @@ class BottleneckApplyBNTPP(Function):
                               bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
                               b1s_out, b2s_out, b3s_out, b4s_out)
                               #c1s, c2s, c3s, c4s, b1s_out, b2s_out, b3s_out, b4s_out) # FIXME, must be cNs_out!
+
+        time_btlnk_fwd = time.time() - time_start
+
+        print("time_btlnk_fwd (C K H W stride) = ", config.inplanes, config.planes, config.H, config.W, config.stride, time_btlnk_fwd)
 
         return output
 
@@ -737,7 +770,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [4, 1, 4, 1, 4, 1, 4, 1, # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbdced', 'Afgbdced', 'Afgbdced', 'Afgbdced'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1, # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
@@ -753,7 +786,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [4, 1, 4, 1, 4, 1, 4, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbdced', 'Afgbdced', 'Afgbdced', 'Afgbdced'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 #self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
@@ -770,7 +803,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          0, 0 ] # pack_input, fuse_stats
                 #self.tuning_strings_fwd = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_strings_fwd = ['Afgbedc', 'Afgbedc', 'Afgbedc', 'Afgbedc'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
@@ -787,7 +820,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [7, 1, 7, 1, 7, 1, 7, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           1, 1, 1, 1, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbdecd', 'Afgbdecd', 'Afgbdecd', 'Afgbdecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -819,7 +852,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                           1, 2, 1, 1, 1, 2, 1, 1 , # c,k blocks
                                           2, 2, 2, 2, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -835,7 +868,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                           1, 8, 1, 4, 1, 8, 1, 4 , # c,k blocks
                                           2, 1, 7, 7, # h_in_gemms
-                                          1, 1 ] # pack_input, fuse_stats
+                                          1, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -851,7 +884,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                           7, 7, 7, 7, # h_in_gemms
-                                          0, 1 ] # pack_input, fuse_stats
+                                          0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['ACfgbdec', 'ACfgbdec', 'ACfgbdec', 'ACfgbdec']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
