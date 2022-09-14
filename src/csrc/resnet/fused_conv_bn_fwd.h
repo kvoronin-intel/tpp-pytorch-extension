@@ -392,7 +392,17 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
   auto kb_loop = ThreadedLoop<1>({
       LoopSpecs{0, Kb, bn_kb_step, {/*l1_k_step, l0_k_step*/}}},  // Logical Kb loop specs
       kb_loop_specs_str);
+
+#ifdef VERBOSE
+  int track_running_stats=0; /* doesn't matter */
+  printf("bn_ext fwd string: python -u test_bn_ext.py --test-module ext_tpp %s --perf-fwd --bc %d --basic-sizes %d %d %d %d %d %d %d %d %d --tuning-string-ncp %s --tuning-string-cp %s --niters 1 --niters-warmup 1 \n",
+                                        (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc,
+                                        N, H, W, conv_cfg.K, relu, eltwise, track_running_stats, bn_pad_h_in, bn_pad_h_out,
+                                        nkb_loop_specs_str, kb_loop_specs_str);
+#endif
+
 #endif /* #ifndef NO_BATCHNORM */
+
 
 #ifdef VERBOSE
 std::cout << "Running conv part in conv/bn fusion" << std::endl;
