@@ -651,6 +651,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   py::class_<bottleneck_bn_config>(m, "bottleneck_bn_config")
   .def(py::init<>())
   .def_readwrite("has_residual_conv", &bottleneck_bn_config::has_residual_conv)
+  .def_readwrite("N", &bottleneck_bn_config::N)
   .def_readwrite("inplanes", &bottleneck_bn_config::inplanes)
   .def_readwrite("planes", &bottleneck_bn_config::planes)
   .def_readwrite("H", &bottleneck_bn_config::H)
