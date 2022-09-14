@@ -18,6 +18,24 @@ t_start = getTime();
 
 //#define VERBOSE
 
+int zero_output_upfront = 0;
+/*
+const char* const env_prec_str = getenv("ZERO_OUTPUT_UPFRONT");
+if (0 == env_prec_str) {
+  zero_output_upfront = 0;
+} else {
+  zero_output_upfront = atoi(env_prec_str);
+}
+*/
+int bcast_upfront = 0;
+/*
+const char* const env_prec_str2 = getenv("BCAST_UPFRONT");
+if (0 == env_prec_str2) {
+  bcast_upfront = 0;
+} else {
+  bcast_upfront = atoi(env_prec_str2);
+}
+*/
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 at::Tensor t_IA, t_W, t_B, t_M, t_V;
 if (eltwise) {
@@ -80,10 +98,24 @@ auto t_scratch = at::empty(scratch_size, torch::TensorOptions().dtype(at::kFloat
 
 bool use_hw_blocking = true;
 
-const long num_HW_blocks = (H > W ? H : W);
-const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
+int num_HW_blocks = 1;
+//#if 0
+if (H * W * bc * sizeof(T) <= 16384)
+  num_HW_blocks = 1;
+else if ((H%2 == 0 || W%2 == 0) && (H * W * bc * sizeof(T) / 2 <= 16384))
+  num_HW_blocks = 2;
+else if ((H%2 == 0 && W%2 == 0) && (H * W * bc * sizeof(T) / 4 <= 16384))
+  num_HW_blocks = 4;
+else if (H > W)
+  num_HW_blocks = H;
+else
+  num_HW_blocks = W;
+//#endif
 
-long spatial_block_size = 0;
+//const int num_HW_blocks = (H > W ? H : W);
+const int num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
+
+int spatial_block_size = 0;
 
 if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   use_hw_blocking    = false; /* alternative is w blocking ([w, bc] blocks) */
@@ -93,12 +125,28 @@ if (pad_h_in != 0 || pad_w_in != 0 || pad_h_out != 0 || pad_w_out != 0 ) {
   spatial_block_size = H * W / num_HW_blocks;
 }
 
+
 #ifdef VERBOSE
 std::cout << "padding = " << padding << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
+std::cout << "training = " << training << std::endl;
+std::cout << "relu = " << relu << std::endl;
+std::cout << "eltwise = " << eltwise << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
+std::cout << "num_HW_blocks = " << num_HW_blocks << " num_W_blocks = " << num_W_blocks<< std::endl;
+std::cout << "spatial_block_size = " << spatial_block_size << std::endl;
+
+if (zero_output_upfront)
+std::cout << "ZERO_OUTPUT_UPFRONT is enabled (with full H-W-bc processing without any blocking)" << std::endl;
+else
+std::cout << "ZERO_OUTPUT_UPFRONT is not enabled (with full H-W-bc processing without any blocking)" << std::endl;
+
+if (bcast_upfront)
+std::cout << "BCAST_UPFRONT is enabled (with full H-W-bc processing without any blocking)" << std::endl;
+else
+std::cout << "BCAST_UPFRONT is not enabled (with full H-W-bc processing without any blocking)" << std::endl;
 #endif
 
 {
@@ -136,7 +184,55 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
 
   auto zero_wp_tpp = SCOPEIT(SetZeroTPP<T>(pad_w_out, bc, bc), EW_ZERO);          /* pad_w_out, bc because of row-major for unary */
 
-  auto normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
+  
+  SCOPEIT_DECL(SetZeroTPP<T>)               zero_upfront_tpp;
+//  SCOPEIT_DECL(UnaryTPP)                    bcast_upfront_tpp;
+  SCOPEIT_DECL(CpyBiasTPP<float,float>)     bcast_upfront_tpp;
+  SCOPEIT_DECL(BatchNormFwdScaleTPP<T,T>)   normalize_tpp;
+
+if (zero_output_upfront)
+  zero_upfront_tpp = SCOPEIT(SetZeroTPP<T>(ofhp*ofwp*bc), EW_ZERO);
+
+
+#ifdef VERBOSE
+  printf("JITTING normalize_tpp\n");
+#endif
+
+if (zero_output_upfront) {
+if (bcast_upfront) {
+  //bcast_upfront_tpp = SCOPEIT(UnaryTPP<T>(bc, W, bc, bc*W, ofhp*ofwp*bc, dt,dt,dt, XsmmDtype<T>, XsmmDtype<T>, XsmmDtype<T>, LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, EW_ZERO);
+  //printf("bcast_upfront arguments\n");
+  bcast_upfront_tpp = SCOPEIT((CpyBiasTPP<float,float>(W, bc)), EW_ZERO);
+  //printf("constructor arguments: %d %d %d %d %d %d\n", bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise);
+  normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise, 1)), NORMALIZE);
+} else {
+  //printf("normalize_tpp constructor call needs to be changed to work for ZERO_OUTPUT_UPFRONT\n");
+  //exit(-1);
+  //printf("constructor arguments: %d %d %d %d %d %d\n", bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise);
+  normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise)), NORMALIZE);
+}
+} else {
+  normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
+}
+
+#ifdef VERBOSE
+  printf("JITTING dbg_copy_tpp\n");
+#endif
+  auto dbg_copy_tpp = SCOPEIT((CpyTPP<T>(1, bc*spatial_block_size)), EW_COPY);
+
+#ifdef VERBOSE
+  printf("JITTING dbg_copy_hwbc_tpp\n");
+#endif
+  auto dbg_copy_hwbc_tpp = SCOPEIT((CpyTPP<T>(bc*ifhp*ifwp)), EW_COPY);
+
+#ifdef VERBOSE
+  printf("JITTING dbg_copy_full_tpp\n");
+#endif
+  auto dbg_copy_full_tpp = SCOPEIT((CpyTPP<T>(bc*CP*ifhp*ifwp)), EW_COPY);
+
+#ifdef VERBOSE
+  printf("bc * spatial_block_size (block for batchnorm scale) = %d (bytes) = %3.3f (Kb) = %3.3f (Mb)\n", bc * spatial_block_size * sizeof(T), bc * spatial_block_size * sizeof(T) / 1024.0, bc * spatial_block_size * sizeof(T) / 1024.0 / 1024.0);
+#endif
 
 #ifdef THREADED_LOOPS
   char ncp_loop_specs_str[256];// = "AB";
@@ -295,11 +391,80 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
           DECL_VLA_PTR_PT    (float,         beta,     [bc],                 t_B);
           DECL_VLA_PTR_PT    (float,         mean,     [bc],     t_M);
           DECL_VLA_PTR_PT    (float,         var,      [bc],     t_V);
-
+//#ifdef ZERO_OUTPUT_UPFRONT
+          DECL_VLA_PTR_PT_EXT(T,             out_shifted,      [CP][ofhp][ofwp][bc], t_O, (ho_start * ofwp + wo_start) * bc);
+          DECL_VLA_PTR_PT_EXT(unsigned char, relumask_shifted, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_relu_mask, (ho_start * ofwp + wo_start) * bc/BITS_PER_CHAR);
+//#endif
           LIBXSMM_ALIGNED(float s[bc], 64);
           LIBXSMM_ALIGNED(float b[bc], 64);
 
+          LIBXSMM_ALIGNED(float s_bcast[bc*W], 64);
+          LIBXSMM_ALIGNED(float b_bcast[bc*W], 64);
+          LIBXSMM_ALIGNED(float gamma_bcast[bc*W], 64);
+          LIBXSMM_ALIGNED(float beta_bcast[bc*W], 64);
+
+//#if 0
           coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
+
+#ifdef SIMPLE_COEFFS
+          for (int k = 0; k < bc; k++) {
+            s[k]     = k + 1;
+            b[k]     = 0.0f;
+            gamma[cp][k] = 1.0f;
+            beta[cp][k]  = 0.0f;
+          }
+          for (int h = 0; h < ifhp; h++) {
+            for (int w = 0; w < ifwp; w++) {
+              for (int k = 0; k < bc; k++) {
+                inp[n][cp][h][w][k] = 1.0;
+              }
+            }
+          }
+          // while debugging
+#endif
+
+//#ifdef BCAST_UPFRONT
+if (bcast_upfront) {
+          bcast_upfront_tpp(&s[0], &s_bcast[0]);
+          bcast_upfront_tpp(&b[0], &b_bcast[0]);
+          bcast_upfront_tpp(gamma[cp], &gamma_bcast[0]);
+          bcast_upfront_tpp(beta[cp], &beta_bcast[0]);
+#if 0
+          for (int l = 0; l < W; l++) {
+            for (int k = 0; k < bc; k++) {
+              s_bcast[l*bc + k] = s[k];
+              b_bcast[l*bc + k] = b[k];
+              gamma_bcast[l*bc + k] = gamma[cp][k];
+              beta_bcast [l*bc + k] = beta [cp][k];
+            }
+          }
+#endif // for #if 0
+
+}
+
+//#endif // for #if 0
+
+//          dbg_copy_full_tpp(inp[n][0][0][0], out[n][0][0][0]);
+//          dbg_copy_hwbc_tpp(inp[n][cp][0][0], out[n][cp][0][0]);
+//#if 0
+
+if (zero_output_upfront) {
+//#ifdef ZERO_OUTPUT_UPFRONT
+          zero_upfront_tpp(out[n][cp][0][0]);
+//#ifdef BCAST_UPFRONT
+if (bcast_upfront) {
+          normalize_tpp(inp[n][cp][0][0], &s_bcast[0], &b_bcast[0], &gamma_bcast[0], &beta_bcast[0],
+                          eltwise ? inp_add[n][cp][0][0] : NULL,
+                          out_shifted[n][cp][0][0],
+                          relu ? relumask_shifted[n][cp][0][0] : NULL);
+} else { // #else
+          normalize_tpp(inp[n][cp][0][0], &s[0], &b[0], gamma[cp], beta[cp],
+                          eltwise ? inp_add[n][cp][0][0] : NULL,
+                          out_shifted[n][cp][0][0],
+                          relu ? relumask_shifted[n][cp][0][0] : NULL);
+} //#endif
+
+} else { //#else
 
           if (!use_hw_blocking) {
 
@@ -330,18 +495,53 @@ std::cout << "use_hw_blocking = " << use_hw_blocking << std::endl;
             }
 
           } else {
+
+//          dbg_copy_hwbc_tpp(inp[n][cp][0][0], out[n][cp][0][0]);
+/*
+              dbg_copy_tpp(inp[n][cp][0][0], out[n][cp][0][0]);
+              dbg_copy_tpp(inp[n][cp][1][0], out[n][cp][1][0]);
+              dbg_copy_tpp(inp[n][cp][2][0], out[n][cp][2][0]);
+              dbg_copy_tpp(inp[n][cp][3][0], out[n][cp][3][0]);
+              dbg_copy_tpp(inp[n][cp][4][0], out[n][cp][4][0]);
+              dbg_copy_tpp(inp[n][cp][5][0], out[n][cp][5][0]);
+              dbg_copy_tpp(inp[n][cp][6][0], out[n][cp][6][0]);
+              dbg_copy_tpp(inp[n][cp][7][0], out[n][cp][7][0]);
+              dbg_copy_tpp(inp[n][cp][8][0], out[n][cp][8][0]);
+              dbg_copy_tpp(inp[n][cp][9][0], out[n][cp][9][0]);
+              dbg_copy_tpp(inp[n][cp][10][0], out[n][cp][10][0]);
+              dbg_copy_tpp(inp[n][cp][11][0], out[n][cp][11][0]);
+              dbg_copy_tpp(inp[n][cp][12][0], out[n][cp][12][0]);
+              dbg_copy_tpp(inp[n][cp][13][0], out[n][cp][13][0]);
+              dbg_copy_tpp(inp[n][cp][14][0], out[n][cp][14][0]);
+              dbg_copy_tpp(inp[n][cp][15][0], out[n][cp][15][0]);
+*/
+//#if 0
             for(int hwb = 0; hwb < num_HW_blocks; hwb++){
+//                int hi = hwb, ho = hwb, w = 0;
               int hi = (hwb*(H*W/num_HW_blocks))/W;
               int ho = hi;
               int w  = (hwb*(H*W/num_HW_blocks))%W;
 
               /* Normalization equation + relu + eltwise -> y = relu( ((s*x + b)*gamma + beta) + inp_add) */
+
+//              for (int k = 0; k < spatial_block_size*bc; k++)
+//                  out[n][cp][ho][w][k] = inp[n][cp][hi][w][k];
+
+//              dbg_copy_tpp(inp[n][cp][hi][w], out[n][cp][ho][w]);
+
+
               normalize_tpp(inp[n][cp][hi][w], &s[0], &b[0], gamma[cp], beta[cp],
                               eltwise ? inp_add[n][cp][hi][w] : NULL,
                               out[n][cp][ho][w],
                               relu ? relumask[n][cp][ho][w] : NULL);
             }
+//#endif
           } /* if-else for the presence of padding */
+}
+//#endif /* for ZERO_OUTPUT_UPFRONT */
+
+//#endif // for #if 0
+
         },
         [&]() {},
         [&]() {});
