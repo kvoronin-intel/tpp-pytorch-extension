@@ -317,11 +317,11 @@ def run(args, device, data):
             # Loop over the dataloader to sample the computation dependency graph as a list of
             # blocks.
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
-		## Core affinitization 
-                #if args.use_pcl and epoch == 0 and step == 0:
-            	#    cores = int(os.environ["OMP_NUM_THREADS"])
-            	#    gnn_utils.affinitize_cores(cores, args.num_workers)
-                
+                ## Core affinitization
+                # if args.use_pcl and epoch == 0 and step == 0:
+                #    cores = int(os.environ["OMP_NUM_THREADS"])
+                #    gnn_utils.affinitize_cores(cores, args.num_workers)
+
                 # ppx.reset_debug_timers()
                 tic_step = time.time()
                 # copy block to gpu

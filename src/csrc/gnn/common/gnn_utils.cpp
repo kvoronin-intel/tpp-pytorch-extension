@@ -53,13 +53,24 @@ at::Tensor gather_features(const int alignN, std::vector<at::Tensor> inputs) {
   }
 }
 
-void scatter_features(const int alignN, std::vector<at::Tensor> inputs) {
+void scatter_features(
+    const int alignN,
+    int reduction,
+    std::vector<at::Tensor> inputs) {
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
+    if (reduction) {
+#include "scatter_reduce.h"
+    } else {
 #include "scatter.h"
+    }
   } else {
     typedef bfloat16 T;
+    if (reduction) {
+#include "scatter_reduce.h"
+    } else {
 #include "scatter.h"
+    }
   }
 }
 
@@ -76,13 +87,20 @@ std::vector<at::Tensor> find_nodes(
 #include "find_nodes.h"
 }
 
-std::vector<at::Tensor> map_nodes(std::vector<at::Tensor> inputs) {
+std::vector<at::Tensor> db_r2l_map(std::vector<at::Tensor> inputs) {
   auto t_db = inputs[0];
   auto t_sn_orig = inputs[1];
   auto t_sn_batch = inputs[2];
   auto t_sn_part = inputs[3];
 
-#include "map_nodes_simple_vec.h"
+#include "db_r2l_map.h"
+}
+
+std::vector<at::Tensor> r2l_map(std::vector<at::Tensor> inputs) {
+  auto t_o2l_map = inputs[0];
+  auto t_rbn_orig = inputs[1];
+
+#include "r2l_map.h"
 }
 
 std::vector<at::Tensor> find_n_map_nodes(std::vector<at::Tensor> inputs) {
@@ -142,7 +160,7 @@ void cache_store_n(
   in.push_back(t_out_f);
   int alignN = N > 32 ? 32 : N;
   if (N > 0 && alignN > 0)
-    scatter_features(alignN, in);
+    scatter_features(alignN, 0, in);
 }
 
 void cache_store(
@@ -285,121 +303,64 @@ std::vector<at::Tensor> node_sampling(
   }
 }
 
-void mapped_spmm(std::vector<at::Tensor> inputs, string op, string redop) {
-  auto t_source = inputs[0];
+void mapped_spmm_copy_lhs_add(std::vector<at::Tensor> inputs, long soff) {
+  auto t_dest = inputs[0];
   auto t_indptr = inputs[1];
-  auto t_sind   = inputs[2];
-  auto t_dind   = inputs[3];
-  auto t_dest   = inputs[4];
+  auto t_dind = inputs[2];
+  auto t_sind = inputs[3];
+  auto t_comms = inputs[4];
+  auto t_source = inputs[5];
+  auto t_edge = at::empty(0, t_source.options());
+  if (inputs.size() == 7)
+    t_edge = inputs[6];
 
-  long *indptr = t_indptr.data_ptr<long>();
-  long *sind   = t_sind.data_ptr<long>();
-  long *dind   = t_dind.data_ptr<long>();
+  long* indptr = t_indptr.data_ptr<long>();
+  long* sind = t_sind.data_ptr<long>();
+  long* dind = t_dind.data_ptr<long>();
+  int* comms = t_comms.data_ptr<int>();
 
   auto N = t_indptr.size(0);
-  auto F = t.dest.size(1);
+  const int F = t_dest.size(1);
+  long sN = t_source.size(0);
+  long dN = t_dest.size(0);
 
-  libxsmm_meltw_opreduce_vecs_flags opredop_flags;
-  if(op == "add")
-    opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_ADD;
-  else if(op == "sub")
-    opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_SUM;
-  else if(op == "mul")
-    opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_MUL;
-  else if(op == "div")
-    opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_DIV;
-  else if(op == "copylhs") {
-    opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_COPY;
-  }
-  else if(op == "copyrhs") {
-    opredop_flags = LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OP_COPY;
-  }
-
-  if(op == "copylhs")
-    opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags | 
-        LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OPORDER_VECIDX_VECIN);
-  else if(op == "copyrhs") {
-    opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags | 
-        LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OPORDER_VECIN_VECIDX);
-    if(!has_idx)
-      opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-          LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_IMPLICIT_INDEXED_VECIDX);
-  }
-  else {
-    opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-        LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_OPORDER_VECIDX_VECIN);
-    if (has_idx) {
-      opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-          LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_INDEXED_VEC);
-    } else {
-      opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-          LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_IMPLICIT_INDEXED_VEC);
-    }
-  }
-
-  if(redop == "sum") 
-    opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-        LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_REDOP_SUM);
-  else if(redop == "min")
-    opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-        LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_REDOP_MIN);
-  else if(redop == "max")
-    opredop_flags = (libxsmm_meltw_opreduce_vecs_flags)(opredop_flags |
-        LIBXSMM_MELTW_FLAG_OPREDUCE_VECS_REDOP_MAX);
-
-  if(t_dest.dtype() == at::kFloat) {
+  if (t_source.dtype() == at::kFloat) {
     typedef float T;
-    DECL_VLA_PTR_PT(T, dest, [F], t_dest);
     DECL_VLA_PTR_PT(T, source, [F], t_source);
+    DECL_VLA_PTR_PT(T, dest, [F], t_dest);
 
-    libxsmm_meltwfunction_opreduce_vecs_idx kernel = NULL;
-    kernel = libxsmm_dispatch_meltw_opreduce_vecs_idx(
-        F, &F, &F, LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32,
-        (sizeof(indptr) == 8) ? LIBXSMM_DATATYPE_I64 : LIBXSMM_DATATYPE_I32, opredop_flags);
+    auto add_tpp = AddTPP<T, T>(1, F);
 
-#pragma omp parallel 
-    {
-#pragma omp for schedule(dynamic)
-      for(int i=0; i<N-1; i++) {
-        long row_start = indptr[i];
-        long row_end = indptr[i+1];
-        libxsmm_meltw_opreduce_vecs_idx_param params;
-        params.n = row_end - row_start;
-        params.indices = &sind[row_start];
-        params.in_matrix = source[0];
-        params.out_vec = dest[dind[i]];
-        params.scale_vals = nullptr;
-        params.in_matrix2 = NULL;
-        params.indices2 = NULL;
-        kernel(&params);
+#pragma omp parallel for
+    for (int i = 0; i < N - 1; i++) {
+      long st = indptr[i];
+      long ed = indptr[i + 1];
+      for (long j = st; j < ed; j++) {
+        int s = comms[sind[j]];
+        long d = dind[j];
+        if (s == -100)
+          continue;
+
+        add_tpp(source[soff + s], dest[d], dest[d]);
       }
     }
-  }
-  else if(t_dest.dtype() == at::kBFloat16) {
+  } else if (t_source.dtype() == at::kBFloat16) {
     typedef bfloat16 T;
-    DECL_VLA_PTR_PT(T, dest, [F], t_dest);
     DECL_VLA_PTR_PT(T, source, [F], t_source);
+    DECL_VLA_PTR_PT(T, dest, [F], t_dest);
 
-    libxsmm_meltwfunction_opreduce_vecs_idx kernel = NULL;
-    kernel = libxsmm_dispatch_meltw_opreduce_vecs_idx(
-        F, &F, &F, LIBXSMM_DATATYPE_BF16, LIBXSMM_DATATYPE_BF16,
-        (sizeof(indptr) == 8) ? LIBXSMM_DATATYPE_I64 : LIBXSMM_DATATYPE_I32, opredop_flags);
+    auto add_tpp = AddTPP<T, T>(1, F);
 
-#pragma omp parallel 
-    {
-#pragma omp for schedule(dynamic)
-      for(int i=0; i<N; i++) {
-        long row_start = indptr[i];
-        long row_end = indptr[i+1];
-        libxsmm_meltw_opreduce_vecs_idx_param params;
-        params.n = row_end - row_start;
-        params.indices = &sind[row_start];
-        params.in_matrix = source[0];
-        params.out_vec = dest[dind[i]];
-        params.scale_vals = NULL;
-        params.in_matrix2 = NULL;
-        params.indices2 = NULL;
-        kernel(&params);
+#pragma omp parallel for
+    for (int i = 0; i < N - 1; i++) {
+      long st = indptr[i];
+      long ed = indptr[i + 1];
+      for (long j = st; j < ed; j++) {
+        int s = comms[sind[j]];
+        long d = dind[j];
+        if (s == -100)
+          continue;
+        add_tpp(source[s], dest[d], dest[d]);
       }
     }
   }
@@ -437,7 +398,13 @@ REGISTER_SUBMODULE(_gnn_utils, m) {
       &find_nodes,
       "C++ Impl of func to gather halo & solid nodes");
   m.def(
-      "map_nodes", &map_nodes, "C++ Impl of func to gather solid node mapping");
+      "db_r2l_map",
+      &db_r2l_map,
+      "C++ Impl of func to gather solid node mapping");
+  m.def(
+      "r2l_map",
+      &r2l_map,
+      "C++ Impl of func to find xn of local bn (oid) w/ recv bn (oid)");
   m.def(
       "find_n_map_nodes",
       &find_n_map_nodes,
@@ -455,5 +422,9 @@ REGISTER_SUBMODULE(_gnn_utils, m) {
       "gather_n_store_offset",
       &gather_n_store_offset,
       "Gather and store long ints");
+  m.def(
+      "mapped_spmm_copy_lhs_add",
+      &mapped_spmm_copy_lhs_add,
+      "C++ impl of gspmm on halo feature graph (drpa)");
   m.def("affinitize_cores", &affinitize_cores, "Compute thread affinization");
 }

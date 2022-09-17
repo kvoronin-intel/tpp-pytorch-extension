@@ -104,7 +104,7 @@ sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 sources += glob.glob("src/csrc/gnn/common/*.cpp")
 sources += glob.glob("src/csrc/gnn/gat/*.cpp")
 
-extra_compile_args = ["-fopenmp", "-g", "-march=native"]
+extra_compile_args = ["-fopenmp", "-ggdb", "-march=native"]
 
 if hasattr(torch, "bfloat8"):
     extra_compile_args.append("-DPYTORCH_SUPPORTS_BFLOAT8")

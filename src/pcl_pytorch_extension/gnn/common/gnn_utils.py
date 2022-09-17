@@ -12,10 +12,16 @@ def find_nodes(pnd_s_in, pnd_orig, srcnodes, lnodes, ntype):
     return orig, batch, part
 
 
-def map_nodes(db_t, sn_orig, sn_batch, sn_part):
+def db_r2l_map(db_t, sn_orig, sn_batch, sn_part):
     inputs = [db_t, sn_orig, sn_batch, sn_part]
-    r, b, l = gnn_utils_cpp.map_nodes(inputs)
+    r, b, l = gnn_utils_cpp.db_r2l_map(inputs)
     return r, b, l
+
+
+def r2l_map(o2l_map, rbn_orig):
+    inputs = [o2l_map, rbn_orig]
+    r_lid2, l_lid2 = gnn_utils_cpp.r2l_map(inputs)
+    return r_lid2, l_lid2
 
 
 def find_n_map_nodes(db_t, pnd_solid, pnd_orig, srcnodes, lnodes):
@@ -78,7 +84,7 @@ def gather_n_store_offset(inp, ind, out, offi, offv):
 
 
 def gather_features(nfeat, indices):
-    N = nfeat.shape[0]
+    N = indices.shape[0]
     align = 32 if N >= 32 or N == 0 else N
     inputs = [nfeat, indices]
 
@@ -86,9 +92,18 @@ def gather_features(nfeat, indices):
     return out
 
 
-def scatter_features(feat_src, indices, feat_dst):
-    N = feat_src.shape[0]
+def scatter_features(feat_src, indices, feat_dst, reduction):
+    N = indices.shape[0]
     align = 32 if N >= 32 or N == 0 else N
     inputs = [feat_src, indices, feat_dst]
 
-    gnn_utils_cpp.scatter_features(align, inputs)
+    gnn_utils_cpp.scatter_features(align, reduction, inputs)
+
+
+def mapped_spmm_copy_lhs_add(dest, indptr, dind, sind, comms, source, edge, soff):
+    if edge is None:
+        inputs = [dest, indptr, dind, sind, comms, source]
+    else:
+        inputs = [dest, indptr, dind, sind, comms, source, edge]
+
+    gnn_utils_cpp.mapped_spmm_copy_lhs_add(inputs, rank, soff)
