@@ -364,6 +364,8 @@ class UnaryTPP : public BaseTPP {
 
     libxsmm_meltw_unary_shape shape = libxsmm_create_meltw_unary_shape(
         cols, rows, ldi, ldo, dt_in, dt_out, dt_compute);
+
+    //printf("unary_shape %d %d %d %d \n", shape.m, shape.n, shape.ldi, shape.ldo);
     return (void*)libxsmm_dispatch_meltw_unary_v2(type, shape, flags);
   }
 
@@ -1839,6 +1841,11 @@ class BrgemmTPP {
         l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
       }
       l_brconfig.br_unroll_hint = p->unroll_hint;
+
+      //printf("l_shape = %d %d %d %d %d %d l_brconfig = %d %d %d %d l_flags %d l_prefetch_flags %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc,
+      //                                                            l_brconfig.br_type, l_brconfig.br_stride_a_hint, l_brconfig.br_stride_b_hint, l_brconfig.br_unroll_hint,
+      //                                                            l_flags,
+      //                                                            l_prefetch_flags);
 
       l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
           l_shape, l_flags, l_prefetch_flags, l_brconfig);
@@ -5170,6 +5177,9 @@ class BatchNormFwdScaleTPP : public BaseTPP {
  private:
   int m = 0;
   int n = 0;
+  int ldi = 0;
+  int ldo = 0;
+  int bcast_already_done = 0;
   typedef enum libxsmm_dnn_bn_fuse {
     LIBXSMM_DNN_BN_FUSE_NONE = 0,
     LIBXSMM_DNN_BN_FUSE_RELU = 1,
@@ -5198,10 +5208,36 @@ class BatchNormFwdScaleTPP : public BaseTPP {
   libxsmm_matrix_eqn_function kernel = NULL;
 
  public:
-  BatchNormFwdScaleTPP(int M, int N, bool relu, bool eltwise) : m(M), n(N) {
+  BatchNormFwdScaleTPP() {
+    initialized = false;
+  }
+  BatchNormFwdScaleTPP(int M, int N, int ldi, int ldo, bool relu, bool eltwise) : BatchNormFwdScaleTPP(M,N,ldi,ldo,relu,eltwise,0) {}
+#if 0
+  : m(M), n(N), ldi(ldi), ldo(ldo) {
+//    printf("m n ldi ldo = %d %d %d %d\n", m, n, ldi, ldo);
+    if (ldi != m || ldo != m) {
+      //printf("Case ldi or ldo != m  is not implemented in BatchNormFwdScaleTPP \n");
+      //exit(-1);
+//      printf("m n ldi ldo = %d %d %d %d\n", m, n, ldi, ldo);
+    }
     fuse_type = set_fuse_type(relu, eltwise);
     kernel = (libxsmm_matrix_eqn_function)get_kernel();
     initialized = true;
+  }
+#endif
+  BatchNormFwdScaleTPP(int M, int N, int ldi, int ldo, bool relu, bool eltwise, int bcast_already_done) : m(M), n(N), ldi(ldi), ldo(ldo), bcast_already_done(bcast_already_done) {
+//    printf("m n ldi ldo = %d %d %d %d bcast_already_done = %d\n", m, n, ldi, ldo, bcast_already_done);
+    if (ldi != m || ldo != m) {
+      //printf("Case ldi or ldo != m  is not implemented in BatchNormFwdScaleTPP \n");
+      //exit(-1);
+//      printf("m n ldi ldo = %d %d %d %d\n", m, n, ldi, ldo);
+    }
+    fuse_type = set_fuse_type(relu, eltwise);
+    kernel = (libxsmm_matrix_eqn_function)get_kernel();
+    initialized = true;
+  }
+  BatchNormFwdScaleTPP(int M, int N, bool relu, bool eltwise) : BatchNormFwdScaleTPP(M,N,M,M, relu, eltwise, 0) {
+//    printf("m n (no ldi ldo) = %d %d \n", m, n);
   }
   void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
     if (!initialized)
@@ -5235,7 +5271,7 @@ class BatchNormFwdScaleTPP : public BaseTPP {
  protected:
   std::string hash_str() override {
     char hash[200];
-    snprintf(hash, 200, "batchnorm_fwd_scale_ti%d_to%d_m%d_n%d_fuse%d", XsmmDtype<Tin>(), XsmmDtype<Tout>(), m, n, (int)fuse_type);
+    snprintf(hash, 200, "batchnorm_fwd_scale_ti%d_to%d_m%d_n%d_ldi%d_ldo%d_bcast%d_fuse%d", XsmmDtype<Tin>(), XsmmDtype<Tout>(), m, n, ldi, ldo, bcast_already_done, (int)fuse_type);
     return std::string(hash);
   }
   void* build_kernel() override {
@@ -5263,10 +5299,13 @@ class BatchNormFwdScaleTPP : public BaseTPP {
 
     arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
 
-    libxsmm_blasint ld      = m;
+    //libxsmm_blasint ldi     = ldi;
+    //libxsmm_blasint ldo     = ldo;
     libxsmm_blasint tmp_ld  = 1;
     libxsmm_blasint tmp_ld2 = 1;
     libxsmm_blasint my_eqn10 = libxsmm_matrix_eqn_create();                          /* y = relu ( ( (s*x + b)*gamma + beta ) + inp_add) */
+
+//    printf("m = %d n = %d ldi = %d ldo = %d bcast_already_done %d tmp_ld = %d \n", m, n, ldi, ldo, bcast_already_done, tmp_ld);
 
     if (fuse_type == 1 || fuse_type == 3 || fuse_type == 4 || fuse_type == 5) {
       unary_flags              = ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE);
@@ -5304,28 +5343,49 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+    /* FIXME: incorrect condition but will work for a quick experiment */
+
+    if (m == 448 && n == 14 && !bcast_already_done) {
+      unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL;
+      op_metadata.eqn_idx      = my_eqn10;
+      op_metadata.op_arg_pos   = -1;
+
+      libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_comp, unary_flags);
+    }
+
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 1;
-    arg_shape.m    = m;                                      /* s = [bc] */
+    arg_shape.m    = (m == 448 && n == 14 && !bcast_already_done ? 32 : m);                                      /* s = [bc] */
     arg_shape.n    = 1;
-    arg_shape.ld   = tmp_ld;
+    arg_shape.ld   = (m == 448 && n == 14 && !bcast_already_done ? ldi : tmp_ld); // tmp_ld;
     arg_shape.type = datatype_comp;
+//    printf("arg shape for s: %d %d %d \n", arg_shape.m, arg_shape.n, arg_shape.ld);
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 0;
     arg_shape.m    = m;                                      /* x = [HW, bc] */
     arg_shape.n    = n;
-    arg_shape.ld   = ld;
+    arg_shape.ld   = ldi;
     arg_shape.type = datatype_in;
+//    printf("arg shape for x: %d %d %d \n", arg_shape.m, arg_shape.n, arg_shape.ld);
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+    if (m == 448 && n == 14 && !bcast_already_done) {
+      unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL;
+      op_metadata.eqn_idx      = my_eqn10;
+      op_metadata.op_arg_pos   = -1;
+
+      libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_comp, unary_flags);
+    }
 
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 2;
-    arg_shape.m    = m;                                      /* b = [bc] */
+    arg_shape.m    = (m == 448 && n == 14 && !bcast_already_done ? 32 : m);//m;                                      /* b = [bc] */
     arg_shape.n    = 1;
-    arg_shape.ld   = tmp_ld;
+    arg_shape.ld   = (m == 448 && n == 14 && !bcast_already_done ? ldi : tmp_ld); // tmp_ld;
     arg_shape.type = datatype_comp;
+//    printf("arg shape for x: %d %d %d \n", arg_shape.m, arg_shape.n, arg_shape.ld);
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
     arg_metadata.eqn_idx     = my_eqn10;
@@ -5341,18 +5401,18 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       arg_metadata.in_arg_pos  = 5;
       arg_shape.m    = m;                                      /* inp_add = [HW, bc] */
       arg_shape.n    = n;
-      arg_shape.ld   = ld;
+      arg_shape.ld   = ldi;
       arg_shape.type = datatype_in;
       libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
     }
 
     eqn_out_arg_shape.m    = m;                                 /* y = [HW, bc] */
     eqn_out_arg_shape.n    = n;
-    eqn_out_arg_shape.ld   = ld;
+    eqn_out_arg_shape.ld   = ldo;
     eqn_out_arg_shape.type = datatype_out;
 
-    /* libxsmm_matrix_eqn_tree_print( my_eqn10 ); */
-    /* libxsmm_matrix_eqn_rpn_print ( my_eqn10 ); */
+//    libxsmm_matrix_eqn_tree_print( my_eqn10 );
+//    libxsmm_matrix_eqn_rpn_print ( my_eqn10 );
     debug_print_eqn_tree(my_eqn10);
     auto func10 = libxsmm_dispatch_matrix_eqn_v2( my_eqn10, eqn_out_arg_shape );
     if ( func10 == NULL) {
