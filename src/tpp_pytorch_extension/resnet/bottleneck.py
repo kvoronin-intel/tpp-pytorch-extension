@@ -351,6 +351,7 @@ class BottleneckApplyBNTPP(Function):
             b1s_out, b2s_out, b3s_out, b4s_out ) = bottleneck_cpp.bottleneck_bn_fwd_ext(config, training, inputs, tuning_params, tuning_strings, tuning_timings_fwd) #_tensors)
         #print("dbg: bottleneck_forward_new called")
 
+        """
         print("perfdebug: checking for bottleneck in bwd with cfg C K H W stride: ", config.inplanes, config.planes, config.H, config.W, config.stride)
         print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.inplanes) + "," + str(config.planes)   + "," + str(config.H) + "," + str(config.W) + "," + str(1) + "," + str(1) + "," + str(1)             + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[0]) + "," + str(1.0))
         print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H) + "," + str(config.W) + "," + str(3) + "," + str(3) + "," + str(config.stride) + "," + str(1) + "," + str(1) + "," + str(tuning_timings_fwd[1]) + "," + str(1.0))
@@ -363,6 +364,7 @@ class BottleneckApplyBNTPP(Function):
         print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(4*config.planes) + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[6]) + "," + str(1.0) + ',' + str(1) + ',' + str(1) + ',' + str(training))
         if config.has_residual_conv:
             print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(4*config.planes) + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride)                  + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(0) + "," + str(tuning_timings_fwd[7]) + "," + str(1.0) + ',' + str(0) + ',' + str(0) + ',' + str(training))
+        """
         #print("time: conv = ", config.inplanes, config.planes, config.H, config.W, 1, 1, tuning_timings_fwd[0], "(c1)")
         #print("time: conv = ", config.planes, config.planes, config.H, config.W, 1, config.stride, tuning_timings_fwd[1], "(c2)")
         #print("time: conv = ", config.planes, 4*config.planes, config.H, config.W, 1, 1, tuning_timings_fwd[2], "(c3)")
