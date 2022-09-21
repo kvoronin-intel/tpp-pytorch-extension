@@ -5,6 +5,10 @@ RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 
 #define NUM_ITER_PERF_DEBUG 1
 
+//#define MAKE_INPUT_HOT
+
+//#define MEMCPY
+
 // Debugging macro which initializes coeffs and inp for scaling part with simple constants
 //#define SIMPLE_COEFFS
 
@@ -16,7 +20,16 @@ RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 t_start = getTime();
 #endif
 
-//#define VERBOSE
+#define VERBOSE
+
+#ifdef MAKE_INPUT_HOT
+  #ifdef VERBOSE
+  printf("MAKE_INPUT_HOT is active!\n");
+  #endif
+  #ifdef TIMING
+    double t_extra_tweak_start = 0.0, t_extra_tweak = 0.0;
+  #endif
+#endif
 
 int zero_output_upfront = 0;
 /*
@@ -223,12 +236,12 @@ if (bcast_upfront) {
 #ifdef VERBOSE
   printf("JITTING dbg_copy_hwbc_tpp\n");
 #endif
-  auto dbg_copy_hwbc_tpp = SCOPEIT((CpyTPP<T>(bc*ifhp*ifwp)), EW_COPY);
+  auto dbg_copy_hwbc_tpp = SCOPEIT((CpyTPP<T>(bc*H*W)), EW_COPY);
 
 #ifdef VERBOSE
   printf("JITTING dbg_copy_full_tpp\n");
 #endif
-  auto dbg_copy_full_tpp = SCOPEIT((CpyTPP<T>(bc*CP*ifhp*ifwp)), EW_COPY);
+  auto dbg_copy_full_tpp = SCOPEIT((CpyTPP<T>(bc*CP*H*W)), EW_COPY);
 
 #ifdef VERBOSE
   printf("bc * spatial_block_size (block for batchnorm scale) = %d (bytes) = %3.3f (Kb) = %3.3f (Mb)\n", bc * spatial_block_size * sizeof(T), bc * spatial_block_size * sizeof(T) / 1024.0, bc * spatial_block_size * sizeof(T) / 1024.0 / 1024.0);
@@ -376,8 +389,49 @@ if (bcast_upfront) {
 
   for (int i = 0; i < NUM_ITER_PERF_DEBUG; i++)
   {
+#ifdef MAKE_INPUT_HOT
+#ifdef TIMING
+    t_extra_tweak_start = getTime();
+#endif
+
+      DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+      volatile int resint = 0.0;
+#pragma omp parallel
+{
+      #pragma omp for reduction(+: resint)
+      for (int n = 0; n < N; n++) {
+        for (int cp = 0; cp < CP; cp++) {
+          for (int h = 0; h < H; h++)
+            for (int w = 0; w < W; w++)
+              for (int k = 0; k < bc; k++) {
+                T res = inp[n][cp][h][w][k];
+                resint += (int)res;
+              }
+        }
+      }
+}
+
+#ifdef TIMING
+    t_extra_tweak += getTime() - t_extra_tweak_start;
+#endif
+#endif /* MAKE_INPUT_HOT */
+
     RECORD_SCOPE(bn_fwd_scale, {});
     {
+#ifdef MEMCPY
+      DECL_VLA_PTR_PT_EXT(T,             inp,      [CP][ifhp][ifwp][bc], t_I, (hi_start * ifwp + wi_start) * bc);
+      DECL_VLA_PTR_PT    (T,             out,      [CP][ofhp][ofwp][bc], t_O);
+      DECL_VLA_PTR_PT_EXT(T,             out_shifted,      [CP][ofhp][ofwp][bc], t_O, (ho_start * ofwp + wo_start) * bc);
+#pragma omp parallel for
+      for (int n = 0; n < N; n++) {
+        //memcpy(out[n][0][0][0], inp[n][0][0][0], CP*H*W*bc*sizeof(T));
+        //dbg_copy_full_tpp(inp[n][0][0][0], out[n][0][0][0]);
+        for (int cp = 0; cp < CP; cp++) {
+          dbg_copy_hwbc_tpp(inp[n][cp][0][0], out_shifted[n][cp][0][0]);
+          //memcpy(out_shifted[n][cp][0][0], inp[n][cp][0][0], H*W*bc*sizeof(T));
+        }
+      }
+#else /* MEMCPY */
 #ifdef THREADED_LOOPS
       ncp_loop(
         [&](int *ind) {
@@ -395,6 +449,8 @@ if (bcast_upfront) {
           DECL_VLA_PTR_PT_EXT(T,             out_shifted,      [CP][ofhp][ofwp][bc], t_O, (ho_start * ofwp + wo_start) * bc);
           DECL_VLA_PTR_PT_EXT(unsigned char, relumask_shifted, [CP][ofhp][ofwp][bc/BITS_PER_CHAR], t_relu_mask, (ho_start * ofwp + wo_start) * bc/BITS_PER_CHAR);
 //#endif
+
+//#if 0
           LIBXSMM_ALIGNED(float s[bc], 64);
           LIBXSMM_ALIGNED(float b[bc], 64);
 
@@ -403,7 +459,6 @@ if (bcast_upfront) {
           LIBXSMM_ALIGNED(float gamma_bcast[bc*W], 64);
           LIBXSMM_ALIGNED(float beta_bcast[bc*W], 64);
 
-//#if 0
           coeffs_tpp(mean[cp], var[cp], &s[0], &b[0]);
 
 #ifdef SIMPLE_COEFFS
@@ -444,8 +499,6 @@ if (bcast_upfront) {
 
 //#endif // for #if 0
 
-//          dbg_copy_full_tpp(inp[n][0][0][0], out[n][0][0][0]);
-//          dbg_copy_hwbc_tpp(inp[n][cp][0][0], out[n][cp][0][0]);
 //#if 0
 
 if (zero_output_upfront) {
@@ -541,7 +594,6 @@ if (bcast_upfront) {
 //#endif /* for ZERO_OUTPUT_UPFRONT */
 
 //#endif // for #if 0
-
         },
         [&]() {},
         [&]() {});
@@ -597,6 +649,7 @@ if (bcast_upfront) {
         } /* end of cp loop */
       } /* end of n loop */
 #endif /* THREADED_LOOPS */
+#endif /* MEMCPY */
     } /* end of the scope with recorded parallel for */
   } /* end of the bn_fwd_scale scope */
 
@@ -611,10 +664,25 @@ if (bcast_upfront) {
   auto buf = tuning_timings.request();
   float* ptr = (float*)buf.ptr;
   ptr[0] += t_end - t_bn_start;
+#ifdef MAKE_INPUT_HOT
+  ptr[0] -= t_extra_tweak;
+#endif
   ptr[1] += t_end - t_start;
+#ifdef MAKE_INPUT_HOT
+  ptr[1] -= t_extra_tweak;
+#endif
 //  ptr[2] += t_bn_reduce_start - t_bn_start;
 //  ptr[3] += t_bn_scale_start  - t_bn_reduce_start;
   ptr[4] += t_end  - t_bn_scale_start;
+#ifdef MAKE_INPUT_HOT
+  ptr[4] -= t_extra_tweak;
+#endif
+
+#ifdef MAKE_INPUT_HOT
+printf("t_extra_tweak per one of 1000 iter = %6.6f \n", t_extra_tweak / NUM_ITER_PERF_DEBUG);
+printf("t scale = %6.6f \n", t_end  - t_bn_scale_start);
+#endif
+
 #endif
 
 #ifdef VERBOSE
