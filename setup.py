@@ -6,21 +6,30 @@ from setuptools import find_packages
 from torch.utils.cpp_extension import CppExtension, BuildExtension
 from subprocess import check_call, check_output
 import pathlib
-import torch
-import platform
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
-use_parlooper = True
-
 libxsmm_root = os.path.join(cwd, "libxsmm")
-
 if "LIBXSMM_ROOT" in os.environ:
     libxsmm_root = os.getenv("LIBXSMM_ROOT")
 
 xsmm_makefile = os.path.join(libxsmm_root, "Makefile")
 xsmm_include = "./libxsmm/include"
 xsmm_lib = os.path.join(libxsmm_root, "lib")
+
+if os.getenv("USE_VTUNE") is not None:
+    vtune_root = os.path.join(cwd, "vtune")
+    if "VTUNE_ROOT" in os.environ:
+        vtune_root = os.getenv("VTUNE_ROOT")
+    vtune_include = os.path.join(vtune_root,"include")
+    vtune_lib     = os.path.join(vtune_root,"lib64")
+    vtune_compile_opts = "-DWITH_VTUNE"
+    vtune_lib_name = os.path.join(vtune_lib,"libittnotify.a")
+else:
+    vtune_include = "./" # cannot leave empty for some reason, build fails
+    vtune_lib     = "./" # cannot leave empty for some reason, build fails
+    vtune_compile_opts = "-DO_NOT_USE_VTUNE" # cannot leave empty for some reason, build fails
+    vtune_lib_name = ""
 
 if not os.path.exists(xsmm_makefile):
     raise IOError(
@@ -86,6 +95,7 @@ class BuildMakeLib(Command):
         return []
 
     def build_libraries(self, libraries):
+        print("libraries = ", libraries)
         for (lib_name, makefile, build_args) in libraries:
             # build_dir = pathlib.Path('.'.join([self.build_temp, lib_name]))
             build_dir = pathlib.Path(self.build_temp + "/libxsmm")
@@ -93,35 +103,13 @@ class BuildMakeLib(Command):
             check_call(["make", "-f", makefile] + build_args, cwd=str(build_dir))
 
 
-sources = [
-    "src/csrc/init.cpp",
-    "src/csrc/optim.cpp",
-    "src/csrc/xsmm.cpp",
-    "src/csrc/embedding.cpp",
-    "src/csrc/bfloat8.cpp",
-]
+sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp"]
+sources += ["src/csrc/jit_compile.cpp", "src/csrc/common_loops.cpp", "src/csrc/par_loop_generator.cpp"]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
-sources += glob.glob("src/csrc/gnn/common/*.cpp")
-sources += glob.glob("src/csrc/gnn/gat/*.cpp")
-# sources += glob.glob("src/csrc/conv1dopti/unpad/*.cpp")
-sources += glob.glob("src/csrc/alphafold/*.cpp")
+sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 sources += glob.glob("src/csrc/resnet/*.cpp")
-
-extra_compile_args = ["-fopenmp", "-g"]
-if platform.processor() != "aarch64":
-    extra_compile_args.append("-march=native")
-
-if hasattr(torch, "bfloat8"):
-    extra_compile_args.append("-DPYTORCH_SUPPORTS_BFLOAT8")
-
-if use_parlooper is not True:
-    extra_compile_args.append("-DNO_PARLOOPER")
-else:
-    sources += ["src/csrc/common_loops.cpp"]
-
-print("extra_compile_args = ", extra_compile_args)
 
 print(sources)
 
@@ -143,18 +131,16 @@ setup(
     ],
     python_requires=">=3.6",
     # install_requires=["torch>=1.4.0"],
-    scripts=["utils/run_dist.sh", "utils/run_dist_ht.sh"],
+    scripts=["utils/run_dist.sh"],
     libraries=[("xsmm", xsmm_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"])],
     ext_modules=[
         CppExtension(
             "tpp_pytorch_extension._C",
             sources,
-            extra_compile_args=extra_compile_args,
-            include_dirs=[
-                xsmm_include,
-                "{}/src/csrc".format(cwd),
-            ],
-            # library_dirs=[xsmm_lib],
+            extra_compile_args=["-fopenmp", "-g", "-march=native", "-O0" , vtune_compile_opts ],
+            include_dirs=[xsmm_include, "{}/src/csrc".format(cwd),vtune_include],
+            library_dirs=[xsmm_lib, vtune_lib],
+            extra_objects=[vtune_lib_name] if os.getenv("USE_VTUNE") is not None else [],
             # libraries=["xsmm"],
         )
     ],
