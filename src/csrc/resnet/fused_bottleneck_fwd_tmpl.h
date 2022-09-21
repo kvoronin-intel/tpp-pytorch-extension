@@ -45,7 +45,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   const long h3_in_gemm = tuning_params[18];
   const long h4_in_gemm = tuning_params[19];
   const long pack_input_for_1x1_strided = tuning_params[20];
-  const long fuse_stats = tuning_params[21];
+  //const long fuse_stats = tuning_params[21];
+  long fuse_stats = tuning_params[21];
 
   const std::string c1_string = tuning_strings[0];
   const std::string c2_string = tuning_strings[1];
@@ -364,6 +365,26 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
   //printf("dbg: tuning_timings at the end of bf_fwd_ext = %f %f %f (time_c1 - c3 = %f %f %f)", ptr[0], ptr[1], ptr[2], time_c1, time_c2, time_c3);
 #endif
+
+#define MB (1024.0*1024.0)
+
+        printf("perfdebug: checking for bottleneck in bwd with cfg C K H W stride: %d %d %d %d %d\n", cfg.inplanes, cfg.planes, cfg.H, cfg.W, cfg.stride);
+        printf("activation size (in Mb, per core): (inp = c4_in -> c1 out = c2_in (stride) -> c2_out = c3_in -> c3_out = c4_out %f %f %f %f \n",
+                                                                   (cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) / MB,
+                                                                   (cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) / MB,
+                                                                   (cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) / MB,
+                                                                   (4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) / MB );
+        printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,1.0\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), time_c1);
+        printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,1.0\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, time_c2);
+        printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,1.0\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), time_c3);
+        if (cfg.has_residual_conv)
+            printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,1.0\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), time_c4);
+
+        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H)             , (cfg.W)             , "na", "na", "na", (0), (1), time_b1, (1), (0), (training));
+        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (1), (0), time_b2, (1), (0), (training));
+        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, (1), (1), (training));
+        if (cfg.has_residual_conv)
+            printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, (0), (0), (training));
 
   return {bn3_out, conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, residual, bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
             bn1_scratch_out, bn2_scratch_out, bn3_scratch_out, bn4_scratch_out };
