@@ -18,7 +18,27 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
+#if 0
+#define USE_UNCORE_PERF_COUNTERS
+#if 1
+#define USE_DRAM_COUNTERS
+#endif
+#endif
+
+#if 0
+#define USE_CORE_PERF_COUNTERS
+#endif
+
+#if defined(USE_UNCORE_PERF_COUNTERS) || defined(USE_CORE_PERF_COUNTERS)
+#include "perf_counter_markers.h"
+#endif
+
+
 static int my_rank = guess_mpi_rank();
+
+// not implemented (only conv created in the setup but not called)
+// it should be in fact batchnorm, potentially with eltwise add (if residual connection is present in the previous bottleneck)
+// #define WITH_CACHE_PREHEAT
 
 #define FUSED_BOTTLENECK
 
@@ -108,6 +128,9 @@ typedef struct bottleneck_bn_config {
   conv_config     conv2;
   conv_config     conv3;
   conv_config     conv4; /* (optionally used) */
+#ifdef WITH_CACHE_PREHEAT
+  conv_config     conv_preheat; /* (optionally used) */
+#endif
 
   /* Note: batchnorms do not have configs in the extension code */
 } bottleneck_bn_config;
@@ -414,6 +437,15 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
   res.conv1 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes, res.conv1_kernel_size, res.conv1_kernel_size,
                              res.conv1_padding, res.conv1_padding, res.conv1_padding, res.conv1_padding, res.conv1_padding, res.conv1_padding,
                              res.conv1_stride, res.dtype_int);
+
+#ifdef WITH_CACHE_PREHEAT
+  int res_conv_preheat_kernel_size = 1;
+  int res_conv_preheat_stride      = 1;
+  int res_conv_preheat_padding     = 0;
+  res.conv_preheat = conv_setup(res.N, res.inplanes, res.H, res.W, res.inplanes, res_conv_preheat_kernel_size, res_conv_preheat_kernel_size,
+                             res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding,
+                             res_conv_preheat_stride, res.dtype_int);
+#endif
 
   res.conv2_kernel_size = 3;
   res.conv2_stride      = res.stride;
