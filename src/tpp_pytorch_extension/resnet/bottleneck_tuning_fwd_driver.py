@@ -78,6 +78,8 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters, niters_warmup, use_hardcoded_tunings)
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
+    bottleneck_cpp.pause_itt()
+
     if use_hardcoded_tunings:
         print("Using hardcoded tunings hence no tuning params are used")
         tuning_params  = None

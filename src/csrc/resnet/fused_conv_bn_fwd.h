@@ -4,7 +4,7 @@
 t_start = getTime();
 #endif
 
-#define NTIMES 1
+#define NTIMES 1000
 
 //#define VERBOSE
 
@@ -722,6 +722,11 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   read_core_ctrs( &a );
 #endif
 
+#ifdef WITH_VTUNE
+    __itt_resume();
+    __itt_frame_begin_v3(ITT_DOMAIN, NULL);
+#endif
+
 #ifdef TIMING
   t_bn_stats_end = getTime();
 #endif
@@ -801,6 +806,13 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
         [&]() {});
     } /* end of the fusedbtlnk_bn_fwd_scale scope with recorded parallel for */
   } /* if (!fuse_scaling) */
+
+
+#ifdef WITH_VTUNE
+    __itt_frame_end_v3(ITT_DOMAIN, NULL);
+    //ITT_DOMAIN->flags = 0;
+    __itt_pause();
+#endif
 
 
 #ifdef TIMING

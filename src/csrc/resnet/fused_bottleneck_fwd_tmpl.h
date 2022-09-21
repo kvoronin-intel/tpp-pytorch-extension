@@ -85,6 +85,13 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 
 //RECORD_SCOPE("conv1_bn1_fwd", std::vector<c10::IValue>());
 {
+
+#ifdef WITH_VTUNE
+  __itt_domain* bn1_domain = __itt_domain_create("bn1_domain");
+  bn1_domain->flags = 1;
+  #define ITT_DOMAIN bn1_domain
+#endif
+
   auto t_CI  = input;
   auto t_CW  = conv1_weight;
 
@@ -123,6 +130,11 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
+#ifdef WITH_VTUNE
+  ITT_DOMAIN->flags = 0;
+  #undef ITT_DOMAIN
+#endif
+
 #ifdef TIMING
   time_c1        = t_conv_end - t_conv_start;
   time_b1        = t_bn_end - t_conv_end;
@@ -157,6 +169,13 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
 //RECORD_SCOPE("conv2_bn2_fwd", std::vector<c10::IValue>());
 {
+
+#ifdef WITH_VTUNE
+  __itt_domain* bn2_domain = __itt_domain_create("bn2_domain");
+  bn2_domain->flags = 1;
+  #define ITT_DOMAIN bn2_domain
+#endif
+
 #ifdef EXT_STUDY2
   auto t_CI  = input;
 #else
@@ -199,6 +218,11 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
+#ifdef WITH_VTUNE
+  ITT_DOMAIN->flags = 0;
+  #undef ITT_DOMAIN
+#endif
+
 #ifdef TIMING
   time_c2        = t_conv_end - t_conv_start;
   time_b2        = t_bn_end - t_conv_end;
@@ -232,6 +256,12 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
 //RECORD_SCOPE("conv4_bn4_fwd", std::vector<c10::IValue>());
 {
+#ifdef WITH_VTUNE
+  __itt_domain* bn4_domain = __itt_domain_create("bn4_domain");
+  bn4_domain->flags = 1;
+  #define ITT_DOMAIN bn4_domain
+#endif
+
   auto t_CI  = input;
   auto t_CW  = conv4_weight;
 
@@ -270,6 +300,10 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
+#ifdef WITH_VTUNE
+  ITT_DOMAIN->flags = 0;
+  #undef ITT_DOMAIN
+#endif
 #ifdef TIMING
   time_c4        = t_conv_end - t_conv_start;
   time_b4        = t_bn_end - t_conv_end;
@@ -293,6 +327,12 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
 //RECORD_SCOPE("conv3_bn3_fwd", std::vector<c10::IValue>());
 {
+#ifdef WITH_VTUNE
+  __itt_domain* bn3_domain = __itt_domain_create("bn3_domain");
+  bn3_domain->flags = 1;
+  #define ITT_DOMAIN bn3_domain
+#endif
+
   auto t_CI  = bn2_out;
   auto t_CW  = conv3_weight;
 
@@ -331,6 +371,11 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
+#ifdef WITH_VTUNE
+  ITT_DOMAIN->flags = 0;
+  #undef ITT_DOMAIN
+#endif
+
 #ifdef TIMING
   time_c3        = t_conv_end - t_conv_start;
   time_b3        = t_bn_end - t_conv_end;

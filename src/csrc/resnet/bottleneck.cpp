@@ -18,6 +18,13 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
+
+// Can be defined in the setup.py
+#ifdef WITH_VTUNE
+  #warning "Building with WITH_VTUNE enabled"
+  #include "ittnotify.h"
+#endif
+
 #if 0
 #define USE_UNCORE_PERF_COUNTERS
 #if 1
@@ -671,6 +678,21 @@ std::array<std::string, 2> parse_conv_loop_string_for_batchnorm(const char *conv
   return {nc_loop_stdstr, c_loop_stdstr};
 }
 
+void pause_itt() {
+#ifdef WITH_VTUNE
+  __itt_pause();
+#endif
+}
+
+/*
+void pause_itt() {
+#ifdef WITH_VTUNE
+  __itt_pause();
+#endif
+}
+*/
+
+
 REGISTER_SUBMODULE(_bottleneck, m) {
   m.def(
       "bottleneck_bn_fwd",
@@ -705,5 +727,6 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_bwd_w_ext", &bottleneck_bn_bwd_w_ext, "Pcl BOTTLENECK BN backward over weights with tuning params");
   m.def("bottleneck_bn_bwd_w_get_gflop", &bottleneck_bn_bwd_w_get_gflop, "Pcl BOTTLENECK BN bwd_w gflop count");
   m.def("bottleneck_bn_bwd_w_get_gflop_details", &bottleneck_bn_bwd_w_get_gflop_details, "Pcl BOTTLENECK BN bwd_w gflop counts for various components");
+  m.def("pause_itt", &pause_itt, "Pcl BOTTLENECK pause itt");
 }
 
