@@ -452,7 +452,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(C) + " " + str(has_relu) + " " + str(has_eltwise) + " " + str(track_running_stats)
         print("Final perf GFLOPs: ", str(gflop/time_per_iter) + " basic: " + basic_params_string + " channel bs: " + str(bc) + " tuning_string_ncp: " + str(tuning_string_ncp) + " tuning_string_cp: " + str(tuning_string_cp))
 
-        print("PERFDUMP,FP,na,"  + str(N) + "," + str(N) + "," + str(C) + "," + str(C) + "," + str(H) + "," + str(W) + "," + "na" + "," + "na" + "," + "na" + "," + str(opt_padding[0]) + "," + str(opt_padding[1]) + "," + str(time_per_iter) + "," + str(gflop/time_per_iter) + ',' + str(has_relu) + ',' + str(has_eltwise) + ',' + str(training))
+        print("PERFDUMP,FP,na,"  + str(N) + "," + str(N) + "," + str(C) + "," + str(C) + "," + str(H) + "," + str(W) + "," + "na" + "," + "na" + "," + "na" + "," + str(opt_padding[0]) + "," + str(opt_padding[2]) + "," + str(time_per_iter) + "," + str(gflop/time_per_iter) + ',' + str(has_relu) + ',' + str(has_eltwise) + ',' + str(training))
 
         print("memory (1 tensor) per core (bytes/Kb/Mb): ", H * W * C * (2 if opt_dtype==torch.bfloat16 else 4),
                                                             H * W * C * (2 if opt_dtype==torch.bfloat16 else 4) / 1024.0,
