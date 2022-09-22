@@ -17,6 +17,28 @@ import torch.distributed as dist
 import logging.config
 import random
 
+def convert_weight_names(names):
+
+    extra_params = {"cls/predictions/bias": "cls/predictions/output_bias",
+                    "cls/seq_relationship/kernel": "cls/seq_relationship/output_weights",
+                    "cls/seq_relationship/bias": "cls/seq_relationship/output_bias"}
+    duplications = ["cls/predictions/decoder/kernel", # this is the same as embeddings
+                    ]
+    new_names = []
+    for name in names:
+
+        name = name.replace("layer.", "layer_").replace(
+                ".", "/").replace(
+                        "LayerNorm/bias", "LayerNorm/beta").replace(
+                                "LayerNorm/weight", "LayerNorm/gamma").replace(
+                                        "weight", "kernel").replace(
+                                                "embeddings/kernel", "embeddings")
+        if name in extra_params:
+            name = extra_params[name]
+        if name not in duplications:
+            new_names.append(name)
+    return  new_names
+
 
 def generate_seeds(rng, size):
     """

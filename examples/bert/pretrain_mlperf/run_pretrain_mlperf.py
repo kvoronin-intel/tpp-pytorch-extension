@@ -848,6 +848,12 @@ def prepare_model_and_optimizer(args, device):
     if args.use_pcl:
         pcl_bert.block(model)
 
+    #Log weight initializations
+    if not args.model_name_or_path == "":
+        checkpoint=torch.load(args.model_name_or_path + '/' + "pytorch_model.bin", map_location="cpu")
+        for weight in utils.convert_weight_names(list(checkpoint.keys())):
+            mlperf_logger.log_event(mlperf_logger.constants.WEIGHTS_INITIALIZATION, metadata={'tensor': weight})
+
     param_optimizer = list(model.named_parameters())
 
     no_decay = ["bias", "gamma", "beta", "LayerNorm"]
