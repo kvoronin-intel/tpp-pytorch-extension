@@ -1334,6 +1334,7 @@ def main():
 
     mlperf_logger.log_end(key=mlperf_logger.constants.INIT_STOP, sync=False)
     mlperf_logger.log_start(key=mlperf_logger.constants.RUN_START, sync=True)
+    trainint_start_time = time.time()
     mlperf_logger.barrier()
 
     now_step, now_skipped, skip_interval = 0, 0, 0
@@ -1857,6 +1858,9 @@ def main():
     mlperf_logger.log_end(
         key=mlperf_logger.constants.RUN_STOP, metadata={"status": status}, sync=False
     )
+    trainint_stop_time = time.time()
+    if args.local_rank == 0:
+        print(f"Finished Training in {(trainint_stop_time - trainint_start_time)/60.0:.3f} min, steps: {global_step}, converaged: {converged}")
     return args, final_loss, train_time_raw
 
 
