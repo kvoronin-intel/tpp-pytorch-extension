@@ -116,7 +116,7 @@ setup(
     ],
     python_requires=">=3.6",
     # install_requires=["torch>=1.4.0"],
-    scripts=["utils/run_dist.sh"],
+    scripts=["utils/run_dist.sh", "utils/run_dist_ht.sh"],
     libraries=[("xsmm", xsmm_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"])],
     ext_modules=[
         CppExtension(
