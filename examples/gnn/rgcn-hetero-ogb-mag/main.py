@@ -13,7 +13,9 @@ import utils
 import model as base_model
 from contextlib import contextmanager
 from pcl_pytorch_extension.gnn.rgcn_hetero_ogb_mag import fused_rgcn
+from pcl_pytorch_extension.gnn.common import gnn_utils
 import pcl_pytorch_extension as ppx
+import os, time
 
 
 @contextmanager
@@ -56,6 +58,7 @@ def train(
     labels: torch.Tensor,
     predict_category: str,
     dataloader: dgl.dataloading.NodeDataLoader,
+    epoch,
 ) -> Tuple[float]:
     model.train()
 
@@ -68,6 +71,7 @@ def train(
     model = model.to(device)
     loss_function = loss_function.to(device)
 
+    iter_time = []
     record_shapes = False
     with torch.autograd.profiler.profile(
         enabled=args.profile, use_cuda=False, record_shapes=record_shapes
@@ -75,6 +79,10 @@ def train(
         if args.mlp_profile and args.opt_mlp:
             ppx.reset_debug_timers()
         for step, (in_nodes, out_nodes, blocks) in enumerate(dataloader):
+            if args.opt_mlp and epoch == 0 and step == 0:
+                cores = int(os.environ["OMP_NUM_THREADS"])
+                gnn_utils.affinitize_cores(cores, args.num_workers)
+            tic = time.time()
             embedding_optimizer.zero_grad(set_to_none=True)
             model_optimizer.zero_grad()
 
@@ -108,12 +116,15 @@ def train(
             model_optimizer.step()
             embedding_optimizer.step()
 
+            toc = time.time()
+            iter_time.append(toc-tic)
             total_loss += loss.item()
             total_accuracy += accuracy
 
             # print('Step {:02d} | Loss {:.4f} | TLoss {:.4f} | Acc {:.4f} | TAcc {:.4f}'.format(
             #  step, loss.item(), total_loss, accuracy, total_accuracy))
 
+    print('Avg batch time: {:.4f}'.format(np.mean(iter_time)))
     if args.mlp_profile and args.opt_mlp:
         ppx.print_debug_timers(0)
 
@@ -137,12 +148,12 @@ def train(
                 )
 
     stop = default_timer()
-    time = stop - start
+    tme = stop - start
 
     total_loss /= step + 1
     total_accuracy /= step + 1
 
-    return time, total_loss, total_accuracy
+    return tme, total_loss, total_accuracy
 
 
 def validate(
@@ -371,6 +382,7 @@ def run(args: argparse.ArgumentParser) -> None:
             labels,
             predict_category,
             train_dataloader,
+            epoch,
         )
         if not args.profile:
             valid_time, valid_loss, valid_accuracy = validate(
@@ -398,7 +410,6 @@ def run(args: argparse.ArgumentParser) -> None:
                 valid_accuracy,
                 {"embedding_layer": embedding_layer, "model": model},
             )
-
             print(
                 f"Epoch: {epoch + 1:03} "
                 f"Train Loss: {train_loss:.2f} "

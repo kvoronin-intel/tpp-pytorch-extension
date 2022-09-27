@@ -214,7 +214,7 @@ def run(args, device, data):
             num_workers=args.num_workers,
             use_cpu_worker_affinity=args.cpu_worker_aff,
             persistent_workers=args.cpu_worker_aff,
-            formats=["csc"],
+            #formats=["csc"],
         )
     else:
         dataloader = dgl.dataloading.NodeDataLoader(
@@ -278,13 +278,13 @@ def run(args, device, data):
         if prof and args.opt_mlp:
             ppx.reset_debug_timers()
         for epoch in range(args.num_epochs):
-            batch_fwd_time = AverageMeter()
-            batch_bwd_time = AverageMeter()
-            loss_time = AverageMeter()
-            optim_zero_time = AverageMeter()
-            optim_step_time = AverageMeter()
-            data_time = AverageMeter()
-            gather_time = AverageMeter()
+            #batch_fwd_time = AverageMeter()
+            #batch_bwd_time = AverageMeter()
+            #loss_time = AverageMeter()
+            #optim_zero_time = AverageMeter()
+            #optim_step_time = AverageMeter()
+            #data_time = AverageMeter()
+            #gather_time = AverageMeter()
 
             iter_time = []
 
@@ -299,91 +299,95 @@ def run(args, device, data):
                     gnn_utils.affinitize_cores(cores, args.num_workers)
                 # measure data loading time
                 t0 = time.time()
-                if step > 0:
-                    data_time.update(t0 - end)
+                #if step > 0:
+                #    data_time.update(t0 - end)
 
                 # Load the input features as well as output labels
                 batch_inputs, batch_labels = load_subtensor(
                     nfeat, labels, seeds, input_nodes
                 )
-                t1 = time.time()
-                if step > 0:
-                    gather_time.update(t1 - t0)
+                #t1 = time.time()
+                #if step > 0:
+                #    gather_time.update(t1 - t0)
 
-                t2 = time.time()
+                #t2 = time.time()
                 # Compute loss and prediction
                 batch_pred = model(blocks, batch_inputs).to(th.float32)
-                t3 = time.time()
-                if step > 0:
-                    batch_fwd_time.update(t3 - t2)
+                #t3 = time.time()
+                #if step > 0:
+                #    batch_fwd_time.update(t3 - t2)
 
                 loss = loss_fcn(batch_pred, batch_labels)
-                t4 = time.time()
-                if step > 0:
-                    loss_time.update(t4 - t3)
+                #t4 = time.time()
+                #if step > 0:
+                #    loss_time.update(t4 - t3)
 
                 optimizer.zero_grad()
-                t5 = time.time()
-                if step > 0:
-                    optim_zero_time.update(t5 - t4)
+                #t5 = time.time()
+                #if step > 0:
+                #    optim_zero_time.update(t5 - t4)
 
                 loss.backward()
-                t6 = time.time()
-                if step > 0:
-                    batch_bwd_time.update(t6 - t5)
+                #t6 = time.time()
+                #if step > 0:
+                #    batch_bwd_time.update(t6 - t5)
 
                 optimizer.step()
-                t7 = time.time()
-                if step > 0:
-                    optim_step_time.update(t7 - t6)
+                #t7 = time.time()
+                #if step > 0:
+                #    optim_step_time.update(t7 - t6)
 
                 end = time.time()
 
-                if step > 0:
-                    iter_time.append(
-                        data_time.val
-                        + gather_time.val
-                        + batch_fwd_time.val
-                        + loss_time.val
-                        + optim_zero_time.val
-                        + batch_bwd_time.val
-                        + optim_step_time.val
-                    )
+                iter_time.append(end-t0)
+                #if step > 0:
+                #    iter_time.append(
+                #        data_time.val
+                #        + gather_time.val
+                #        + batch_fwd_time.val
+                #        + loss_time.val
+                #        + optim_zero_time.val
+                #        + batch_bwd_time.val
+                #        + optim_step_time.val
+                #    )
                 if step > 0 and step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
                     print(
-                        # "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} |"
+                            "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Step time (sec) {:.4f}".format(
                         # "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |"
-                        "Epoch {:05d} | Step {:05d} |"
-                        "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
-                        "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
-                        "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) |"
-                        "Loss (s) {loss_time.val:.4f} ({loss_time.avg:.4f}) |"
-                        "Optim Zero (s) {optim_zero_time.val:.4f} ({optim_zero_time.avg:.4f}) |"
-                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) |"
-                        "Optim Step (s) {optim_step_time.val:.4f} ({optim_step_time.avg:.4f}) |".format(
+                        #"Epoch {:05d} | Step {:05d} |"
+                        #"DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
+                        #"GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
+                        #"FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) |"
+                        #"Loss (s) {loss_time.val:.4f} ({loss_time.avg:.4f}) |"
+                        #"Optim Zero (s) {optim_zero_time.val:.4f} ({optim_zero_time.avg:.4f}) |"
+                        #"BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) |"
+                        #"Optim Step (s) {optim_step_time.val:.4f} ({optim_step_time.avg:.4f}) |".format(
                             epoch,
                             step,
                             loss.item(),
-                            acc.item(),
+                            np.mean(iter_time[3:]),
+                            #acc.item(),
                             # blocks[0].num_src_nodes(),
                             # blocks[1].num_src_nodes(),
                             # blocks[2].num_src_nodes(),
                             # blocks[2].num_dst_nodes(),
-                            data_time=data_time,
-                            gather_time=gather_time,
-                            batch_fwd_time=batch_fwd_time,
-                            loss_time=loss_time,
-                            optim_zero_time=optim_zero_time,
-                            batch_bwd_time=batch_bwd_time,
-                            optim_step_time=optim_step_time,
+                            #data_time=data_time,
+                            #gather_time=gather_time,
+                            #batch_fwd_time=batch_fwd_time,
+                            #loss_time=loss_time,
+                            #optim_zero_time=optim_zero_time,
+                            #batch_bwd_time=batch_bwd_time,
+                            #optim_step_time=optim_step_time,
                         )
                     )
 
-            print("Epoch Time(s): {:.4f}".format(np.sum(iter_time)))
+            toc = time.time()
 
-            if epoch >= 5:
-                avgb += np.sum(iter_time)
+            print("Epoch Time(s): {:.4f}".format(toc-tic))
+
+            if epoch >= 1:
+                avgb += toc - tic
 
             if epoch % args.eval_every == 0 and epoch != 0:
                 if args.dataset == "ogbn-products":
@@ -439,11 +443,11 @@ def run(args, device, data):
                     )
                 )
 
-    print("Avg epoch time: {}".format(avgb / (epoch - 4)))
+    print("Avg epoch time: {}".format(avgb / (epoch)))
     if args.dataset == "ogbn-products":
-        return best_test_acc, avgb / (epoch - 4)
+        return best_test_acc, avgb / (epoch)
     elif args.dataset == "ogbn-papers100M":
-        return avgb / (epoch - 4)
+        return avgb / (epoch)
 
 
 if __name__ == "__main__":
