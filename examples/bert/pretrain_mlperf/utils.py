@@ -23,6 +23,8 @@ def convert_weight_names(names):
                     "cls/seq_relationship/kernel": "cls/seq_relationship/output_weights",
                     "cls/seq_relationship/bias": "cls/seq_relationship/output_bias"}
     duplications = ["cls/predictions/decoder/kernel", # this is the same as embeddings
+                    "bert/embeddings/position_ids", # this is constants from 0 to 511
+                    "cls/predictions/decoder/bias", # this is the same as output_bias
                     ]
     new_names = []
     for name in names:
