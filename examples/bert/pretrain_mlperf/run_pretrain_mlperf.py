@@ -1611,7 +1611,7 @@ def main():
                             mlperf_logger.log_event(
                                 key=mlperf_logger.constants.EVAL_ACCURACY,
                                 value=eval_avg_mlm_accuracy.numpy(),
-                                metadata={"epoch_num": epoch},
+                                metadata={"epoch_num": samples_trained},
                                 sync=False,
                             )
                             print(
