@@ -1842,7 +1842,7 @@ def main():
         )
         mlperf_logger.log_end(
             key=mlperf_logger.constants.EPOCH_STOP,
-            metadata={"epoch_num": epoch},
+            metadata={"epoch_num": samples_trained},
             sync=False,
         )
         epoch += 1
