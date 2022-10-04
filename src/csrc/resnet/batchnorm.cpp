@@ -17,6 +17,11 @@ using namespace pcl;
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
+#ifdef WITH_VTUNE
+  #warning "Building with WITH_VTUNE enabled (in batchnorm.cpp)"
+  #include "ittnotify.h"
+#endif
+
 static int my_rank = guess_mpi_rank();
 
 #define THREADED_LOOPS
@@ -126,6 +131,18 @@ double batchnorm_fwd_get_gflop(int N, int C, int H, int W)
   return gflop;
 }
 
+void batchnorm_pause_itt() {
+#ifdef WITH_VTUNE
+  __itt_pause();
+#endif
+}
+
+void batchnorm_resume_itt() {
+#ifdef WITH_VTUNE
+  __itt_resume();
+#endif
+}
+
 
 REGISTER_SUBMODULE(_batchnorm, m) {
   m.def(
@@ -143,5 +160,7 @@ REGISTER_SUBMODULE(_batchnorm, m) {
   m.def("batchnorm_fwd_ext", &batchnorm_fwd_ext, "Pcl BN forward with tuning parameters (strings)");
   m.def("batchnorm_bwd_ext", &batchnorm_bwd_ext, "Pcl BN backward with tuning parameters (strings)");
   m.def("batchnorm_fwd_get_gflop", &batchnorm_fwd_get_gflop, "Pcl BN forward get gflop count (7NCHW)");
+  m.def("batchnorm_pause_itt", &batchnorm_pause_itt, "Pcl BN pause itt");
+  m.def("batchnorm_resume_itt", &batchnorm_resume_itt, "Pcl BN resume itt");
 }
 

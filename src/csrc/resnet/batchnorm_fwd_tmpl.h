@@ -3,6 +3,10 @@ RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 /*        ( input, input_add, weight, bias, mean, var ) = inputs */
 #define TIMING
 
+#ifdef WITH_VTUNE
+  #define USE_VTUNE
+#endif
+
 #define NUM_ITER_PERF_DEBUG 1
 
 //#define MAKE_INPUT_HOT
@@ -20,7 +24,7 @@ RECORD_FUNCTION("batchnorm_fwd", std::vector<c10::IValue>());
 t_start = getTime();
 #endif
 
-#define VERBOSE
+//#define VERBOSE
 
 #ifdef MAKE_INPUT_HOT
   #ifdef VERBOSE
@@ -29,6 +33,12 @@ t_start = getTime();
   #ifdef TIMING
     double t_extra_tweak_start = 0.0, t_extra_tweak = 0.0;
   #endif
+#endif
+
+#ifdef USE_VTUNE
+  __itt_domain* bn_domain = __itt_domain_create("bn_domain");
+  bn_domain->flags = 1;
+  #define ITT_DOMAIN bn_domain
 #endif
 
 int zero_output_upfront = 0;
@@ -40,6 +50,7 @@ if (0 == env_prec_str) {
   zero_output_upfront = atoi(env_prec_str);
 }
 */
+
 int bcast_upfront = 0;
 /*
 const char* const env_prec_str2 = getenv("BCAST_UPFRONT");
@@ -49,6 +60,7 @@ if (0 == env_prec_str2) {
   bcast_upfront = atoi(env_prec_str2);
 }
 */
+
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 at::Tensor t_IA, t_W, t_B, t_M, t_V;
 if (eltwise) {
@@ -333,6 +345,7 @@ if (bcast_upfront) {
       } /* end of the scope with recorded parallel for */
     } /* end of the bn_fwd_reduce scope */
 
+
 #ifdef TIMING
     t_bn_reduce_start = getTime();
 #endif
@@ -382,6 +395,18 @@ if (bcast_upfront) {
       } /* end of the scope with recorded parallel for */
     } /* end of the bn_fwd_stats scope */
   } /* end of if (training) for computing the stats */
+
+#ifdef USE_VTUNE
+    if (CP*bc == 256 && ifhp == 56 && ifwp == 56) {
+      //__itt_resume();
+      //printf("Called resume\n");
+      __itt_frame_begin_v3(ITT_DOMAIN, NULL);
+      printf("Called frame_begin\n");
+    } else {
+      //printf("Cp*bc = %d ifhwp = %d ifwp = %d \n", CP*bc, ifhp, ifwp);
+      printf("Did not call frame_begin\n");
+    }
+#endif
 
 #ifdef TIMING
     t_bn_scale_start = getTime();
@@ -659,6 +684,14 @@ if (bcast_upfront) {
   t_end = getTime();
 #endif
 
+#ifdef USE_VTUNE
+    if (CP*bc == 256 && ifhp == 56 && ifwp == 56)
+    {
+      __itt_frame_end_v3(ITT_DOMAIN, NULL);
+      ITT_DOMAIN->flags = 0;
+      //__itt_pause();
+    }
+#endif
 
 #ifdef TIMING
   auto buf = tuning_timings.request();
@@ -691,6 +724,12 @@ printf("t scale = %6.6f \n", t_end  - t_bn_scale_start);
 
 #ifdef TIMING
   #undef TIMING
+#endif
+
+#ifdef USE_VTUNE
+  ITT_DOMAIN->flags = 0;
+  #undef ITT_DOMAIN
+  #undef USE_VTUNE
 #endif
 
 //return std::vector<at::Tensor>({t_O, t_relu_mask, inputs[6]});
