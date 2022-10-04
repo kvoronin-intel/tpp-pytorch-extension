@@ -678,9 +678,15 @@ std::array<std::string, 2> parse_conv_loop_string_for_batchnorm(const char *conv
   return {nc_loop_stdstr, c_loop_stdstr};
 }
 
-void pause_itt() {
+void bottleneck_pause_itt() {
 #ifdef WITH_VTUNE
   __itt_pause();
+#endif
+}
+
+void bottleneck_resume_itt() {
+#ifdef WITH_VTUNE
+  __itt_resume();
 #endif
 }
 
@@ -727,6 +733,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_bwd_w_ext", &bottleneck_bn_bwd_w_ext, "Pcl BOTTLENECK BN backward over weights with tuning params");
   m.def("bottleneck_bn_bwd_w_get_gflop", &bottleneck_bn_bwd_w_get_gflop, "Pcl BOTTLENECK BN bwd_w gflop count");
   m.def("bottleneck_bn_bwd_w_get_gflop_details", &bottleneck_bn_bwd_w_get_gflop_details, "Pcl BOTTLENECK BN bwd_w gflop counts for various components");
-  m.def("pause_itt", &pause_itt, "Pcl BOTTLENECK pause itt");
+  m.def("bottleneck_pause_itt", &bottleneck_pause_itt, "Pcl BOTTLENECK pause itt");
+  m.def("bottleneck_resume_itt", &bottleneck_resume_itt, "Pcl BOTTLENECK pause itt");
 }
 

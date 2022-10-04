@@ -85,8 +85,11 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 
 //RECORD_SCOPE("conv1_bn1_fwd", std::vector<c10::IValue>());
 {
-
 #ifdef WITH_VTUNE
+  #define USE_VTUNE
+#endif
+
+#ifdef USE_VTUNE
   __itt_domain* bn1_domain = __itt_domain_create("bn1_domain");
   bn1_domain->flags = 1;
   #define ITT_DOMAIN bn1_domain
@@ -130,10 +133,12 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
-#ifdef WITH_VTUNE
+#ifdef USE_VTUNE
   ITT_DOMAIN->flags = 0;
   #undef ITT_DOMAIN
+  #undef USE_VTUNE
 #endif
+
 
 #ifdef TIMING
   time_c1        = t_conv_end - t_conv_start;
@@ -170,7 +175,11 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 //RECORD_SCOPE("conv2_bn2_fwd", std::vector<c10::IValue>());
 {
 
-#ifdef WITH_VTUNE
+//#ifdef WITH_VTUNE
+//  #define USE_VTUNE
+//#endif
+
+#ifdef USE_VTUNE
   __itt_domain* bn2_domain = __itt_domain_create("bn2_domain");
   bn2_domain->flags = 1;
   #define ITT_DOMAIN bn2_domain
@@ -218,9 +227,10 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
-#ifdef WITH_VTUNE
+#ifdef USE_VTUNE
   ITT_DOMAIN->flags = 0;
   #undef ITT_DOMAIN
+  #undef USE_VTUNE
 #endif
 
 #ifdef TIMING
@@ -256,9 +266,14 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
 //RECORD_SCOPE("conv4_bn4_fwd", std::vector<c10::IValue>());
 {
-#ifdef WITH_VTUNE
+//#ifdef WITH_VTUNE
+//  #define USE_VTUNE
+//#endif
+
+#ifdef USE_VTUNE
+//  __itt_resume();
   __itt_domain* bn4_domain = __itt_domain_create("bn4_domain");
-  bn4_domain->flags = 1;
+   bn4_domain->flags = 1;
   #define ITT_DOMAIN bn4_domain
 #endif
 
@@ -300,9 +315,11 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
-#ifdef WITH_VTUNE
-  ITT_DOMAIN->flags = 0;
+#ifdef USE_VTUNE
+//  __itt_pause();
+   ITT_DOMAIN->flags = 0;
   #undef ITT_DOMAIN
+  #undef USE_VTUNE
 #endif
 #ifdef TIMING
   time_c4        = t_conv_end - t_conv_start;
@@ -325,11 +342,17 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
 
 at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 
+
 //RECORD_SCOPE("conv3_bn3_fwd", std::vector<c10::IValue>());
 {
-#ifdef WITH_VTUNE
+//#ifdef WITH_VTUNE
+//  #define USE_VTUNE
+//#endif
+
+#ifdef USE_VTUNE
+//  __itt_resume();
   __itt_domain* bn3_domain = __itt_domain_create("bn3_domain");
-  bn3_domain->flags = 1;
+   bn3_domain->flags = 1;
   #define ITT_DOMAIN bn3_domain
 #endif
 
@@ -371,9 +394,10 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
   #undef BN_RELU_OUT
   #undef BN_SCRATCH_OUT
   #undef BN_IN
-#ifdef WITH_VTUNE
+#ifdef USE_VTUNE
   ITT_DOMAIN->flags = 0;
   #undef ITT_DOMAIN
+  #undef USE_VTUNE
 #endif
 
 #ifdef TIMING
@@ -419,17 +443,27 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
                                                                    (cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) / MB,
                                                                    (cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) / MB,
                                                                    (4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) / MB );
+        double c1_ab_size = ((cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(cfg.planes)*1*1*sizeof(T)) / MB;
+        double c2_ab_size = ((cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.planes)*(cfg.planes)*3*3*sizeof(T)) / MB;
+        double c3_ab_size = ((cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(4*cfg.planes)*1*1*sizeof(T)) / MB;
+        double c4_ab_size = ((cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(4*cfg.planes)*1*1*sizeof(T)) / MB;
+        printf("conv input footprint (inp + weights) (in Mb, per core): %f %f %f %f (c1, c2, c3, c4)\n",
+                                                                   c1_ab_size,
+                                                                   c2_ab_size,
+                                                                   c3_ab_size,
+                                                                   c4_ab_size );
+
         printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,1.0\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), time_c1);
         printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,1.0\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, time_c2);
         printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,1.0\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), time_c3);
         if (cfg.has_residual_conv)
             printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,1.0\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), time_c4);
 
-        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H)             , (cfg.W)             , "na", "na", "na", (0), (1), time_b1, (1), (0), (training));
-        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (1), (0), time_b2, (1), (0), (training));
-        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, (1), (1), (training));
+        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H)             , (cfg.W)             , "na", "na", "na", (0), (1), time_b1, c1_ab_size, (1), (0), (training));
+        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (1), (0), time_b2, c2_ab_size, (1), (0), (training));
+        printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, c3_ab_size, (1), (1), (training));
         if (cfg.has_residual_conv)
-            printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, (0), (0), (training));
+            printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), c4_ab_size, time_b4, (0), (0), (training));
 
   return {bn3_out, conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, residual, bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
             bn1_scratch_out, bn2_scratch_out, bn3_scratch_out, bn4_scratch_out };
