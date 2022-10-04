@@ -37,7 +37,7 @@
 extern "C" {
 #endif
 
-#define CTRS_CPU_SKX
+#define CTRS_CPU_SPR
 
 #ifdef CTRS_CPU_SKX
 #define CTRS_NCORE 28
