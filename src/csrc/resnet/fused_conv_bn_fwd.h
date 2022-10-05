@@ -81,7 +81,7 @@ fuse_stats = 0;
 #endif
 
 // DEBUGGING:
-
+/*
 #ifndef NO_BATCHNORM
 fuse_stats = 0;
 training = 0;
@@ -89,7 +89,7 @@ training = 0;
 std::cout << "Caution: fuse_stats and training are set to zero (while debugging perf) in fused conv_bn bottleneck fwd" << std::endl;
 #endif
 #endif
-
+*/
 
 #ifdef VERBOSE
 std::cout << "CONV+BN meta setup info"           << std::endl;
