@@ -767,6 +767,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         self.tuning_params_w    = None
         self.tuning_strings_w   = None
 
+        # bwd_d tunings are based on results in bottleneck_*_tuning_bwd_d_not1_0721.txt
         if self.use_hardcoded_tunings:
             # hardcoded for 56 threads on SPR
             self.hybrid_cols = 14
@@ -777,10 +778,11 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           1, 1, 1, 1, # h_in_gemms
                                           0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbdced', 'Afgbdced', 'Afgbdced', 'Afgbdced'] #['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1, # h,w blocks
+                self.tuning_params_d = [7, 1, 7, 1, 7, 1, 7, 1, # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcbded', 'Afgcbded', 'Afgcbded', 'Afgcbded']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 1, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -797,7 +799,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcbde', 'Afgcbde', 'Afgcbde', 'Afgcbde']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 1, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -814,7 +817,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcbde', 'Afgcbde', 'Afgcbde', 'Afgcbde']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 0, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -828,9 +832,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbdecd', 'Afgbdecd', 'Afgbdecd', 'Afgbdecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
+                                        1, 1, 1, 1, 2, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcdeb', 'Afgcdeb', 'Afgcdeb', 'Afgcdeb']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 1, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -844,9 +849,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           1, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbcdce', 'Afgbcdce', 'Afgbcdce', 'Afgbcdce' ]
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                                        1, 1, 1, 1, 4, 1, 4, 1 , # c,k blocks
+                                        1, 1, 2, 1] # h_in_gemms
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcebd', 'Afgcebd', 'Afgcebd', 'Afgcebd']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 0, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -860,9 +866,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                                        8, 1, 1, 1, 8, 1, 1, 1 , # c,k blocks
+                                        2, 2, 2, 2] # h_in_gemms
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcbdeb', 'Afgcbde', 'Afgcbde', 'Afgcbde']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 1, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -876,9 +883,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           1, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['Afgbcecd', 'Afgbcecd', 'Afgbcecd', 'Afgbcecd']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                                        4, 1, 8, 1, 8, 1, 16, 1 , # c,k blocks
+                                        2, 1, 7, 1] # h_in_gemms
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['Afgcbde', 'Afgcbde', 'Afgcbde', 'Afgcbde']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 0, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -896,9 +904,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
                 #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                        1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
-                                        1, 1, 1, 1] # h_in_gemms
-                self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                                        4, 1, 4, 1, 4, 1, 1, 1 , # c,k blocks
+                                        7, 1, 7, 7] # h_in_gemms
+                #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
+                self.tuning_strings_d = ['BAfgcedb', 'BAfgcedb', 'BAfgcedb', 'BAfgcedb']
                 self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                         1, 1, 1, 1, # use nchw formats
                                         1, 0, 0, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
