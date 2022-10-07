@@ -768,6 +768,9 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         self.tuning_strings_w   = None
 
         if self.use_hardcoded_tunings:
+            # hardcoded for 56 threads on SPR
+            self.hybrid_cols = 14
+            self.hybrid_rows = 4
             if self.inplanes == 64 and self.planes == 64: # Bottleneck type #0
                 self.tuning_params_fwd = [4, 1, 4, 1, 4, 1, 4, 1, # h,w blocks
                                           1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
@@ -888,6 +891,10 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                           7, 7, 7, 7, # h_in_gemms
                                           0, 0 ] # pack_input, fuse_stats
                 self.tuning_strings_fwd = ['ACfgbdec', 'ACfgbdec', 'ACfgbdec', 'ACfgbdec']
+                #self.tuning_strings_fwd = ['A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
+                #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
+                #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
+                #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde']
                 self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                         1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                         1, 1, 1, 1] # h_in_gemms
