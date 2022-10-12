@@ -18,6 +18,34 @@
 using namespace pcl;
 #include "tensor_helper.h"
 
+static int counter = 0;
+
+//#define GLOBAL_SHARED_WEIGHTS
+
+
+#ifdef GLOBAL_SHARED_WEIGHTS
+
+//REGISTER_SCOPE(fusedbtlnk_global_shared_weights_nobatchnorm_fwd,    "fusedbtlnk_global_shared_weights_nobatchnorm_fwd");
+
+#define DECL_VLA_PTR_PT_SPECIAL(type, name, dims, t) \
+  type(*name) dims = (type(*) dims)(t)
+
+#define MB_INT (1024*1024)
+
+#define GLOBAL_SHARED_WEIGHT_NELEMENTS (16 * MB_INT / sizeof(libxsmm_bfloat16))
+libxsmm_bfloat16 global_shared_weights[GLOBAL_SHARED_WEIGHT_NELEMENTS];
+
+struct my_array_initializer {
+  my_array_initializer() {
+    // Initialize the global array here
+    for (int i = 0; i < GLOBAL_SHARED_WEIGHT_NELEMENTS; i++) {
+      float tmp = 0.0;
+      libxsmm_convert_bf16_f32( &global_shared_weights[i], &tmp, 1);
+    }
+  }
+};
+my_array_initializer dummy_variable;
+#endif
 
 // Can be defined in the setup.py
 #ifdef WITH_VTUNE
@@ -149,6 +177,9 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext(
     std::vector<int> tuning_params,
     std::vector<std::string> tuning_strings,
     pybind11::array_t<float>& tuning_timings) {
+//#ifdef GLOBAL_SHARED_WEIGHTS
+//  #define NO_BATCHNORM
+//#endif
   GlobalPass _gp(FWD);
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
@@ -165,6 +196,10 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext(
 #   include "bottleneck_fwd_tmpl.h"
 #endif
   }
+
+//#ifdef GLOBAL_SHARED_WEIGHTS
+//  #undef NO_BATCHNORM
+//#endif
 }
 
 std::vector<at::Tensor> bottleneck_bn_fwd_ext_study1(
