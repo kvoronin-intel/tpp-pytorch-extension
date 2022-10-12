@@ -20,6 +20,8 @@ using namespace pcl;
 
 static int my_rank = guess_mpi_rank();
 
+static int counter = 0;
+
 #define THREADED_LOOPS
 
 #ifdef THREADED_LOOPS

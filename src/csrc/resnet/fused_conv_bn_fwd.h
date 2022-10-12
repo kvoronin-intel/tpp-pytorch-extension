@@ -5,8 +5,6 @@
 t_start = getTime();
 #endif
 
-
-
 #define NTIMES 1
 
 #define BN_PREHEAT_INPUT
@@ -14,8 +12,11 @@ t_start = getTime();
 
 #define NTIMES_PREHEAT 0
 
-//#define VERBOSE
+//#define COPY_INSTEAD_OF_BATCHNORM
 
+//#define NO_BATCHNORM
+
+//#define VERBOSE
 
 #if defined(USE_UNCORE_PERF_COUNTERS)
   #warning "USE_UNCORE_PERF_COUNTERS is defined"
@@ -24,10 +25,10 @@ t_start = getTime();
   #endif
 #endif
 
-#if defined(USE_DRAM_PERF_COUNTERS)
-  #warning "USE_DRAM_PERF_COUNTERS is defined"
+#if defined(USE_DRAM_COUNTERS)
+  #warning "USE_DRAM_COUNTERS is defined"
   #ifdef VERBOSE
-    printf("USE_DRAM_PERF_COUNTERS is defined\n");
+    printf("USE_DRAM_COUNTERS is defined\n");
   #endif
 #endif
 
@@ -44,10 +45,16 @@ t_start = getTime();
   llc_victims llc_vic_min, llc_vic_max, llc_vic_avg;
 
 #ifdef USE_DRAM_COUNTERS
-  setup_uncore_ctrs( CTRS_EXP_DRAM_CAS );
+  if (counter == 0)
+    setup_uncore_ctrs( CTRS_EXP_DRAM_CAS );
 #else
-  setup_uncore_ctrs( CTRS_EXP_CHA_LLC_LOOKUP_VICTIMS );
+  if (counter == 0)
+    setup_uncore_ctrs( CTRS_EXP_CHA_LLC_LOOKUP_VICTIMS );
 #endif
+
+
+counter++;
+
   zero_uncore_ctrs( &a );
   zero_uncore_ctrs( &b );
   zero_uncore_ctrs( &s );
@@ -77,6 +84,10 @@ char conv_fwd_loop_specs_str[256];
 std::strcpy(conv_fwd_loop_specs_str, conv_loop_string.c_str());
 
 #ifdef NO_BATCHNORM
+fuse_stats = 0;
+#endif
+
+#ifdef COPY_INSTEAD_OF_BATCHNORM
 fuse_stats = 0;
 #endif
 
@@ -195,6 +206,7 @@ auto t_scratch_bn = BN_SCRATCH_OUT;
 
 bool use_hw_blocking_in_fusion      = true;
 bool use_hw_blocking_outside_fusion = true;
+
 
 //const long num_HW_blocks = (H > W ? H : W);
 //const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
@@ -476,7 +488,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 
   //SCOPEIT_DECL(CpyTPP<T>)  dbg_copy_full_tpp;             zero_upfront_tpp;
   //auto dbg_copy_full_bchw_tpp = SCOPEIT((CpyTPP<T>(bc*CP*ifhp*ifwp)), EW_COPY);
-  auto dbg_copy_hwbc_tpp = SCOPEIT((CpyTPP<T>(bc*bn_ofhp*bn_ofwp)), EW_COPY);
+  auto dbg_copy_hwbc_tpp = SCOPEIT((CpyTPP<T>(bk*(bn_ofhp- 2 * bn_pad_h_out)*(bn_ofwp - 2 * bn_pad_w_out))), EW_COPY);
 
   char kb_loop_specs_str[256];
   char nkb_loop_specs_str[256];// = "AB";
@@ -532,16 +544,28 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
 std::cout << "Running conv part in conv/bn fusion" << std::endl;
 #endif
 
+#ifdef USE_UNCORE_PERF_COUNTERS
+  printf("dbg: read uncore counters before conv\n");
+  read_uncore_ctrs( &a );
+#endif
+#ifdef USE_CORE_PERF_COUNTERS
+  printf("dbg: read core counters before conv\n");
+  read_core_ctrs( &a );
+#endif
+
 #ifdef TIMING
   t_conv_start = getTime();
 #endif
 
 //for (int i = 0; i < 1000; i++) {
 
-
   {
 #ifdef NO_BATCHNORM
+//#  ifdef GLOBAL_SHARED_WEIGHTS
+//    RECORD_SCOPE(fusedbtlnk_global_shared_weights_nobatchnorm_fwd, {});
+//#  else
     RECORD_SCOPE(fusedbtlnk_conv_nobatchnorm_fwd, {});
+//#  endif
 #else
     RECORD_SCOPE(fusedbtlnk_conv_fwd, {});
 #endif
@@ -552,8 +576,13 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
 
           DECL_VLA_PTR_PT_EXT(T,     output_off, [Kb][ofhp][ofwp][bk],   t_CO, (conv_pad_h_out * ofwp * bk + conv_pad_w_out * bk));
           DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_CI);
-          DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_CW);
+#ifdef GLOBAL_SHARED_WEIGHTS
+  #warning "GLOBAL_SHARED_WEIGHTS are enabled in conv fwd in fused bottleneck fwd"
 
+          DECL_VLA_PTR_PT_SPECIAL    (T,     weight,     [Cb][R][S][bc][bk],     global_shared_weights);
+#else
+          DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_CW);
+#endif
           if (avoid_fmas_in_rim == 0) {
 
             if (Cb_step != Cb || r_step != R || s_step != S) {
@@ -689,6 +718,72 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
   t_conv_end = getTime();
 #endif
 
+#ifdef USE_UNCORE_PERF_COUNTERS
+  printf("dbg: read uncore counters after conv\n");
+  read_uncore_ctrs( &b );
+  difa_uncore_ctrs( &a, &b, &s );
+  divi_uncore_ctrs( &s, NTIMES );
+#endif
+#ifdef USE_CORE_PERF_COUNTERS
+  printf("dbg: read core counters after conv\n");
+  read_core_ctrs( &b );
+  difa_core_ctrs( &a, &b, &s );
+  divi_core_ctrs( &s, NTIMES );
+#endif
+
+  double l_avgTime = (t_conv_end - t_conv_start) / 1;
+
+#ifdef USE_UNCORE_PERF_COUNTERS
+#ifdef USE_DRAM_COUNTERS
+//  get_cas_ddr_bw_uncore_ctrs( &s, l_maxTime, &bw_min );
+//  get_cas_ddr_bw_uncore_ctrs( &s, l_minTime, &bw_max );
+  printf("dbg: l_avgTime = %6.6f \n", l_avgTime);
+  get_cas_ddr_bw_uncore_ctrs( &s, l_avgTime, &bw_avg );
+  printf("AVG GiB/s read (uncore ctrs cas ddr): %f\n", bw_avg.rd);
+  printf("AVG GiB/s write (uncore ctrs cas ddr): %f\n", bw_avg.wr);
+//  printf("MAX GiB/s (uncore ctrs): %f\n", bw_max.rd);
+//  printf("MIN GiB/s (uncore ctrs): %f\n", bw_min.rd);
+  printf("AVG GiB read  (uncore ctrs cas ddr): %f\n", bw_avg.rd * l_avgTime);
+  printf("AVG GiB write  (uncore ctrs cas ddr): %f\n", bw_avg.wr * l_avgTime);
+  printf("AVG GiB read+write  (uncore ctrs cas ddr): %f\n", (bw_avg.rd + bw_avg.wr) * l_avgTime);
+#else
+//  get_llc_victim_bw_uncore_ctrs( &s, l_maxTime, &llc_vic_max );
+//  get_llc_victim_bw_uncore_ctrs( &s, l_minTime, &llc_vic_min );
+  get_llc_victim_bw_uncore_ctrs( &s, l_avgTime, &llc_vic_avg );
+  printf("AVG GiB/s (uncore ctrs llc victim): %e\n", llc_vic_avg.rd_bw);
+//  printf("MAX GiB/s (uncore ctrs): %f\n", llc_vic_max.rd_bw);
+//  printf("MIN GiB/s (uncore ctrs): %f\n", llc_vic_min.rd_bw);
+  printf("AVG GiB   (uncore ctrs llc victim): %e\n", llc_vic_avg.rd_bw * l_avgTime);
+#endif
+#endif
+#ifdef USE_CORE_PERF_COUNTERS
+  printf("dbg: l_avgTime = %6.6f \n", l_avgTime);
+//  get_l2_bw_core_ctrs( &s, l_maxTime, &bw_min );
+//  get_l2_bw_core_ctrs( &s, l_minTime, &bw_max );
+  get_l2_bw_core_ctrs( &s, l_avgTime, &bw_avg );
+  printf("AVG GiB/s (IN    L2): %f\n", bw_avg.rd);
+//  printf("MAX GiB/s (IN    L2): %f\n", bw_max.rd);
+//  printf("MIN GiB/s (IN    L2): %f\n", bw_min.rd);
+  printf("AVG GiB/s (OUTS  L2): %f\n", bw_avg.wr);
+//  printf("MAX GiB/s (OUTS  L2): %f\n", bw_max.wr);
+//  printf("MIN GiB/s (OUTS  L2): %f\n", bw_min.wr);
+  printf("AVG GiB/s (OUTNS L2): %f\n", bw_avg.wr2);
+//  printf("MAX GiB/s (OUTNS L2): %f\n", bw_max.wr2);
+//  printf("MIN GiB/s (OUTNS L2): %f\n", bw_min.wr2);
+  printf("AVG GiB/s (DEM   L2): %f\n", bw_avg.wr3);
+//  printf("MAX GiB/s (DEM   L2): %f\n", bw_max.wr3);
+//  printf("MIN GiB/s (DEM   L2): %f\n", bw_min.wr3);
+  printf("AVG GiB/s (DROP  L2): %f\n", bw_avg.wr4);
+//  printf("MAX GiB/s (DROP  L2): %f\n", bw_max.wr4);
+//  printf("MIN GiB/s (DROP  L2): %f\n", bw_min.wr4);
+
+  printf("AVG GiB   (IN    L2): %e\n", bw_avg.rd * l_avgTime);
+  printf("AVG GiB   (OUTS  L2): %e\n", bw_avg.wr * l_avgTime);
+  printf("AVG GiB   (OUTNS L2): %e\n", bw_avg.wr2 * l_avgTime);
+  printf("AVG GiB   (DEM   L2): %e\n", bw_avg.wr3 * l_avgTime);
+  printf("AVG GiB   (DROP  L2): %e\n", bw_avg.wr4 * l_avgTime);
+#endif
+
 #ifndef NO_BATCHNORM
 
 #ifdef VERBOSE
@@ -765,15 +860,16 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
     } /* for if (separate_stats_reduction) */
   } /* end of if (training) for computing the stats */
 
+/*
 #ifdef USE_UNCORE_PERF_COUNTERS
-  printf("dbg: read uncore counters before\n");
+  printf("dbg: read uncore counters before bn \n");
   read_uncore_ctrs( &a );
 #endif
 #ifdef USE_CORE_PERF_COUNTERS
-  printf("dbg: read core counters before\n");
+  printf("dbg: read core counters before bn \n");
   read_core_ctrs( &a );
 #endif
-
+*/
 
 #ifdef TIMING
   t_bn_stats_end = getTime();
@@ -851,8 +947,8 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
           LIBXSMM_ALIGNED(float s[bk], 64);
           LIBXSMM_ALIGNED(float b[bk], 64);
 
-#if 0
-  #warning "dbg_copy_hwbc_tpp is used instead of the batchnorm"
+#ifdef COPY_INSTEAD_OF_BATCHNORM
+  #warning "dbg_copy_hwbc_tpp is used instead of the batchnorm (COPY_INSTEAD_OF_BATCHNORM is enabled)"
 
           dbg_copy_hwbc_tpp(inp[n][kb][0][0], out[n][kb][0][0]);
 #else
@@ -917,6 +1013,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   } /* if (!fuse_scaling) */
 
 
+
 #ifdef TIMING
   t_bn_end = getTime();
 
@@ -928,6 +1025,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
     }
 #endif
 
+/*
 #ifdef USE_UNCORE_PERF_COUNTERS
   printf("dbg: read uncore counters afterwards\n");
   read_uncore_ctrs( &b );
@@ -940,7 +1038,9 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   difa_core_ctrs( &a, &b, &s );
   divi_core_ctrs( &s, NTIMES );
 #endif
+*/
 
+/*
   double l_avgTime = (t_bn_end - t_bn_stats_end) / NTIMES;
 
 #ifdef USE_UNCORE_PERF_COUNTERS
@@ -990,7 +1090,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   printf("AVG GiB   (DEM   L2): %e\n", bw_avg.wr3 * l_avgTime);
   printf("AVG GiB   (DROP  L2): %e\n", bw_avg.wr4 * l_avgTime);
 #endif
-
+*/
 
 
 
@@ -1005,6 +1105,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
 #endif
 
 #endif /* #ifndef NO_BATCHNORM */
+
 } /* end of the scope for conv1 + bn1 */
 
 //} // for the dummy 1000 iter loop while perf debugging
