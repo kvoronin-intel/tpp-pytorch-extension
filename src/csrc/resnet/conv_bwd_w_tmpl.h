@@ -196,12 +196,14 @@ long long int running_scratch_size_in_bytes = 0;
 
 std::vector<long> scratch_size{nThreads, C, K, R, S};
 
-running_scratch_size_in_bytes += nThreads * C * K * R * S * sizeof(T);
 
 long long int private_tr_input_offset = 0, private_tr_output_offset = 0,
               tr_input_offset = 0, tr_output_offset = 0,
               scratch_float_offset = 0, scratch_bf16_weight_offset = 0,
               input_mylinearized_pixels_offset = 0, output_mylinearized_pixels_offset = 0;
+
+// Scratch used for both fp32 and bf16
+running_scratch_size_in_bytes += nThreads * C * K * R * S * sizeof(T);
 
 if (sizeof(T) == 2) {
   //t_private_tr_input  = at::empty({nThreads, N, ifhp, ifwp, C}, torch::TensorOptions().dtype(at::kBFloat16));
