@@ -5,16 +5,26 @@
 
 template <typename T>
 inline constexpr int get_vnni_block_size() {
+#ifdef __aarch64__
+  if (std::is_same<T, bfloat16>::value) {
+    return 4;
+  }
+#endif
   return 4 / sizeof(T);
 }
 
 inline int get_vnni_block_size(caffe2::TypeMeta dtype) {
-  if (dtype == at::kBFloat16)
-    return 2;
-  else if (dtype == at::kBFloat8)
+  if (dtype == at::kBFloat16) {
+#ifdef __aarch64__
     return 4;
-  else
+#else
+    return 2;
+#endif
+  } else if (dtype == at::kBFloat8) {
+    return 4;
+  } else {
     return 1;
+  }
 }
 
 template <typename T>

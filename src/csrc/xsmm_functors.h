@@ -187,6 +187,22 @@ inline void _mm512_mask_storeu_ps_auto(
 }
 #endif
 
+inline int xsmm_get_vnni_block_size(libxsmm_datatype dtype) {
+  if (dtype == LIBXSMM_DATATYPE_F32) {
+    return 1;
+  } else if (dtype == LIBXSMM_DATATYPE_BF16) {
+#ifdef __aarch64__
+    return 4;
+#else
+    return 2;
+#endif
+  } else if (dtype == LIBXSMM_DATATYPE_BF8) {
+    return 1;
+  } else {
+    throw std::invalid_argument("Unsupported datatype");
+  }
+}
+
 inline void debug_print_eqn_tree(libxsmm_blasint eqn_no) {
   if (false) {
     libxsmm_matrix_eqn_tree_print(eqn_no);
@@ -1288,17 +1304,18 @@ class XformExtTPP {
           "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
           (int)xtype);
     }
-    const int BS =
-        (dtype == LIBXSMM_DATATYPE_BF8
-             ? 4
-             : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
+    const int BS = xsmm_get_vnni_block_size(dtype);
     if (xtype == XformTPP::XFORM_N2V_TPP) {
       in_rows_p = out_rows;
       in_cols_p = out_cols;
       if (dtype == LIBXSMM_DATATYPE_F32) {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
       } else if (dtype == LIBXSMM_DATATYPE_BF16) {
+#ifdef __aarch64__
+        unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4;
+#else
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2;
+#endif
         PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: uneven number of rows\n");
       } else if (dtype == LIBXSMM_DATATYPE_BF8) {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4;
@@ -1319,7 +1336,11 @@ class XformExtTPP {
               in_cols_p % BS == 0, "XposeN2VTPP: uneven number of cols\n");
         } else {
           if (dtype == LIBXSMM_DATATYPE_BF16) {
+#ifdef __aarch64__
+            unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI4_TO_VNNI4T;
+#else
             unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI2_TO_VNNI2T;
+#endif
           } else {
             unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI4_TO_VNNI4T;
           }
@@ -1349,7 +1370,13 @@ class XformExtTPP {
           in_cols_p / BS,
           ldi / BS,
           ldo,
+#ifdef __aarch64__
+          // This is required due to VNNI blocking of 4 for BF16 on aarch64
+          dtype == LIBXSMM_DATATYPE_BF16 ? LIBXSMM_DATATYPE_F64
+                                         : LIBXSMM_DATATYPE_F32,
+#else
           LIBXSMM_DATATYPE_F32,
+#endif
           unary_type);
     }
 
@@ -1385,10 +1412,7 @@ class XformExtTPP {
     }
   }
   void ref(T* in, T* out) {
-    const int BS =
-        (dtype == LIBXSMM_DATATYPE_BF8
-             ? 4
-             : (dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1));
+    const int BS = xsmm_get_vnni_block_size(dtype);
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {
@@ -1452,7 +1476,7 @@ class XformExtTPP {
     }
   }
   void ref(float* in, bfloat16* out) {
-    auto BS = dtype == LIBXSMM_DATATYPE_BF16 ? 2 : 1;
+    auto BS = xsmm_get_vnni_block_size(dtype);
     if (xtype == XformTPP::XFORM_XPOSE_TPP) {
       for (int i = 0; i < out_rows; i++) {
         for (int j = 0; j < out_cols; j++) {
@@ -1628,6 +1652,7 @@ class BrgemmTPP {
       Tout* C,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    auto dtype = XsmmDtype<Tin>();
     for (uint64_t c = 0; c < count; c++) {
       auto A_ = &A[c * str_a];
       auto B_ = &B[c * str_b];
@@ -1646,16 +1671,17 @@ class BrgemmTPP {
           }
         }
       } else {
+        const int BS = xsmm_get_vnni_block_size(dtype);
         for (int i = 0; i < M; i++) {
           for (int j = 0; j < N; j++) {
             float sum = 0.0f;
             if (beta == 1.0 && c == 0)
               sum = C[i * ldc + j];
-            for (int k = 0; k < K / 2; k++) {
-              sum += (float)A_[i * lda + k * 2 + 0] *
-                  (float)B_[k * ldb * 2 + j * 2 + 0];
-              sum += (float)A_[i * lda + k * 2 + 1] *
-                  (float)B_[k * ldb * 2 + j * 2 + 1];
+            for (int k = 0; k < K / BS; k++) {
+              for (int b = 0; b < BS; b++) {
+                sum += (float)A_[i * lda + k * BS + b] *
+                    (float)B_[k * ldb * BS + j * BS + b];
+              }
             }
             C[i * ldc + j] = (Tout)sum;
           }

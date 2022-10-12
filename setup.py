@@ -7,6 +7,7 @@ from torch.utils.cpp_extension import CppExtension, BuildExtension
 from subprocess import check_call, check_output
 import pathlib
 import torch
+import platform
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
@@ -101,7 +102,9 @@ sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
 sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 
-extra_compile_args = ["-fopenmp", "-g", "-march=native"]
+extra_compile_args = ["-fopenmp", "-g"]
+if platform.processor() != "aarch64":
+    extra_compile_args.append("-march=native")
 
 if hasattr(torch, "bfloat8"):
     extra_compile_args.append("-DPYTORCH_SUPPORTS_BFLOAT8")
