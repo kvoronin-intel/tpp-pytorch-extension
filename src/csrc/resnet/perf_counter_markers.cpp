@@ -217,7 +217,7 @@ void setup_uncore_ctrs( ctrs_uncore_exp exp ) {
 #endif
   }
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
 #ifdef CTRS_CPU_SKX
 #if 0
     snprintf(fname, sizeof(fname), "/sys/devices/uncore_cha_%d",cha);
@@ -448,7 +448,7 @@ void read_uncore_ctrs( ctrs_uncore *c ) {
     }
   }
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
     if ( gbl_uncore_perf_fd.exp == CTRS_EXP_CHA_ACT ) {
       c->cha_rd[cha] = readctr(gbl_uncore_perf_fd.fd_cha_rd[cha]);
       c->cha_wr[cha] = readctr(gbl_uncore_perf_fd.fd_cha_wr[cha]);
@@ -549,7 +549,7 @@ void zero_uncore_ctrs( ctrs_uncore *c ) {
     c->imc_clockticks[mc] = 0;
   }
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
     c->cha_rd[cha] = 0;
     c->cha_wr[cha] = 0;
     c->vert_bl_ring_in_use[cha] = 0;
@@ -605,7 +605,7 @@ void divi_uncore_ctrs( ctrs_uncore *c, uint64_t div ) {
     c->imc_clockticks[mc] /= div;
   }
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
     c->cha_rd[cha] /= div;
     c->cha_wr[cha] /= div;
     c->vert_bl_ring_in_use[cha] /= div;
@@ -667,7 +667,7 @@ void difa_uncore_ctrs( const ctrs_uncore *a, const ctrs_uncore *b, ctrs_uncore* 
     c->imc_clockticks[mc] += b->imc_clockticks[mc] - a->imc_clockticks[mc];
   }
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
     c->cha_rd[cha] += b->cha_rd[cha] - a->cha_rd[cha];
     c->cha_wr[cha] += b->cha_wr[cha] - a->cha_wr[cha];
     c->vert_bl_ring_in_use[cha] += b->vert_bl_ring_in_use[cha] - a->vert_bl_ring_in_use[cha];
@@ -800,7 +800,7 @@ void get_llc_victim_bw_uncore_ctrs( const ctrs_uncore *c, const double t, llc_vi
     return;
   }
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
     read_bytes  += c->llc_lookup_rd[cha]*64;
     write_bytes += c->llc_lookup_wr[cha]*64;
     victim_bytes_e += c->llc_victims_e[cha]*64;
@@ -830,7 +830,7 @@ void get_cha_util_uncore_ctrs( const ctrs_uncore *c, cha_util* util ) {
   util->instrs_cha = 0;
   util->util_cha = 0;
 
-  for ( cha = 0; cha < CTRS_NCHA; ++cha ) {
+  for ( cha = 1; cha <= CTRS_NCHA; ++cha ) {
     total_cycles += c->cha_clockticks[cha];
     total_instrs += c->cha_instrs[cha];
   }
@@ -1013,6 +1013,7 @@ void get_l2_llc_misses_uncore_core_ctr( const ctrs_core *cc, const ctrs_uncore *
   mrate->l2_miss_rate = mrate->llc_rd_acc/mrate->instrs;
   mrate->llc_miss_rate = mrate->dram_rd_acc/mrate->instrs;
 }
+
 
 #ifdef __cplusplus
 }
