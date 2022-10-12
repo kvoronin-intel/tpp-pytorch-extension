@@ -316,8 +316,20 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 #endif
 //return std::vector<at::Tensor>({t_CO});
 
+  int shuffle_accesses = 0;
+  // Checked that this improves (restores) performance for fp32 w.r.t to libxsmm_dnn powered bottleneck, did not check for bf16
+  if (sizeof(T) == 4) {
+    if (ofh <= 7 && ofw >= 7)
+      shuffle_accesses = 1;
+  }
+
   long avoid_fmas_in_rim = 0;
-  if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
+  if (ofh <= 7 && ofw <= 7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
+    avoid_fmas_in_rim = 1;
+  }
+
+  // Checked that this improves (restores) performance for fp32 w.r.t to libxsmm_dnn powered bottleneck, did not check for bf16
+  if (sizeof(T) == 4 && ofh == 14 && ofw == 14 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
     avoid_fmas_in_rim = 1;
   }
 
@@ -365,11 +377,37 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   else
     beta = 1.0;
 
+#if 0
+  if ((cfg->ofw >= 56) && (cfg->K >= 256) && (cfg->avoid_acc_load == 1) && (cfg->R == 1) && (cfg->S == 1)) {
+    result = LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT;
+  }
+  if (cfg->ofw == 56 && cfg->C == 64 && cfg->K == 64 && cfg->R == 1) {
+    result = LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT;
+  }
+  if (cfg->ofw == 56 && cfg->C == 256 && cfg->K == 64 && cfg->R == 1) {
+    result = LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT;
+  }
+#endif
+
+  int use_streaming_stores = 0;
+/*
+  if (sizeof(T) == 4) {
+    if (ofw >= 56 && Kb * bk == 256 && R == 1 && S == 1)
+      use_streaming_stores = 1;
+    if (ofw >= 56 && Cb * bk == 64 && Kb * bk == 64 && R == 1 && S == 1)
+      use_streaming_stores = 1;
+    if (ofw >= 56 && Cb * bk == 256 && Kb * bk == 64 && R == 1 && S == 1)
+      use_streaming_stores = 1;
+  }
+*/
+
+  int dummy = 0; // too avoid ambiguous call (due to the BrggemmTPP constructors signature collision)
   if ((R == 1 && S == 1) || (avoid_fmas_in_rim == 1)) {
     //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
     if (pack_input == 0) {
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+      //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores, dummy)));//, BRGEMM);
+      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     } else {
       if (avoid_fmas_in_rim) {
         printf("Error: avoid_fmas_in_rim = %d is incompatible with pack_input = %d\n", avoid_fmas_in_rim, pack_input);
@@ -387,14 +425,17 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
       //l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ofh*ofw*sizeof(DType), Cb_step );
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
       //printf("brgemm_tpp\n");
-      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+      //brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores, dummy)));//, BRGEMM);
+      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     }
 
     //printf("brgemm2_tpp\n");
-    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    //brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores, dummy)));//, BRGEMM);
+    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
   } else {
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores, dummy )));//, BRGEMM);
+    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/ )));//, BRGEMM);
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
     B_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -431,6 +472,8 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
   std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "pack_input = " << pack_input << std::endl;
+  std::cout << "shuffle_accesses = " << shuffle_accesses << std::endl;
+  std::cout << "use_streaming_stores = " << use_streaming_stores << std::endl;
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
@@ -574,6 +617,22 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
         [&](int* ind) {
           int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
 
+          int tid = omp_get_thread_num();
+
+          if (ofh <= 7 && ofw >= 7) {
+          if (shuffle_accesses) {
+            i_k = (ind[2] + tid) % Kb;
+            //i_r = (ind[5] + tid) % R;
+            //i_s = (ind[6] + tid) % S;
+          }
+          }
+
+//          if (ofh <= 7 && ofw >= 7) {
+//            if (i_n == 0 && i_c == 0 && i_h == 0 && i_w == 0 && i_r == 0 && i_s == 0) {
+//              printf("i_k = %d ind[2] = %d tid = %d Kb = %d shuffle = %d\n", i_k, ind[2], tid, Kb, shuffle_accesses);fflush(0);
+//            }
+//          }
+
           DECL_VLA_PTR_PT_EXT(T,     output_off, [Kb][ofhp][ofwp][bk],   t_CO, (conv_pad_h_out * ofwp * bk + conv_pad_w_out * bk));
           DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_CI);
 #ifdef GLOBAL_SHARED_WEIGHTS
@@ -587,16 +646,19 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
 
             if (Cb_step != Cb || r_step != R || s_step != S) {
               if (i_c == 0 && i_r == 0 && i_s == 0) {
+              //if ((!shuffle_accesses && i_c == 0 && i_r == 0 && i_s == 0) || (shuffle_accesses && i_c == 0 && i_r == tid % R && i_s == tid % S)) {
                 zero_tpp(output_off[i_n][i_k][i_h][i_w]);
               }
             }
 
-            if (fuse_scaling && i_k == 0 && i_r == 0 && i_s == 0) {
+            //if ((!shuffle_accesses && fuse_scaling && i_k == 0 && i_r == 0 && i_s == 0) || (shuffle_accesses && fuse_scaling && i_k == tid % Kb && i_r == tid % R && i_s == tid % S)) {
+            if ((!shuffle_accesses && fuse_scaling && i_k == 0 && i_r == 0 && i_s == 0) || (shuffle_accesses && fuse_scaling && i_k == tid % Kb && i_r == 0 && i_s == 0)) {
               printf("fuse_scaling = 1 has not been implemented yet\n");
               exit(-1);
             } /* if fuse_scaling + extra conditions */
 
-            if (pack_input > 0 && i_r == 0 && i_s == 0 && i_k == 0 && i_c == 0) {
+            //if ((!shuffle_accesses && pack_input > 0 && i_r == 0 && i_s == 0 && i_k == 0 && i_c == 0) || (shuffle_accesses && pack_input > 0 && i_r == tid % R && i_s == tid % S && i_k == tid % Kb && i_c == 0)) {
+            if ((!shuffle_accesses && pack_input > 0 && i_r == 0 && i_s == 0 && i_k == 0 && i_c == 0) || (shuffle_accesses && pack_input > 0 && i_r == 0 && i_s == 0 && i_k == tid % Kb && i_c == 0)) {
               //DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
               DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
               //libxsmm_blasint _br, _h;
@@ -633,6 +695,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
 
 #ifndef NO_BATCHNORM
             /* Computing local stats */
+            //if ((!shuffle_accesses && training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) || (shuffle_accesses && training && fuse_stats && i_c == Cb - c_step && i_r == ((R - r_step + tid) % R) && i_s == (S - s_step + tid) % S )) {
             if (training && fuse_stats && i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
               DECL_VLA_PTR_PT_EXT(float, sums_N,    [N][2*bk],             t_scratch_bn, sum_N_offset);
 
@@ -933,7 +996,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
 
       nkb_loop(
         [&](int *ind) {
-          const int n = ind[0], kb = ind[1];
+          const int n = ind[0], kb = ind[1];//(Kb - 1 - ind[1]);
 
           DECL_VLA_PTR_PT_EXT(T,             inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
           DECL_VLA_PTR_PT_EXT(T,             inp_add,  [Kb][bn_ifhp][bn_ifwp][bk], t_BIA, (hi_start * bn_ifwp + wi_start) * bk);
