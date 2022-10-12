@@ -7,6 +7,7 @@
 #include <vector>
 #include "ext_tpp.h"
 #include "init.h"
+#include "threaded_loops.h"
 #include "timing.h"
 #include "xsmm_functors.h"
 
@@ -19,8 +20,7 @@ REGISTER_LOCAL_SCOPE(b_emb, "b_emb");
 REGISTER_LOCAL_SCOPE(q_gemm, "q_gemm");
 REGISTER_LOCAL_SCOPE(k_gemm, "k_gemm");
 REGISTER_LOCAL_SCOPE(v_gemm, "v_gemm");
-REGISTER_LOCAL_SCOPE(a_gemm, "a_gemm");
-REGISTER_LOCAL_SCOPE(c_gemm, "c_gemm");
+REGISTER_LOCAL_SCOPE(ac_gemm, "ac_gemm");
 REGISTER_LOCAL_SCOPE(o_gemm, "o_gemm");
 REGISTER_LOCAL_SCOPE(i_gemm, "i_gemm");
 
@@ -37,6 +37,7 @@ REGISTER_LOCAL_SCOPE(dwk_gemm, "dwk_gemm");
 REGISTER_LOCAL_SCOPE(dwv_gemm, "dwv_gemm");
 REGISTER_LOCAL_SCOPE(dwa_gemm, "dwa_gemm");
 REGISTER_LOCAL_SCOPE(dwc_gemm, "dwc_gemm");
+REGISTER_LOCAL_SCOPE(dac_gemm, "dac_gemm");
 REGISTER_LOCAL_SCOPE(dwi_gemm, "dwi_gemm");
 REGISTER_LOCAL_SCOPE(dwo_gemm, "dwo_gemm");
 REGISTER_LOCAL_SCOPE(dqkv_bias, "dqkv_bias");

@@ -4,7 +4,7 @@ set -e
 ARCH=$(lscpu | grep Architecture | awk '{print $2}')
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 CONDA_INSTALL_DIR=`realpath ./miniconda3`
-ENV_NAME=pt1100
+ENV_NAME=pt1120
 
 while (( "$#" )); do
   case "$1" in
@@ -63,7 +63,7 @@ cat <<EOF > env.sh
 #!/bin/bash
 
 source ${CONDA_INSTALL_DIR}/bin/activate ${ENV_NAME}
-torch_ccl_path=\$(python -c "import torch; import torch_ccl; import os;  print(os.path.abspath(os.path.dirname(torch_ccl.__file__)))" 2> /dev/null)
+torch_ccl_path=\$(python -c "import torch; import oneccl_bindings_for_pytorch; import os;  print(os.path.abspath(os.path.dirname(oneccl_bindings_for_pytorch.__file__)))" 2> /dev/null)
 if test -f \$torch_ccl_path/env/setvars.sh ; then
   source \$torch_ccl_path/env/setvars.sh
 fi

@@ -770,9 +770,10 @@ def setup_training(args):
     if int(os.environ.get("PMI_SIZE", "0")) > 1 and not args.multi_instance:
         if args.dist_backend == "ccl":
             try:
-                import torch_ccl
+                import oneccl_bindings_for_pytorch
+                #import torch_ccl
             except:
-                print("CCL backend requested but import torch_ccl failed")
+                print("CCL backend requested but import oneccl_bindings_for_pytorch failed")
                 raise
         elif args.dist_backend == "mpi":
             if not torch.distributed.is_mpi_available():
@@ -846,6 +847,12 @@ def prepare_model_and_optimizer(args, device):
             model = AutoModelForPreTraining.from_config(config)
     if args.use_pcl:
         pcl_bert.block(model)
+
+    #Log weight initializations
+    if not args.model_name_or_path == "":
+        checkpoint=torch.load(args.model_name_or_path + '/' + "pytorch_model.bin", map_location="cpu")
+        for weight in utils.convert_weight_names(list(checkpoint.keys())):
+            mlperf_logger.log_event(mlperf_logger.constants.WEIGHTS_INITIALIZATION, metadata={'tensor': weight})
 
     param_optimizer = list(model.named_parameters())
 
@@ -1327,6 +1334,7 @@ def main():
 
     mlperf_logger.log_end(key=mlperf_logger.constants.INIT_STOP, sync=False)
     mlperf_logger.log_start(key=mlperf_logger.constants.RUN_START, sync=True)
+    trainint_start_time = time.time()
     mlperf_logger.barrier()
 
     now_step, now_skipped, skip_interval = 0, 0, 0
@@ -1603,7 +1611,7 @@ def main():
                             mlperf_logger.log_event(
                                 key=mlperf_logger.constants.EVAL_ACCURACY,
                                 value=eval_avg_mlm_accuracy.numpy(),
-                                metadata={"epoch_num": epoch},
+                                metadata={"epoch_num": samples_trained},
                                 sync=False,
                             )
                             print(
@@ -1834,7 +1842,7 @@ def main():
         )
         mlperf_logger.log_end(
             key=mlperf_logger.constants.EPOCH_STOP,
-            metadata={"epoch_num": epoch},
+            metadata={"epoch_num": samples_trained},
             sync=False,
         )
         epoch += 1
@@ -1850,6 +1858,9 @@ def main():
     mlperf_logger.log_end(
         key=mlperf_logger.constants.RUN_STOP, metadata={"status": status}, sync=False
     )
+    trainint_stop_time = time.time()
+    if args.local_rank == 0:
+        print(f"Finished Training in {(trainint_stop_time - trainint_start_time)/60.0:.3f} min, steps: {global_step}, converaged: {converged}")
     return args, final_loss, train_time_raw
 
 

@@ -84,6 +84,37 @@ inline at::Tensor wt_tensor_trans_n2v(
 }
 
 template <typename T>
+inline at::Tensor wt_tensor_trans_n2v_compact(
+    long Nk,
+    long Hk,
+    long Nc,
+    long Hc,
+    at::Tensor& input) {
+  constexpr int BS = get_vnni_block_size<T>();
+#if 0
+  PCL_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
+  return input.view({Nk, Nc, Hc, Hk/BS, BS}).permute({1, 0, 3, 2, 4}).contiguous();
+#else
+  auto Hkp2 = (Hk + BS - 1) / BS;
+  auto output = input.new_empty({Nc, Nk, Hkp2, Hc, BS});
+  DECL_VLA_PTR_PT(T, out, [Nk][Hkp2 * Hc * BS], output);
+  DECL_VLA_PTR_PT(T, in, [Nc][Hc * Hk], input);
+  auto trans_n2v_tpp = SCOPEIT(
+      XformExtTPP<T>(
+          Hc, Hk, Hc, Hkp2 * BS, XformTPP::XFORM_XPOSE_N2V_TPP, true),
+      XPOSE);
+  RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+  for (int nk = 0; nk < Nk; nk++) {
+    for (int nc = 0; nc < Nc; nc++) {
+      trans_n2v_tpp(in[nk][nc], out[nc][nk]);
+    }
+  }
+  return output;
+#endif
+}
+
+template <typename T>
 inline at::Tensor wt_tensor_trans_v2v(
     long Nk,
     long Hk,
@@ -109,6 +140,39 @@ inline at::Tensor wt_tensor_trans_v2v(
 #pragma omp parallel for
   for (int n = 0; n < Nk * Nc; n++) {
     trans_v2v_tpp(in[n], out[n]);
+  }
+  return output;
+#endif
+}
+
+template <typename T>
+inline at::Tensor wt_tensor_trans_v2v_compact(
+    long Nk,
+    long Hk,
+    long Nc,
+    long Hc,
+    at::Tensor& input) {
+  constexpr int BS = get_vnni_block_size<T>();
+#if 0
+  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  PCL_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
+  return input.view({Nk, Nc, Hc/BS, Hk/BS, BS, BS}).permute({1, 0, 3, 2, 5, 4}).contiguous().view({Nc, Nk, Hk/BS, Hc, BS});
+#else
+  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  auto Hkp2 = (Hk + BS - 1) / BS;
+  auto output = input.new_empty({Nc, Nk, Hkp2, Hc, BS});
+  DECL_VLA_PTR_PT(T, out, [Nk][Hkp2 * Hc * BS], output);
+  DECL_VLA_PTR_PT(T, in, [Nc][Hc * Hk], input);
+  auto trans_v2v_tpp = SCOPEIT(
+      XformExtTPP<T>(
+          Hc, Hk, Hkp2 * BS, Hc, XformTPP::XFORM_XPOSE_V2V_TPP, true),
+      XPOSE);
+  RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+  for (int nk = 0; nk < Nk; nk++) {
+    for (int nc = 0; nc < Nc; nc++) {
+      trans_v2v_tpp(in[nk][nc], out[nc][nk]);
+    }
   }
   return output;
 #endif
@@ -174,6 +238,48 @@ inline at::Tensor wt_tensor_for_bwd(
 #pragma omp parallel for
     for (int n = 0; n < Nk * Nc; n++) {
       trans_tpp(in[n], out[n]);
+    }
+    return output;
+#endif
+  } else {
+    PCL_ASSERT(false, "Unsupported datatype!");
+  }
+}
+
+inline at::Tensor wt_tensor_for_bwd_compact(
+    long Nk,
+    long Hk,
+    long Nc,
+    long Hc,
+    at::Tensor& input) {
+  RECORD_SCOPE(w_xpose, {input});
+  if (input.dtype() == at::kBFloat16) {
+    if (input.dim() == 5) {
+      return wt_tensor_trans_v2v_compact<bfloat16>(Nk, Hk, Nc, Hc, input);
+    } else {
+      return wt_tensor_trans_n2v_compact<bfloat16>(Nk, Hk, Nc, Hc, input);
+    }
+  } else if (input.dtype() == at::kBFloat8) {
+    if (input.dim() == 5) {
+      return wt_tensor_trans_v2v_compact<bfloat8>(Nk, Hk, Nc, Hc, input);
+    } else {
+      return wt_tensor_trans_n2v_compact<bfloat8>(Nk, Hk, Nc, Hc, input);
+    }
+  } else if (input.dtype() == at::kFloat) {
+#if 0
+    return input.permute({1, 0, 3, 2}).contiguous();
+#else
+    auto output = input.new_empty({Nk, Nc, Hk, Hc});
+    DECL_VLA_PTR_PT(float, out, [Nk][Hk * Hc], output);
+    DECL_VLA_PTR_PT(float, in, [Nc][Hc * Hk], input);
+    auto trans_tpp =
+        SCOPEIT(XformExtTPP<float>(Hc, Hk, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+    for (int nk = 0; nk < Nk; nk++) {
+      for (int nc = 0; nc < Nc; nc++) {
+        trans_tpp(in[nk][nc], out[nc][nk]);
+      }
     }
     return output;
 #endif
@@ -269,6 +375,52 @@ inline at::Tensor act_tensor_trans(
 #endif
 }
 
+inline at::Tensor act_tensor_trans_compact(
+    long S1,
+    long N,
+    long S2,
+    long H,
+    at::Tensor& input) {
+  RECORD_SCOPE(a_xpose, {input});
+#if 0
+  return input.permute({1, 0, 3, 2}).contiguous();
+#else
+  auto output = input.new_empty({N, S1, H, S2});
+  if (input.dtype() == at::kBFloat16) {
+    DECL_VLA_PTR_PT(bfloat16, out, [S1][H * S2], output);
+    DECL_VLA_PTR_PT(bfloat16, in, [N][H * S2], input);
+    auto trans_tpp =
+      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+      for (int s1 = 0; s1 < S1; s1++) {
+        for (int n = 0; n < N; n++) {
+          trans_tpp(in[s1][n], out[n][s1]);
+        }
+      }
+    }
+  } else if (input.dtype() == at::kBFloat8) {
+    DECL_VLA_PTR_PT(bfloat8, out, [S1][H * S2], output);
+    DECL_VLA_PTR_PT(bfloat8, in, [N][H * S2], input);
+    auto trans_tpp =
+      SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+      for (int s1 = 0; s1 < S1; s1++) {
+        for (int n = 0; n < N; n++) {
+          trans_tpp(in[s1][n], out[n][s1]);
+        }
+      }
+    }
+  } else {
+    PCL_ASSERT(false, "Unsupported datatype!");
+  }
+  return output;
+#endif
+}
+
 USING_SCOPE(a_vnni);
 
 inline at::Tensor act_tensor_n2v(
@@ -286,7 +438,7 @@ inline at::Tensor act_tensor_n2v(
       .permute({0, 1, 2, 3, 5, 4})
       .contiguous();
 #else
-  auto output = input.new_empty({B, S1, N, S2 / 2, H, 2});
+  auto output = input.new_empty({B, S1, N, S2 / BS, H, BS});
   DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
   DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
   auto n2v_tpp =
@@ -328,6 +480,55 @@ inline at::Tensor act_tensor_n2v(
       n2v_tpp(in[n], out[n]);
     }
   }
+  return output;
+#endif
+}
+
+inline at::Tensor act_tensor_n2v_compact(
+    long S1,
+    long N,
+    long S2,
+    long H,
+    at::Tensor& input) {
+  RECORD_SCOPE(a_vnni, {input});
+  const int BS = get_vnni_block_size(input.dtype());
+  PCL_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
+#if 0
+  return input.view({S1, N, S2/BS, BS, H}).permute({1,0,2,4,3}).contiguous();
+#else
+  auto output = input.new_empty({N, S1, S2 / BS, H, BS});
+  if (input.dtype() == at::kBFloat16) {
+    DECL_VLA_PTR_PT(bfloat16, out, [S1][H * S2], output);
+    DECL_VLA_PTR_PT(bfloat16, in, [N][H * S2], input);
+    auto n2v_tpp =
+      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+      for (int s1 = 0; s1 < S1; s1++) {
+        for (int n = 0; n < N; n++) {
+          n2v_tpp(in[s1][n], out[n][s1]);
+        }
+      }
+    }
+  } else if (input.dtype() == at::kBFloat8) {
+    DECL_VLA_PTR_PT(bfloat8, out, [S1][H * S2], output);
+    DECL_VLA_PTR_PT(bfloat8, in, [N][H * S2], input);
+    auto n2v_tpp =
+      SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+    {
+      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#pragma omp parallel for collapse(2)
+      for (int s1 = 0; s1 < S1; s1++) {
+        for (int n = 0; n < N; n++) {
+          n2v_tpp(in[s1][n], out[n][s1]);
+        }
+      }
+    }
+  } else {
+    PCL_ASSERT(false, "Unsupported datatype!");
+  }
+
   return output;
 #endif
 }
@@ -385,5 +586,21 @@ inline void tensor_set_zero(long N, long sz, at::Tensor& input) {
   }
 #endif
 }
+
+template <typename T>
+class LToPBlockAccessMapper {
+ public:
+  LToPBlockAccessMapper(long M, long N) : M(M), N(N) {}
+  long operator()(long i, long j) {
+    if (std::is_same<T, float>()) {
+      return i * N + j;
+    } else {
+      return j * M + i;
+    }
+  }
+
+ private:
+  long M, N;
+};
 
 #endif // _TENSOR_HELPER_H_

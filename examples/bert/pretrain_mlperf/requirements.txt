@@ -1,2 +1,2 @@
 transformers==4.11.0
-mlperf-logging @ git+https://github.com/mlperf/logging@95ebeeb02e2a6904eb21a7ffd573c835a31c8b69
+mlperf-logging @ git+https://github.com/mlperf/logging

@@ -97,6 +97,7 @@ sources = [
     "src/csrc/xsmm.cpp",
     "src/csrc/bfloat8.cpp",
 ]
+sources += ["src/csrc/jit_compile.cpp", "src/csrc/common_loops.cpp", "src/csrc/par_loop_generator.cpp"]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
@@ -131,7 +132,7 @@ setup(
     ],
     python_requires=">=3.6",
     # install_requires=["torch>=1.4.0"],
-    scripts=["utils/run_dist.sh"],
+    scripts=["utils/run_dist.sh", "utils/run_dist_ht.sh"],
     libraries=[("xsmm", xsmm_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"])],
     ext_modules=[
         CppExtension(

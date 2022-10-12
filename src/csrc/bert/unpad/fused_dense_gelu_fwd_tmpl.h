@@ -17,12 +17,6 @@ if (training) {
   t_out = t_in.new_empty({S1, Nk, S2, Hk});
 }
 
-DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
-DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
-
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {
   Ncb = Nk;
@@ -43,6 +37,12 @@ auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
 
 {
   RECORD_SCOPE(i_gemm, {t_in, t_wt_V});
+#if 0
+DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
+DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
+DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
+DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
+DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
   for (int nc = 0; nc < Nc; nc += Ncb) {
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -58,6 +58,30 @@ auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
       }
     }
   }
+#else
+  auto gemm_loop = ThreadedLoop<3>(
+      {LoopSpecs{0, Nc, Ncb, false}, LoopSpecs{S1}, LoopSpecs{Nk}}, "acB");
+  gemm_loop(
+      [&](int* ind) {
+        int nc = ind[0], s1 = ind[1], nk = ind[2];
+        DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
+        DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
+        DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
+        DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
+        DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
+
+        if (nc == 0) {
+          copy_bias_tpp(bias[nk], out[s1][nk]);
+        }
+        brgemm_tpp(in[s1][nc], wt_V[nk][nc], out[s1][nk], Ncb, true);
+        if (nc == Nc - Ncb) { // last iter
+          gelu_fwd_tpp(out[s1][nk], gelu_out[s1][nk]);
+        }
+      },
+      [&]() { brgemm_tpp.config(); },
+      [&]() { brgemm_tpp.release(); });
+
+#endif
 }
 // if (at::isnan(t_out).any().item<bool>()) std::cout << "t_out has NaN" <<
 // std::endl; if (at::isnan(t_gelu_out).any().item<bool>()) std::cout <<
