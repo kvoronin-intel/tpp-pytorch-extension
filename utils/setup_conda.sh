@@ -40,7 +40,8 @@ if [ ${ARCH} == "x86_64" ] ; then
   conda install -y pytorch==1.12.0 torchvision torchaudio cpuonly intel-openmp gperftools ninja setuptools tqdm future cmake numpy pyyaml scikit-learn pydot -c pytorch -c intel -c conda-forge 
 elif [ ${ARCH} == "aarch64" ] ; then
 # rust required on aarch64 for building tokenizer
-conda install -y pytorch numpy gperftools ninja setuptools tqdm future cmake  pyyaml scikit-learn pydot rust -c conda-forge
+conda install -y pytorch numpy gperftools ninja setuptools tqdm future cmake  pyyaml scikit-learn pydot -c conda-forge
+conda install -y -c anaconda openblas
 else
   echo "Unknown architecture: ${ARCH}"
   exit 1
