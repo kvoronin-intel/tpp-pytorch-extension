@@ -1578,6 +1578,7 @@ class BrgemmTPP {
         a_trans(a_trans),
         c_vnni(c_vnni),
         unroll_hint(unroll_hint),
+        streaming_stores(0),
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
         k_rls(this, 2),
@@ -1627,10 +1628,76 @@ class BrgemmTPP {
         a_trans(a_trans),
         c_vnni(c_vnni),
         unroll_hint(unroll_hint),
+        streaming_stores(0),
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
         k_rls(this, 2),
         k_gemm_no_tc(this, 3) {}
+
+  BrgemmTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint,
+      int streaming_stores)
+      : M(M),
+        N(N),
+        K(K),
+        reduce_offset(true),
+        str_a(0),
+        str_b(0),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        c_vnni(c_vnni),
+        unroll_hint(unroll_hint),
+        streaming_stores(streaming_stores),
+        k_gemm_with_tc(this, 0),
+        k_cfg(this, 1),
+        k_rls(this, 2),
+        k_gemm_no_tc(this, 3) {}
+
+  BrgemmTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint,
+      int streaming_stores)
+      : M(M),
+        N(N),
+        K(K),
+        reduce_offset(false),
+        str_a(str_a),
+        str_b(str_b),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        c_vnni(c_vnni),
+        unroll_hint(unroll_hint),
+        streaming_stores(streaming_stores),
+        k_gemm_with_tc(this, 0),
+        k_cfg(this, 1),
+        k_rls(this, 2),
+        k_gemm_no_tc(this, 3) {}
+
   void config() {
     k_cfg(NULL);
   }
@@ -1770,7 +1837,7 @@ class BrgemmTPP {
       snprintf(
           hash,
           200,
-          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_cv%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d",
+          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_cv%d_uh%d_ss%d_ld_a%ld_b%ld_c%ld_cfg%d",
           p->M,
           p->N,
           p->K,
@@ -1782,6 +1849,7 @@ class BrgemmTPP {
           p->a_trans,
           p->c_vnni,
           p->unroll_hint,
+          p->streaming_stores,
           (long)p->lda,
           (long)p->ldb,
           (long)p->ldc,
@@ -1804,6 +1872,11 @@ class BrgemmTPP {
         l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
       if (p->c_vnni == 1)
         l_flags |= LIBXSMM_GEMM_FLAG_VNNI_C;
+
+      if (p->streaming_stores) {
+        printf("using LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT hint \n");
+        l_flags |= LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT;
+      }
 
       // config = 0 - normal
       // config = 1 - no tile release
@@ -1872,6 +1945,7 @@ class BrgemmTPP {
   int c_vnni;
   long brgemm_type = -1;
   int unroll_hint;
+  int streaming_stores;
   BrgemmKernel k_gemm_with_tc;
   BrgemmKernel k_cfg;
   BrgemmKernel k_rls;
