@@ -5,7 +5,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
 #define TIMING
 
-#define VERBOSE
+//#define VERBOSE
 
 //#define CHECK_FOR_NANS
 
@@ -481,33 +481,6 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
         double c4_gflop = 2.0 * (2.0*(double)cfg.N*(double)cfg.inplanes*(double)4*cfg.planes*(double)1*(double)1*(double)(cfg.H/cfg.stride)*(double)(cfg.W/cfg.stride))/(1000*1000*1000);
         //printf("theoretical total conv flop: %f %f %f %f (c1, c2, c3, c4)\n", c1_gflop, c2_gflop, c3_gflop, c4_gflop);
 
-/*
-        double c1_mem_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*2*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(cfg.planes)*1*1*sizeof(T)) / GB / time_c1;
-        double c2_mem_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + (double)cfg.N*2*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(cfg.planes)*3*3*sizeof(T)) / GB / time_c2;
-        double c3_mem_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(4*cfg.planes)*1*1*sizeof(T)) / GB / time_c3;
-        double c4_mem_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.inplanes)*(4*cfg.planes)*1*1*sizeof(T)) / GB / time_c4;
-        printf("theoretical conv flop/byte ratios: %f %f %f %f (c1, c2, c3, c4)\n", c1_gflop/c1_mem_rfo_gb, c2_gflop/c2_mem_rfo_gb, c3_gflop/c3_mem_rfo_gb, c4_gflop/c4_mem_rfo_gb);
-
-        double c1_mem_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(cfg.planes)*1*1*sizeof(T)) / GB;
-        double c2_mem_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + (double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(cfg.planes)*3*3*sizeof(T)) / GB;
-        double c3_mem_gb = ((double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(4*cfg.planes)*1*1*sizeof(T)) / GB;
-        double c4_mem_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.inplanes)*(4*cfg.planes)*1*1*sizeof(T)) / GB;
-
-        double c1_mem_act_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)) / GB;
-        double c2_mem_act_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + (double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-        double c3_mem_act_gb = ((double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-        double c4_mem_act_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-
-        double c1_mem_act_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + 2*(double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)) / GB;
-        double c2_mem_act_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + 2*(double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-        double c3_mem_act_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + 2*(double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-        double c4_mem_act_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + 2*(double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-
-        double c1_mem_write_rfo_gb = ((double)cfg.N*2*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)) / GB / time_c1;
-        double c2_mem_write_rfo_gb = ((double)cfg.N*2*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T)) / GB / time_c2;
-        double c3_mem_write_rfo_gb = ((double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T)) / GB / time_c3;
-        double c4_mem_write_rfo_gb = ((double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T)) / GB / time_c4;
-*/
         printf("PERFDUMP,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), time_c1, c1_gflop / time_c1);
         printf("PERFDUMP,BP,resnetconv,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, time_c2, c2_gflop / time_c2);
         printf("PERFDUMP,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), time_c3, c3_gflop / time_c3);
@@ -519,6 +492,41 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
         printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, 1.0, (1), (1), (training));
         if (cfg.has_residual_conv)
             printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, 1.0, (0), (0), (training));
+
+#ifdef TIMING
+    {
+    auto buf_d1 = tuning_timings_d1.request();
+    float* ptr_d1 = (float*)buf_d1.ptr;
+    auto buf_d2 = tuning_timings_d2.request();
+    float* ptr_d2 = (float*)buf_d2.ptr;
+    auto buf_d3 = tuning_timings_d3.request();
+    float* ptr_d3 = (float*)buf_d3.ptr;
+    auto buf_d4 = tuning_timings_d4.request();
+    float* ptr_d4 = (float*)buf_d4.ptr;
+
+        printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_d1[0], c1_gflop / ptr_d1[0]);
+        printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_d2[0], c2_gflop / ptr_d2[0]);
+        printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_d3[0], c3_gflop / ptr_d3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_d4[0], c4_gflop / ptr_d4[0]);
+    auto buf_w1 = tuning_timings_w1.request();
+    float* ptr_w1 = (float*)buf_w1.ptr;
+    auto buf_w2 = tuning_timings_w2.request();
+    float* ptr_w2 = (float*)buf_w2.ptr;
+    auto buf_w3 = tuning_timings_w3.request();
+    float* ptr_w3 = (float*)buf_w3.ptr;
+    auto buf_w4 = tuning_timings_w4.request();
+    float* ptr_w4 = (float*)buf_w4.ptr;
+
+        printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_w1[0], c1_gflop / ptr_w1[0]);
+        printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_w2[0], c2_gflop / ptr_w2[0]);
+        printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_w3[0], c3_gflop / ptr_w3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_w4[0], c4_gflop / ptr_w4[0]);
+
+    }
+#endif
+
 #endif
 
 
