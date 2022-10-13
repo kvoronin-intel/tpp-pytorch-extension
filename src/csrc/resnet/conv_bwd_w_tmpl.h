@@ -474,7 +474,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     //auto l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bc*stride_w, bk, dtype, dtype, dtype, dtype );
     //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
     //gemm_kernel.gemm      = libxsmm_dispatch_gemm_v2( l_shape, l_flags, l_prefetch_flags );
-    gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bc*stride_w, bk, bk, 1.0, 1 /*a_trans*/, 1 /*brcount*/)));//, BRGEMM);
+    gemm_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* irrelevant strides */ 1, 1, bc*stride_w, bk, bk, 1.0, 1 /*a_trans*/, 0 /*c_vnni */, 1 /*brcount*/)));//, BRGEMM);
 #endif
   } else { /* bfloat16 goes here */
 
@@ -505,7 +505,8 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     //std::cout << "brgemm_acc_pixel_tpp " << std::endl;
     //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, bn*bk*sizeof(DType), stride_w*bc*bn*sizeof(DType), 0 );
     //brgemm_kernel_acc_pixel.gemm  = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-    brgemm_acc_pixel_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(gemm_n, gemm_m, gemm_k, stride_w*bc*bn, bn*bk, bn, bk, bk, 1.0, 0 /*a_trans*/, w_step * h_step /* brcount */)));//, BRGEMM);
+    //brgemm_acc_pixel_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(gemm_n, gemm_m, gemm_k, stride_w*bc*bn, bn*bk, bn, bk, bk, 1.0, 0 /*a_trans*/, w_step * h_step /* brcount */)));//, BRGEMM);
+    brgemm_acc_pixel_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(gemm_n, gemm_m, gemm_k, stride_w*bc*bn, bn*bk, bn, bk, bk, 1.0, 0 /*a_trans*/, 0 /* c_vnni*/, w_step * h_step /* brcount */)));//, BRGEMM);
 
     //l_flags  |=  LIBXSMM_GEMM_FLAG_BETA_0  | LIBXSMM_GEMM_FLAG_VNNI_C;
     //l_shape = libxsmm_create_gemm_shape( gemm_m, gemm_n, gemm_k, bk, bn, bk, dtype, dtype, dtype, dtype);
@@ -596,9 +597,11 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
         //printf("for gemm_kernel_non_hybrid as brgemm extension\n");
         if (use_intermediate_f32_wt_tensor == 0) {
           //new_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
-          gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 1 /*brcount*/)));//, BRGEMM);
+          //gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 1 /*brcount*/)));//, BRGEMM);
+          gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 0 /*c_vnni*/, 1 /*brcount*/)));//, BRGEMM);
         } else
-          gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, 1 /*brcount*/)));//, BRGEMM);
+          //gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, 1 /*brcount*/)));//, BRGEMM);
+          gemm_kernel_non_hybrid_as_brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, /* irrelevant strides */ 1, 1, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, 0 /*c_vnni*/, 1 /*brcount*/)));//, BRGEMM);
 
         //auto new_flags = (sizeof(DType) == 2) ? ( LIBXSMM_GEMM_VNNI_FLAGS('N', 'N', 'V', 'N') | LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG | LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG ) : LIBXSMM_GEMM_FLAGS('N', 'T');
         //if (use_intermediate_f32_wt_tensor == 0) {
@@ -631,9 +634,11 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
         if (use_intermediate_f32_wt_tensor == 0) {
           //new_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
-          brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, _n_step /*brcount*/)));//, BRGEMM);
+          //brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, _n_step /*brcount*/)));//, BRGEMM);
+          brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bc, bk, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 0.0 /* beta */, 0 /*a_trans*/, 0 /*c_vnni*/, _n_step /*brcount*/)));//, BRGEMM);
         } else
-          brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, _n_step /*brcount*/)));//, BRGEMM);
+          //brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, _n_step /*brcount*/)));//, BRGEMM);
+          brgemm_kernel_hybrid_tpp = SCOPEITGEMM((BrgemmTPP<T,float>(bk, bc, pixel_blocking, stride_b, stride_a, input_pixels, bk, bk, 1.0 /* beta */, 0 /*a_trans*/, 0 /*c_vnni*/, _n_step /*brcount*/)));//, BRGEMM);
 /*
         new_shape = libxsmm_create_gemm_shape( bk, bc, pixel_blocking, bk, input_pixels, bk, dtype, dtype, dtype, dtype);
         new_flags |=  LIBXSMM_GEMM_FLAG_BETA_0  | LIBXSMM_GEMM_FLAG_VNNI_C;

@@ -1527,6 +1527,7 @@ class BrgemmTPP {
             beta,
             a_trans,
             unroll_hint) {}
+/*
   BrgemmTPP(
       long M,
       long N,
@@ -1552,6 +1553,7 @@ class BrgemmTPP {
             a_trans,
             false,
             unroll_hint) {}
+*/
   BrgemmTPP(
       long M,
       long N,
