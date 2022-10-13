@@ -78,7 +78,6 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters, niters_warmup, use_hardcoded_tunings)
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
-    bottleneck_cpp.pause_itt()
 
     if use_hardcoded_tunings:
         print("Using hardcoded tunings hence no tuning params are used")
@@ -275,7 +274,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("ext_bottleneck forward is called with tuning_params and tuning_strings")
         #dummy_tuning_timings = [0.0]*16
         dummy_tuning_timings = np.zeros(16, dtype=np.float32)
-        y1 = opt_bottleneck(x1, tuning_params=tuning_params, tuning_strings=tuning_strings, tuning_timings_fwd=dummy_tuning_timings)
+        y1 = opt_bottleneck(x1, tuning_params_fwd=tuning_params, tuning_strings_fwd=tuning_strings, tuning_timings_fwd=dummy_tuning_timings)
     else:
         y1 = opt_bottleneck(x1)
 
@@ -407,8 +406,16 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             tuning_params  = opt_bottleneck.tuning_params_fwd
             tuning_strings = opt_bottleneck.tuning_strings_fwd
 
+        with_cache_preheat = 0
+
+        time_preheat = 0
+
         time_start = time.time()
         for i in range(timed_niters):
+            #if with_cache_preheat:
+            #    time_start_cache = time.time()
+            #    conv_cpp.conv_fwd_preallocated_output_ext(bottleneck_cfg., inputs, tuning_params, tuning_string, dummy_tuning_timings, allocated_y_bf16)
+            #    time_preheat = time_preheat + time.time() - time_start_cache
             if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0 or tuning_timings is None:
                 bottleneck_cpp.bottleneck_bn_fwd(bottleneck_cfg, training, inputs)
             else:
@@ -416,11 +423,13 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
                 #bottleneck_cpp.bottleneck_bn_fwd_ext_study1(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
                 #bottleneck_cpp.bottleneck_bn_fwd_ext_study2(bottleneck_cfg, training, inputs, tuning_params, tuning_strings, tuning_timings)
         time_end = time.time()
-        time_per_iter = (time_end - time_start) / timed_niters
+        time_per_iter = (time_end - time_start - time_preheat) / timed_niters
 
         #print("tuning_timings after: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
         print("Timed loop took (s) ", time_end - time_start)
+        if with_cache_preheat:
+            print("Preheat inside the loop took (s) ", time_preheat)
         print("Final perf time: ", time_per_iter)
         gflop = bottleneck_cpp.bottleneck_bn_fwd_get_gflop(bottleneck_cfg)
         basic_params_string = str(N) + " " + str(H) + " " + str(W) + " " + str(inc) + " " + str(outc) + " " + str(stride) + " " + str(has_downsample)
@@ -468,6 +477,8 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
     #exit()
 
 def main():
+    bottleneck_cpp.bottleneck_pause_itt()
+
     xsmm_cpp.init_libxsmm()
     #pcl_cgbp.init_libxsmm()
 
