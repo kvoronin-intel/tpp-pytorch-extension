@@ -12,7 +12,7 @@ t_start = getTime();
 
 // ( grad_output, input, weight) = inputs
 
-//#define VERBOSE
+#define VERBOSE
 
 auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
 auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
