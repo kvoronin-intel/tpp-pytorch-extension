@@ -32,7 +32,7 @@ parser.add_argument('--ref-module', default='pt_native', type=str,
 
 parser.add_argument("--with-perf", action="store_true", default=False, help='if true, measures performance additionally for the opt module', dest='with_perf')
 
-parser.add_argument('--use-bf16-opt', action="store_true", default=True, dest='use_bf16_opt')
+parser.add_argument('--use-bf16-opt', action="store_true", default=False, dest='use_bf16_opt')
 parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='use_bf16_ref')
 
 parser.add_argument('--use-physical-3x3-padding', action="store_true", default=False, dest='use_physical_3x3_padding')
@@ -202,7 +202,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     if opt_dtype == torch.bfloat16:
         rtol=1.5e-1
     else:
-        rtol=5.0e-4
+        rtol=3.0e-3 # for last bottlenecks with huge #channels
     atol=1e+0
 
     validation_check_failed1 = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
@@ -258,7 +258,9 @@ def main():
     #with open("resnet50_bottleneck_test_data_28thr.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr_dbg.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr_saved.data") as f:
-    with open("resnet50_bottleneck_test_data_28thr.data") as f:
+    #with open("resnet50_bottleneck_test_data_28thr.data") as f:
+    #with open("resnet50_bottleneck_test_data_56thr_112.data") as f:
+    with open("resnet50_bottleneck_test_data_56thr.data") as f:
         contents = f.readlines()
         for line in contents:
             if line[0] == '#' or len(line) < 2:

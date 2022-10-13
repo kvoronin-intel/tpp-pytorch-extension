@@ -430,6 +430,8 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         tuning_timings = np.zeros(16, dtype=np.float32)
         #print("tuning_timings before: ", type(tuning_timings), tuning_timings.dtype, tuning_timings)
 
+        batchnorm_cpp.batchnorm_resume_itt()
+
         time_start = time.time()
         for i in range(timed_niters):
             if tuning_string_ncp is None or tuning_string_cp is None or len(tuning_string_ncp) == 0 or len(tuning_string_cp) == 0 or tuning_timings is None:
@@ -471,6 +473,8 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
 def main():
     opt_dtype = torch.float if not args.use_bf16_opt else torch.bfloat16
     ref_dtype = torch.float if not args.use_bf16_ref else torch.bfloat16
+
+    batchnorm_cpp.batchnorm_pause_itt()
 
     bc = args.bc
 
