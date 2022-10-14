@@ -676,6 +676,112 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   // JIT requested nested loop specs
 
 #ifdef VERBOSE
+/*
+  if (argc > 1) {
+    sprintf(loop_specs_str, "%s", argv[1]);
+  }
+  if (argc > 2) {
+    N = atoi(argv[2]);
+    H = atoi(argv[3]);
+    W = atoi(argv[4]);
+    C = atoi(argv[5]);
+    K = atoi(argv[6]);
+    R = atoi(argv[7]);
+    S = atoi(argv[8]);
+    stride_h = atoi(argv[9]);
+    stride_w = atoi(argv[10]);
+    pad_h  = atoi(argv[11]);
+    pad_w = atoi(argv[12]);
+    bc  = atoi(argv[13]);
+    bk  = atoi(argv[14]);
+    if (argc > 15) {
+      n_iters = atoi(argv[15]);
+    }
+
+    if (sizeof(DType) == 2) {
+      bf16_use_nchw_format            = atoi(argv[16]);
+      bf16_fuse_upd_transposes        = atoi(argv[17]);
+      bf16_acc_nw                     = atoi(argv[18]);
+      par_over_h_pixels               = atoi(argv[19]);
+      pack_input_upfront              = atoi(argv[20]);
+      use_intermediate_f32_wt_tensor  = atoi(argv[21]);
+      use_hybrid_imgfm_parallelization = atoi(argv[22]);
+      n_img_teams                     = atoi(argv[23]);
+      n_ofm_teams                     = atoi(argv[24]);
+      use_f32_wt_reduction_and_external_wt_vnni = atoi(argv[25]);
+      compute_full_wt_output_block    = atoi(argv[26]);
+      if (argc > 27) {
+        pixels_blocking_factor = atoi(argv[27]);
+      }
+    } else {
+      use_mb_par_f32 = atoi(argv[16]);    
+    }
+  }
+
+*/
+
+  if (sizeof(T) == 2)
+    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d %d %d %d %d %d %d %d %d %d %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
+                                          N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out,
+                                          bc, bk, 1000,
+                                          bf16_use_nchw_format, bf16_fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront,
+                                          use_intermediate_f32_wt_tensor, use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block,
+                                          pixels_blocking_factor);
+  else /* fp32 */
+    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
+                                          N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out,
+                                          bc, bk, 1000, use_mb_par_f32);
+
+/*
+parser.add_argument('--test-module', default='cnn_tpp', type=str,
+                    help='module to test against the reference', dest='test_module')
+
+parser.add_argument('--use-bf16-opt', action="store_true", default=False, dest='use_bf16_opt')
+parser.add_argument('--use-bf16-ref', action="store_true", default=False, dest='use_bf16_ref')
+
+parser.add_argument('--bc',  nargs='?', type=int)
+parser.add_argument('--bk',  nargs='?', type=int)
+
+parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='h_block, w_block, c_block, k_block; h_in_gemm; pack_input')
+parser.add_argument('--tuning-string', default=None, type=str, help='conv_string')
+
+parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_28thr.data', type=str,
+                    help='file to read test input data from', dest='test_data_file')
+
+parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride R for the conv')
+
+parser.add_argument('--niters', type=int, default=100, help='number of timed iterations')
+parser.add_argument('--niters-warmup', type=int, default=10, help='number of warmup iterations')
+
+parser.add_argument("--with-bwd", action="store_true", default=False, help='if true, runs backward (for validation)', dest='with_bwd')
+parser.add_argument("--perf-fwd", action="store_true", default=False, help='if true, runs forward perf', dest='perf_fwd')
+parser.add_argument("--perf-bwd-d", action="store_true", default=False, help='if true, runs backward over data perf', dest='perf_bwd_d')
+parser.add_argument("--perf-bwd-w", action="store_true", default=False, help='if true, runs backward over weights perf', dest='perf_bwd_w')
+
+parser.add_argument("--preallocated-output", action="store_true", default=False, help='if true, allocates output and calls in perf section conv wihtout preallocated output tensor', dest='preallocated_output')
+
+            [p_block,
+               bf16_use_nchw_format,
+               pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+               bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+               use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams ] = tuning_params
+
+*/
+
+//200~--with-bwd --bc 64 --bk 64 --basic-sizes 28 7 7 2048 512 1 1 --tuning-params  1  1  0 0 0 0 0 0 0 7 4 --tuning-string Aefbcd --perf-bwd-w201~
+  printf("conv_ext upd string: python -u test_conv_ext.py --test-module ext_tpp %s --with-bwd --perf-bwd-w --bc %d --bk %d --basic-sizes %d %d %d %d %d %d %d --tuning-params %d %d  %d %d %d  %d %d %d  %d %d %d --tuning-string %s --niters 1000 --niters-warmup 100 \n",
+                                        (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
+                                        N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, stride_h, R,
+                                        p_block, bf16_use_nchw_format,
+                                        pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+                                        bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+                                        use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams,
+                                        (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string));
+
+#endif
+
+
+#ifdef VERBOSE
   std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
 
   std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "
