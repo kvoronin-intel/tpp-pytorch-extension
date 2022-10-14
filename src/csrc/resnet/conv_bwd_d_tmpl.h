@@ -216,6 +216,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 #endif
 
 
+
   /* FIXME: Fix this! */
   char wt_trans_loop_specs_str[256] = "ABCD";
 
@@ -237,6 +238,55 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   std::cout << "wt_trans_loop spec_str = " << wt_trans_loop_specs_str << std::endl;
   std::cout << "loop_specs_str = " << loop_specs_str << std::endl;
 #endif
+
+
+#ifdef VERBOSE
+/*
+  if (argc > 1) {
+    sprintf(loop_specs_str, "%s", argv[1]);
+  }
+  if (argc > 2) {
+    N = atoi(argv[2]);
+    H = atoi(argv[3]);
+    W = atoi(argv[4]);
+    C = atoi(argv[5]);
+    K = atoi(argv[6]);
+    R = atoi(argv[7]);
+    S = atoi(argv[8]);
+    stride_h = atoi(argv[9]);
+    stride_w = atoi(argv[10]);
+    pad_h  = atoi(argv[11]);
+    pad_w = atoi(argv[12]);
+    bc  = atoi(argv[13]);
+    bk  = atoi(argv[14]);
+    if (argc > 15) {
+      h_block  = atoi(argv[15]);
+      w_block  = atoi(argv[16]);
+      c_block  = atoi(argv[17]);
+      k_block  = atoi(argv[18]);
+      h_in_gemm  = atoi(argv[19]);
+      if (argc > 20) {
+        n_iters = atoi(argv[20]);
+      }
+    }
+  }
+*/
+  printf("parlooper bwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_bwd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d %d %d %d %d  %d\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+                                        N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out,
+                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, 1000);
+
+//200~--with-bwd --bc 64 --bk 64 --basic-sizes 28 7 7 2048 512 1 1 --tuning-params  1  1  0 0 0 0 0 0 0 7 4 --tuning-string Aefbcd --perf-bwd-w201~
+/*
+        if perf_bwd_d:
+            [h_block, w_block, c_block, k_block, h_in_gemm ] = tuning_params
+*/
+  printf("conv_ext bwd string: python -u test_conv_ext.py --test-module ext_tpp %s --with-bwd --perf-bwd-d --bc %d --bk %d --basic-sizes %d %d %d %d %d %d %d --tuning-params %d %d %d %d %d --tuning-string %s --niters 1000 --niters-warmup 100 \n",
+                                        (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
+                                        N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, stride_h, R,
+                                        h_block, w_block, c_block, k_block, h_in_gemm,
+                                        loop_specs_str);
+#endif
+
 
   auto conv_bwd_d_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},// true},
