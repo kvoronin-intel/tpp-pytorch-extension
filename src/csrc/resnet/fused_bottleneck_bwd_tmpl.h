@@ -5,7 +5,12 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
 #define TIMING
 
-//#define VERBOSE
+#ifdef TIMING
+double t_start_all = 0.0, t_all = 0.0;
+t_start_all = getTime();
+#endif
+
+#define VERBOSE
 
 //#define CHECK_FOR_NANS
 
@@ -527,6 +532,11 @@ RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
     }
 #endif
 
+#endif
+
+#ifdef TIMING
+t_all = getTime() - t_start_all;
+printf("total time for this btlnkl bwd: %f \n", t_all);
 #endif
 
 

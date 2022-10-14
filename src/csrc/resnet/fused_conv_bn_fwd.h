@@ -326,11 +326,15 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 //return std::vector<at::Tensor>({t_CO});
 
   int shuffle_accesses = 0;
+/*
   // Checked that this improves (restores) performance for fp32 w.r.t to libxsmm_dnn powered bottleneck, did not check for bf16
   if (sizeof(T) == 4) {
     if (ofh <= 7 && ofw <= 7)
+    //if ((ofh <= 7 && ofw <= 7 && stride_h == 2R == 1 && S == 1) || (ofh == 14 && ofw == 14 && stride_h == 2))
+    //if (ofh == 14 && ofw == 14 && stride_h == 2)
       shuffle_accesses = 1;
   }
+*/
 
   long avoid_fmas_in_rim = 0;
   if (ofh <= 7 && ofw <= 7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
