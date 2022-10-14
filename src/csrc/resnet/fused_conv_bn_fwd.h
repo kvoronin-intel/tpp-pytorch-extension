@@ -328,7 +328,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   int shuffle_accesses = 0;
   // Checked that this improves (restores) performance for fp32 w.r.t to libxsmm_dnn powered bottleneck, did not check for bf16
   if (sizeof(T) == 4) {
-    if (ofh <= 7 && ofw >= 7)
+    if (ofh <= 7 && ofw <= 7)
       shuffle_accesses = 1;
   }
 
