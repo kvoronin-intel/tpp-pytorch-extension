@@ -12,11 +12,20 @@ t_start = getTime();
 
 #define NTIMES_PREHEAT 0
 
+//#define BATCHNORM_SCALE_REVERSE_ORDER
+
 //#define COPY_INSTEAD_OF_BATCHNORM
 
 //#define NO_BATCHNORM
 
 //#define VERBOSE
+
+#ifdef BATCHNORM_SCALE_REVERSE_ORDER
+  #warning "BATCHNORM_SCALE_REVERSE_ORDER is enabled"
+  #ifdef VERBOSE
+    printf("BATCHNORM_SCALE_REVERSE_ORDER is defined\n");
+  #endif
+#endif
 
 #if defined(USE_UNCORE_PERF_COUNTERS)
   #warning "USE_UNCORE_PERF_COUNTERS is defined"
@@ -997,8 +1006,12 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
 
       nkb_loop(
         [&](int *ind) {
-          const int n = ind[0], kb = ind[1];//(Kb - 1 - ind[1]);
-
+          const int n = ind[0];
+#ifdef BATCHNORM_SCALE_REVERSE_ORDER
+          const int kb = (Kb - 1 - ind[1]);
+#else
+          const int kb = ind[1];//(Kb - 1 - ind[1]);
+#endif
           DECL_VLA_PTR_PT_EXT(T,             inp,      [Kb][bn_ifhp][bn_ifwp][bk], t_BI, (hi_start * bn_ifwp + wi_start) * bk);
           DECL_VLA_PTR_PT_EXT(T,             inp_add,  [Kb][bn_ifhp][bn_ifwp][bk], t_BIA, (hi_start * bn_ifwp + wi_start) * bk);
           DECL_VLA_PTR_PT    (T,             out,      [Kb][bn_ofhp][bn_ofwp][bk], t_BO);
