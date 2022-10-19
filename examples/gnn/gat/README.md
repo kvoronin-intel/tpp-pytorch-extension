@@ -43,4 +43,8 @@ The command to run the `OGBN-Products` is:
  ``` 
 
 
+## Reinstall the pcl-pytorch-extension package:
 
+```
+   ./reinstall_pcl_ext.sh
+```
