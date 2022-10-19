@@ -27,14 +27,14 @@ Follow this command to run with cpu affinity
  The command to run the `OGBN-Papers100M` is:
 
  ```
-     ./run_gat_all.sh 2 "ogbn_papers"
+     ./run_gat_all.sh 2 papers
  ```
   Other parameters used --dataset "ogbn-papers100M", --num-epochs 30, --batch-size 1024, --lr 0.006, --fan-out 15,10,5
 
 The command to run the `OGBN-Products` is:
 
  ```
-    ./run_gat_all.sh 2 "ogbn_products"
+    ./run_gat_all.sh 2 products
  ``` 
   Other parameters used --dataset "ogbn-products", --num-epochs 30, --lr 0.006 
 
