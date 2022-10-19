@@ -4,7 +4,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import dgl.nn.pytorch as dglnn
+from dgl.nn.pytorch.conv import GATConv
 
 # import gatconv as dglnn
 import time
@@ -20,6 +20,28 @@ import os
 import psutil
 
 
+@contextmanager
+def opt_impl(enable=True, use_bf16=False):
+    try:
+        global GATConv
+        orig_GATConv = GATConv
+        try:
+            if enable:
+                if use_bf16:
+                    GATConv = pcl_gat.GATConvOptBF16
+                else:
+                    SAGEConv = pcl_gat.GATConvOpt
+            yield
+        finally:
+            GATConv = orig_GATConv
+    except ImportError as e:
+        pass
+
+def block(model):
+    for m in model.modules():
+        if hasattr(m, "maybe_block_params"):
+            m.maybe_block_params()
+
 class GAT(nn.Module):
     def __init__(self, in_feats, n_hidden, n_classes, n_layers, num_heads, activation):
         super().__init__()
@@ -29,7 +51,7 @@ class GAT(nn.Module):
         self.layers = nn.ModuleList()
         print("Other Parms: ", (in_feats, in_feats), " ", n_hidden)
         self.layers.append(
-            dglnn.GATConv(
+            GATConv(
                 (in_feats, in_feats),
                 n_hidden,
                 num_heads=num_heads,
@@ -39,7 +61,7 @@ class GAT(nn.Module):
         print(in_feats, in_feats, n_hidden, num_heads)
         for i in range(1, n_layers - 1):
             self.layers.append(
-                dglnn.GATConv(
+                GATConv(
                     (n_hidden * num_heads, n_hidden * num_heads),
                     n_hidden,
                     num_heads=num_heads,
@@ -48,7 +70,7 @@ class GAT(nn.Module):
             )
             print(n_hidden * num_heads, n_hidden * num_heads, n_hidden, num_heads)
         self.layers.append(
-            dglnn.GATConv(
+            GATConv(
                 (n_hidden * num_heads, n_hidden * num_heads),
                 n_classes,
                 num_heads=num_heads,
@@ -317,11 +339,11 @@ def run(args, device, data):
             # Loop over the dataloader to sample the computation dependency graph as a list of
             # blocks.
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
-                ## Core affinitization
-                # if args.use_pcl and epoch == 0 and step == 0:
-                #    cores = int(os.environ["OMP_NUM_THREADS"])
-                #    gnn_utils.affinitize_cores(cores, args.num_workers)
-
+		## Core affinitization 
+                #if args.use_pcl and epoch == 0 and step == 0:
+            	#    cores = int(os.environ["OMP_NUM_THREADS"])
+            	#    gnn_utils.affinitize_cores(cores, args.num_workers)
+                
                 # ppx.reset_debug_timers()
                 tic_step = time.time()
                 # copy block to gpu
