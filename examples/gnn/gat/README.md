@@ -11,7 +11,8 @@
 ## Command to run GAT
 
 Follow this command to run with cpu affinity
- - To execute the code with cpu affnity use `--cpu-worker-aff` flag in the command.
+ - To get the benefit of cpu affinitization in the code use `--cpu-worker-aff` flag in the command.
+ - To get the profiler of the GAT code use `--profile` flag
 
 ```
     dl=number_of_dataloader
@@ -21,7 +22,25 @@ Follow this command to run with cpu affinity
 ``` 
 
 - To activate the optmized Float32 MLP use `--opt_mlp` flag 
-- To use the Bfloat16 MLP use `--use_bf16` flag in the command
+- To use the Bfloat16 MLP use `--use_bf16` flag
+
+
+
+## Performance Numbers on Intel 40 core ICX-8380 CPU:
+
+ The float32 training time for optimized GAT on `OGBN-Papers100M` dataset is `~ 450 sec` and `OGBN-Products` dataset it is `~ 85 sec` 
+
+ The command to run the `OGBN-Papers100M` is:
+
+ ```
+     numactl -C 38 -m 0  python  main.py  --num-epochs 30  --num-workers 2  --batch-size 1024 --dataset "ogbn-papers100M"  --lr 0.006 --fan-out 15,10,5 --checkpoint  --checkpoint-dir "ogbn_papers" --cpu-worker-aff  --opt_mlp
+ ```
+
+The command to run the `OGBN-Products` is:
+
+ ```
+     numactl -C 38 -m 0 python  main.py  --num-epochs 30  --num-workers 2  --dataset "ogbn-products" --cpu-worker-aff  --opt_mlp
+ ``` 
 
 
 
