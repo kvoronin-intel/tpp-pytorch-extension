@@ -47,6 +47,11 @@ class SAGE(nn.Module):
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_classes = n_classes
+        if not args.opt_mlp:
+            self.dropout = nn.Dropout(dropout)
+            dropout = 0
+            self.activation = activation
+
         self.layers = nn.ModuleList()
         self.layers.append(
             SAGEConv(
@@ -64,14 +69,12 @@ class SAGE(nn.Module):
     def forward(self, blocks, x):
         h = x
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
-            # We need to first copy the representation of nodes on the RHS from the
-            # appropriate nodes on the LHS.
-            # Note that the shape of h is (num_nodes_LHS, D) and the shape of h_dst
-            # would be (num_nodes_RHS, D)
             h_dst = h[: block.num_dst_nodes()]
-            # Then we compute the updated representation on the RHS.
-            # The shape of h now becomes (num_nodes_RHS, D)
             h = layer(block, (h, h_dst))
+            if not args.opt_mlp:
+                if l != len(self.layers) - 1:
+                    h = self.activation(h)
+                    h = self.dropout(h)
         return h
 
     def inference(self, g, x, device):
@@ -82,11 +85,6 @@ class SAGE(nn.Module):
         The inference code is written in a fashion that it could handle any number of nodes and
         layers.
         """
-        # During inference with sampling, multi-layer blocks are very inefficient because
-        # lots of computations in the first few layers are repeated.
-        # Therefore, we compute the representation of all nodes layer by layer.  The nodes
-        # on each layer are of course splitted in batches.
-        # TODO: can we standardize this?
         if device.type != "cpu":
             for l, layer in enumerate(self.layers):
                 y = th.zeros(
@@ -125,7 +123,10 @@ class SAGE(nn.Module):
 
             for l, layer in enumerate(self.layers):
                 x = layer(g, (x, x))
-
+                if not args.opt_mlp:
+                    if l != len(self.layers) - 1:
+                        x = self.activation(x)
+                        x = self.dropout(x)
             return x
 
 
@@ -138,12 +139,11 @@ def compute_acc(pred, labels):
 
 def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     """
-    Evaluate the model on the validation set specified by ``val_mask``.
     g : The entire graph.
     inputs : The features of all the nodes.
     labels : The labels of all the nodes.
-    val_mask : A 0-1 mask indicating which nodes do we actually compute the accuracy for.
-    device : The GPU device to evaluate on.
+    val_nid : Validation node ids
+    test_nid: Test node ids
     """
     model.eval()
     with th.no_grad():
@@ -214,7 +214,7 @@ def run(args, device, data):
             num_workers=args.num_workers,
             use_cpu_worker_affinity=args.cpu_worker_aff,
             persistent_workers=args.cpu_worker_aff,
-            #formats=["csc"],
+            formats=["csc"],
         )
     else:
         dataloader = dgl.dataloading.NodeDataLoader(
@@ -273,25 +273,18 @@ def run(args, device, data):
         ppx.manual_seed(args.seed)
     record_shapes = False
     with th.autograd.profiler.profile(
-        enabled=args.profile, use_cuda=(args.gpu > 0), record_shapes=record_shapes
+        enabled=args.profile, record_shapes=record_shapes
     ) as prof:
         if prof and args.opt_mlp:
             ppx.reset_debug_timers()
         for epoch in range(args.num_epochs):
-            #batch_fwd_time = AverageMeter()
-            #batch_bwd_time = AverageMeter()
-            #loss_time = AverageMeter()
-            #optim_zero_time = AverageMeter()
-            #optim_step_time = AverageMeter()
-            #data_time = AverageMeter()
-            #gather_time = AverageMeter()
-
-            iter_time = []
+            batch_fwd_time = AverageMeter()
+            batch_bwd_time = AverageMeter()
+            data_time = AverageMeter()
+            gather_time = AverageMeter()
 
             tic = time.time()
 
-            # Loop over the dataloader to sample the computation dependency graph as a list of
-            # blocks.
             end = time.time()
             for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
                 if args.opt_mlp and epoch == 0 and step == 0:
@@ -299,92 +292,58 @@ def run(args, device, data):
                     gnn_utils.affinitize_cores(cores, args.num_workers)
                 # measure data loading time
                 t0 = time.time()
-                #if step > 0:
-                #    data_time.update(t0 - end)
+                data_time.update(t0 - end)
 
                 # Load the input features as well as output labels
                 batch_inputs, batch_labels = load_subtensor(
                     nfeat, labels, seeds, input_nodes
                 )
-                #t1 = time.time()
-                #if step > 0:
-                #    gather_time.update(t1 - t0)
+                t1 = time.time()
+                gather_time.update(t1 - t0)
+                t2 = time.time()
 
-                #t2 = time.time()
                 # Compute loss and prediction
                 batch_pred = model(blocks, batch_inputs).to(th.float32)
-                #t3 = time.time()
-                #if step > 0:
-                #    batch_fwd_time.update(t3 - t2)
+                t3 = time.time()
+                batch_fwd_time.update(t3 - t2)
 
                 loss = loss_fcn(batch_pred, batch_labels)
-                #t4 = time.time()
-                #if step > 0:
-                #    loss_time.update(t4 - t3)
 
                 optimizer.zero_grad()
-                #t5 = time.time()
-                #if step > 0:
-                #    optim_zero_time.update(t5 - t4)
 
+                t4 = time.time()
                 loss.backward()
-                #t6 = time.time()
-                #if step > 0:
-                #    batch_bwd_time.update(t6 - t5)
+                t5 = time.time()
+                batch_bwd_time.update(t5 - t4)
 
                 optimizer.step()
-                #t7 = time.time()
-                #if step > 0:
-                #    optim_step_time.update(t7 - t6)
 
                 end = time.time()
 
-                iter_time.append(end-t0)
-                #if step > 0:
-                #    iter_time.append(
-                #        data_time.val
-                #        + gather_time.val
-                #        + batch_fwd_time.val
-                #        + loss_time.val
-                #        + optim_zero_time.val
-                #        + batch_bwd_time.val
-                #        + optim_step_time.val
-                #    )
-                if step > 0 and step % args.log_every == 0:
+                if step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
+                    # Record step loss, training acc, dataloading time (DL), gather time (GT)
+                    # forward time (FWD) and backprop time (BWD)
                     print(
-                            "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Step time (sec) {:.4f}".format(
-                        # "Nodes: Input {:d} H1 {:d} H2 {:d} Out {:d} |"
-                        #"Epoch {:05d} | Step {:05d} |"
-                        #"DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
-                        #"GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
-                        #"FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) |"
-                        #"Loss (s) {loss_time.val:.4f} ({loss_time.avg:.4f}) |"
-                        #"Optim Zero (s) {optim_zero_time.val:.4f} ({optim_zero_time.avg:.4f}) |"
-                        #"BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) |"
-                        #"Optim Step (s) {optim_step_time.val:.4f} ({optim_step_time.avg:.4f}) |".format(
+                        "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Acc {:.2f} | "
+                        "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) | "
+                        "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) | "
+                        "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) | "
+                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) | ".format(
                             epoch,
                             step,
                             loss.item(),
-                            np.mean(iter_time[3:]),
-                            #acc.item(),
-                            # blocks[0].num_src_nodes(),
-                            # blocks[1].num_src_nodes(),
-                            # blocks[2].num_src_nodes(),
-                            # blocks[2].num_dst_nodes(),
-                            #data_time=data_time,
-                            #gather_time=gather_time,
-                            #batch_fwd_time=batch_fwd_time,
-                            #loss_time=loss_time,
-                            #optim_zero_time=optim_zero_time,
-                            #batch_bwd_time=batch_bwd_time,
-                            #optim_step_time=optim_step_time,
+                            acc.item(),
+                            data_time=data_time,
+                            gather_time=gather_time,
+                            batch_fwd_time=batch_fwd_time,
+                            batch_bwd_time=batch_bwd_time,
                         )
                     )
 
             toc = time.time()
 
-            print("Epoch Time(s): {:.4f}".format(toc-tic))
+            print("Epoch Time(s): {:.4f}".format(toc - tic))
 
             if epoch >= 1:
                 avgb += toc - tic
@@ -411,15 +370,12 @@ def run(args, device, data):
                         )
                     )
                 elif args.dataset == "ogbn-papers100M":
+                    # On low- to medium-sized memory systems (< 512GB DRAM), online inference for ogb-papers100M is not possible
+                    # so, we save the model and run inference separately
                     save_checkpoint(
                         {"state_dict": model.state_dict()},
                         filename="ogbp100M" + str(epoch) + ".pth.tar",
                     )
-                    """
-                    eval_acc, test_acc, pred = evaluate(
-                        model, g, nfeat, labels, val_nid, test_nid, device
-                    )
-                    """
 
     if prof and args.opt_mlp:
         ppx.print_debug_timers(0)
@@ -451,10 +407,7 @@ def run(args, device, data):
 
 
 if __name__ == "__main__":
-    argparser = argparse.ArgumentParser("multi-gpu training")
-    argparser.add_argument(
-        "--gpu", type=int, default=0, help="GPU device ID. Use -1 for CPU training"
-    )
+    argparser = argparse.ArgumentParser("CPU training")
     argparser.add_argument("--num-epochs", type=int, default=20)
     argparser.add_argument("--num-hidden", type=int, default=256)
     argparser.add_argument("--num-layers", type=int, default=3)
@@ -508,12 +461,9 @@ if __name__ == "__main__":
 
     args = argparser.parse_args()
 
-    if args.gpu >= 0:
-        device = th.device("cuda:%d" % args.gpu)
-    else:
-        device = th.device("cpu")
+    device = th.device("cpu")
 
-    # load ogbn-products data
+    # load data
     data = DglNodePropPredDataset(name=args.dataset)
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = (
@@ -523,6 +473,7 @@ if __name__ == "__main__":
     )
     graph, labels = data[0]
     n_classes = data.num_classes
+
     if args.dataset == "ogbn-products":
         nfeat = graph.ndata.pop("feat").to(device)
         if args.use_bf16:
@@ -531,8 +482,7 @@ if __name__ == "__main__":
         in_feats = nfeat.shape[1]
         n_classes = (labels.max() + 1).item()
     elif args.dataset == "ogbn-papers100M":
-        # breakpoint()
-        # graph_ = dgl.add_reverse_edges(graph)
+        # For higher accuracy, add reverse edges
         ed = graph.edges()
         graph = dgl.add_edges(graph, ed[1], ed[0])
         labels = labels[:, 0].long()
@@ -542,8 +492,10 @@ if __name__ == "__main__":
             nfeat = nfeat.to(th.bfloat16)
         del data, ed
 
-    # Create csr/coo/csc formats before launching sampling processes
+    # Create csr/coo/csc formats before launching sampling processes.
     # This avoids creating certain formats in each data loader process, which saves momory and CPU.
+    # Works only for ogbn-products. Crashes when applied to ogbn-papers
+
     if args.dataset != "ogbn-papers100M":
         graph.create_formats_()
     # Pack data
@@ -555,7 +507,6 @@ if __name__ == "__main__":
     if not args.profile:
         if args.dataset == "ogbn-products":
             for i in range(1):
-                # test_accs.append(run(args, device, data).cpu().numpy())
                 acc, et = run(args, device, data)
                 test_accs.append(acc)
                 epoch_time.append(et)

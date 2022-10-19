@@ -117,14 +117,14 @@ def train(
             embedding_optimizer.step()
 
             toc = time.time()
-            iter_time.append(toc-tic)
+            iter_time.append(toc - tic)
             total_loss += loss.item()
             total_accuracy += accuracy
 
             # print('Step {:02d} | Loss {:.4f} | TLoss {:.4f} | Acc {:.4f} | TAcc {:.4f}'.format(
             #  step, loss.item(), total_loss, accuracy, total_accuracy))
 
-    print('Avg batch time: {:.4f}'.format(np.mean(iter_time)))
+    print("Avg batch time: {:.4f}".format(np.mean(iter_time)))
     if args.mlp_profile and args.opt_mlp:
         ppx.print_debug_timers(0)
 
