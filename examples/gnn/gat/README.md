@@ -10,13 +10,17 @@
 
 ## Command to run GAT
 
-Follow this command to run 
+Follow this command to run with cpu affinity
+ - To execute the code with cpu affnity use `--cpu-worker-aff` flag in the command.
 
 ```
-   numactl -C $2-$up -m 0  python  main_gat.py  --num-epochs 30  --num-workers $2  --batch-size $4 --dataset "ogbn-papers100M"  --lr 0.006 --fan-out 15,10,5 --checkpoint  --checkpoint-dir $3 --cpu-worker-aff  --opt_mlp
+    dl=number_of_dataloader
+    mdir_ss="\path\to\checkpoint\directory\"
+    mkdir $mdir_ss
+    ./run_gat_all.sh  $dl $mdir_ss
 ``` 
 
-- To activate the optmized Float32 MLP use `--opt_mlp` flag in the command.
+- To activate the optmized Float32 MLP use `--opt_mlp` flag 
 - To use the Bfloat16 MLP use `--use_bf16` flag in the command
 
 
