@@ -11,7 +11,7 @@
 ## Command to run GAT
 
 Follow this command to run with cpu affinity
- - To get the benefit of cpu affinitization in the code use `--cpu-worker-aff` flag in the command.
+ - To get the benefit of cpu affinitization in the code use `--cpu-worker-aff` flag in the command and assign dl > 0 otherwise use dl = 0 and `don't use the --cpu-worker-aff` flag.
  - To get the profiler of the GAT code use `--profile` flag
 
 ```
@@ -21,14 +21,14 @@ Follow this command to run with cpu affinity
     ./run_gat_all.sh  $dl $mdir_ss
 ``` 
 
-- To activate the optmized Float32 MLP use `--opt_mlp` flag 
+- To activate the optmized Float32 MLP use `--opt_mlp` flag  
 - To use the Bfloat16 MLP use `--use_bf16` flag
 
 
 
 ## Performance Numbers on Intel 40 core ICX-8380 CPU:
 
- The float32 training time for optimized GAT on `OGBN-Papers100M` dataset is `~ 450 sec` and `OGBN-Products` dataset it is `~ 85 sec` 
+ The float32 training time for optimized GAT on `OGBN-Papers100M` dataset is `~ 450 sec/epoch` and `OGBN-Products` dataset it is `~ 85 sec/epoch` 
 
  The command to run the `OGBN-Papers100M` is:
 
