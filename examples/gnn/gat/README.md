@@ -26,7 +26,7 @@ Follow this command to run with cpu affinity
 
 
 
-## Performance Numbers on Intel 40 core ICX-8380 CPU:
+## Performance Numbers on Intel ICX-8380 CPU (40 core):
 
  The float32 training time for optimized GAT on `OGBN-Papers100M` dataset is `~ 450 sec/epoch` and `OGBN-Products` dataset it is `~ 85 sec/epoch` 
 
