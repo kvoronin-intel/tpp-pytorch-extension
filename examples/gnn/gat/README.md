@@ -1,7 +1,7 @@
 
-# Run optimized GAT
+# Optimized GAT
 
-### Basic requirements to execute optimized GAT:
+### Basic requirements:
 
 - DGL version 0.8+
 - GCC version 10.X
@@ -11,11 +11,10 @@
 ## Command to run GAT
 
 Follow this command to run with cpu affinity
- - To get the benefit of cpu affinitization in the code use `--cpu-worker-aff` flag in the command and assign dl > 0 otherwise use dl = 0 and `don't use the --cpu-worker-aff` flag.
- - To get the profiler of the GAT code use `--profile` flag
-
+ - To get the benefit of cpu affinitization in the code and load the data fast use `--cpu-worker-aff` flag in the command and assign dl = number_of_threads (e.g. dl=4) otherwise use dl=0 and `don't use the --cpu-worker-aff` flag.
+ 
 ```
-    dl=number_of_dataloader
+    dl=4
     mdir_ss="\path\to\checkpoint\directory\"
     mkdir $mdir_ss
     ./run_gat_all.sh  $dl $mdir_ss
@@ -23,6 +22,7 @@ Follow this command to run with cpu affinity
 
 - To activate the optmized Float32 MLP use `--opt_mlp` flag  
 - To use the Bfloat16 MLP use `--use_bf16` flag
+- To profile code use `--profile` flag
 
 
 
@@ -43,7 +43,7 @@ The command to run the `OGBN-Products` is:
  ``` 
 
 
-## Reinstall the pcl-pytorch-extension package:
+## Recompile the package:
 
 ```
    ./reinstall_pcl_ext.sh
