@@ -102,7 +102,6 @@ sources += ["src/csrc/jit_compile.cpp", "src/csrc/common_loops.cpp", "src/csrc/p
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
-sources += glob.glob("src/csrc/gnn/rgcn/*.cpp")
 sources += glob.glob("src/csrc/gnn/common/*.cpp")
 sources += glob.glob("src/csrc/gnn/gat/*.cpp")
 sources += glob.glob("src/csrc/conv1dopti/unpad/*.cpp")

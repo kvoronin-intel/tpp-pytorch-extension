@@ -310,6 +310,7 @@ class GATConvOpt(BlockedModule):
         self.align = 32
         self.fdp = feat_drop
         self.adp = attn_drop
+        print("Use opt_mlp code---------------")
         for cbf in [50, 32, 16]:
             if self._in_dst_feats % cbf == 0:
                 self.bc = cbf
@@ -637,31 +638,3 @@ class GATConvOptBF16(GATConvOpt):
             )
 
         self.use_bf16 = True
-
-
-@contextmanager
-def pcl_impl(enable=True, use_bf16=False):
-    try:
-        import dgl
-
-        orig_GATConv = dgl.nn.pytorch.GATConv
-        orig_Dropout = torch.nn.Dropout
-        try:
-            if enable:
-                if use_bf16:
-                    dgl.nn.pytorch.GATConv = GATConvOptBF16
-                else:
-                    dgl.nn.pytorch.GATConv = GATConvOpt
-                    torch.nn.Dropout = Dropout
-            yield
-        finally:
-            dgl.nn.pytorch.GATConv = orig_GATConv
-            torch.nn.Dropout = orig_Dropout
-    except ImportError as e:
-        pass
-
-
-def block(model):
-    for m in model.modules():
-        if hasattr(m, "maybe_block_params"):
-            m.maybe_block_params()

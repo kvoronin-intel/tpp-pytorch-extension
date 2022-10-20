@@ -82,9 +82,9 @@ class GAT(nn.Module):
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
             h_dst = h[: block.num_dst_nodes()]
             if l < self.n_layers - 1:
-                h = layer(block, (h, h_dst), False).flatten(1)
+                h = layer(block, (h, h_dst)).flatten(1)
             else:
-                h = layer(block, (h, h_dst), False)
+                h = layer(block, (h, h_dst))
         h = h.mean(1)
         return h.log_softmax(dim=-1)
 
@@ -93,9 +93,9 @@ class GAT(nn.Module):
         h_dst = h
         for l, layer in enumerate(self.layers):
             if l < self.n_layers - 1:
-                h = layer(g, (h, h), False).flatten(1)
+                h = layer(g, (h, h)).flatten(1)
             else:
-                h = layer(g, (h, h), False)
+                h = layer(g, (h, h))
                 h = h.mean(1)
                 h = h.log_softmax(dim=-1)
         return h
@@ -183,9 +183,9 @@ class GAT(nn.Module):
         h_dst = h
         for l, layer in enumerate(self.layers):
             if l < self.n_layers - 1:
-                h = layer(g, (h, h), train=False).flatten(1)
+                h = layer(g, (h, h)).flatten(1)
             else:
-                h = layer(g, (h, h), train=False)
+                h = layer(g, (h, h))
                 h = h.mean(1)
                 h = h.log_softmax(dim=-1)
         return h
