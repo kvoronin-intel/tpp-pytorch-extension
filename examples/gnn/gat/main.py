@@ -259,6 +259,7 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
 
     return batch_inputs, batch_labels
 
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()
@@ -275,8 +276,10 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+
 def save_checkpoint(state, filename="checkpoint.pth.tar"):
     th.save(state, filename, _use_new_zipfile_serialization=True)
+
 
 #### Entry point
 def run(args, device, data):
@@ -416,8 +419,7 @@ def run(args, device, data):
                         "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) | "
                         "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) | "
                         "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) | "
-                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) | ".format
-                        (
+                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) | ".format(
                             epoch,
                             step,
                             loss.item(),
@@ -431,7 +433,7 @@ def run(args, device, data):
 
             toc = time.time()
 
-            print("Epoch Time(s): {:.4f}".format(toc-tic)
+            print("Epoch Time(s): {:.4f}".format(toc - tic))
             process = psutil.Process(os.getpid())
             print("Mem usage in GB: ", process.memory_info().rss / 1e9)  # in bytes
 
