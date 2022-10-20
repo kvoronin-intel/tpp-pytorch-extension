@@ -416,7 +416,8 @@ def run(args, device, data):
                         "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) | "
                         "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) | "
                         "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) | "
-                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) |"
+                        "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) | ".format
+                        (
                             epoch,
                             step,
                             loss.item(),
