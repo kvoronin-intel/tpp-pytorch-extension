@@ -3,10 +3,10 @@
 CORES_PER_SOCKET=`$PREFIX lscpu | grep "Core(s) per socket" | awk '{print $NF}'`
 DATALOADER_WORKER_COUNT=0
 if [ $CORES_PER_SOCKET -gt 16 ] ; then 
-  if [ $CORES_PER_SOCKET -le 22 ] ; then DATALOADER_WORKER_COUNT=1 ; fi
+  if [ $CORES_PER_SOCKET -le 22 ] ; then DATALOADER_WORKER_COUNT=2 ; fi
 fi
 
-if [ $CORES_PER_SOCKET -ge 22 ] ; then DATALOADER_WORKER_COUNT=2 ; fi 
+if [ $CORES_PER_SOCKET -ge 22 ] ; then DATALOADER_WORKER_COUNT=4 ; fi 
 
 export OMP_NUM_THREADS=$(( CORES_PER_SOCKET - DATALOADER_WORKER_COUNT ))
 unset KMP_AFFINITY
