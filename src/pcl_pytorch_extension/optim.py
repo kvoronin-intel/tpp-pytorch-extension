@@ -166,10 +166,10 @@ class AdamW(Optimizer):
                     continue
                 grad = p.grad.data
                 data = p.data
-                if grad.is_sparse:
-                    raise RuntimeError(
-                        "Adam does not support sparse gradients, please consider SparseAdam instead"
-                    )
+                # if grad.is_sparse:
+                #     raise RuntimeError(
+                #         "Adam does not support sparse gradients, please consider SparseAdam instead"
+                #     )
                 if hasattr(torch, "bfloat8") and p.data.dtype == torch.bfloat8:
                     data = data.to(torch.float)
                     grad = grad.to(torch.float)
@@ -230,7 +230,7 @@ class AdamW(Optimizer):
                     optim_cpp.fused_split_adamw(
                         data,
                         low_bits,
-                        grad.contiguous(),
+                        grad,  # contiguous() is called inside cpp code if not sparse
                         exp_avg,
                         exp_avg_sq,
                         beta1,
@@ -243,7 +243,7 @@ class AdamW(Optimizer):
                 else:
                     optim_cpp.fused_adamw(
                         data,
-                        grad.contiguous(),
+                        grad,  # contiguous() is called inside cpp code if not sparse
                         exp_avg,
                         exp_avg_sq,
                         beta1,

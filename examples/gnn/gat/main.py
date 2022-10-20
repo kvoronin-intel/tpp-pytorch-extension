@@ -4,33 +4,36 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import dgl.nn.pytorch as dglnn
-from dgl.nn.pytorch.conv import SAGEConv
 import time
 import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
-from pcl_pytorch_extension.gnn.graphsage import fused_graphsage
+from pcl_pytorch_extension.gnn.gat import fused_GAT as fused_gat
+from dgl.nn.pytorch.conv import GATConv
 from pcl_pytorch_extension.gnn.common import gnn_utils
+
 import pcl_pytorch_extension as ppx
-import os, psutil
+import os
+import psutil
+
 from contextlib import contextmanager
 
 
 @contextmanager
 def opt_impl(enable=True, use_bf16=False):
     try:
-        global SAGEConv
-        orig_SAGEConv = SAGEConv
+        global GATConv
+        orig_GATConv = GATConv
         try:
             if enable:
                 if use_bf16:
-                    SAGEConv = fused_graphsage.SAGEConvOptBF16
+                    GATConv = fused_gat.GATConvOptBF16
+
                 else:
-                    SAGEConv = fused_graphsage.SAGEConvOpt
+                    GATConv = fused_gat.GATConvOpt
             yield
         finally:
-            SAGEConv = orig_SAGEConv
+            GATConv = orig_GATConv
     except ImportError as e:
         pass
 
@@ -41,45 +44,65 @@ def block(model):
             m.maybe_block_params()
 
 
-class SAGE(nn.Module):
-    def __init__(self, in_feats, n_hidden, n_classes, n_layers, activation, dropout):
+class GAT(nn.Module):
+    def __init__(self, in_feats, n_hidden, n_classes, n_layers, num_heads, activation):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_classes = n_classes
-        if not args.opt_mlp:
-            self.dropout = nn.Dropout(dropout)
-            dropout = 0
-            self.activation = activation
-
         self.layers = nn.ModuleList()
         self.layers.append(
-            SAGEConv(
-                in_feats, n_hidden, "mean", feat_drop=dropout, activation=activation
+            GATConv(
+                (in_feats, in_feats),
+                n_hidden,
+                num_heads=num_heads,
+                activation=activation,
             )
         )
         for i in range(1, n_layers - 1):
             self.layers.append(
-                SAGEConv(
-                    n_hidden, n_hidden, "mean", feat_drop=dropout, activation=activation
+                GATConv(
+                    (n_hidden * num_heads, n_hidden * num_heads),
+                    n_hidden,
+                    num_heads=num_heads,
+                    activation=activation,
                 )
             )
-        self.layers.append(SAGEConv(n_hidden, n_classes, "mean"))
+        self.layers.append(
+            GATConv(
+                (n_hidden * num_heads, n_hidden * num_heads),
+                n_classes,
+                num_heads=num_heads,
+                activation=None,
+            )
+        )
 
     def forward(self, blocks, x):
         h = x
         for l, (layer, block) in enumerate(zip(self.layers, blocks)):
             h_dst = h[: block.num_dst_nodes()]
-            h = layer(block, (h, h_dst))
-            if not args.opt_mlp:
-                if l != len(self.layers) - 1:
-                    h = self.activation(h)
-                    h = self.dropout(h)
+            if l < self.n_layers - 1:
+                h = layer(block, (h, h_dst)).flatten(1)
+            else:
+                h = layer(block, (h, h_dst))
+        h = h.mean(1)
+        return h.log_softmax(dim=-1)
+
+    def inference_full(self, g, x, device):
+        h = x.to(device)
+        h_dst = h
+        for l, layer in enumerate(self.layers):
+            if l < self.n_layers - 1:
+                h = layer(g, (h, h)).flatten(1)
+            else:
+                h = layer(g, (h, h))
+                h = h.mean(1)
+                h = h.log_softmax(dim=-1)
         return h
 
-    def inference(self, g, x, device):
+    def inference(self, g, x, num_heads, device):
         """
-        Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
+        Inference with the GAT model on full neighbors (i.e. without neighbor sampling).
         g : the entire graph.
         x : the input of entire node set.
         The inference code is written in a fashion that it could handle any number of nodes and
@@ -87,10 +110,36 @@ class SAGE(nn.Module):
         """
         if device.type != "cpu":
             for l, layer in enumerate(self.layers):
-                y = th.zeros(
-                    g.num_nodes(),
-                    self.n_hidden if l != len(self.layers) - 1 else self.n_classes,
-                ).to(device)
+                if args.use_bf16:
+                    if l < self.n_layers - 1:
+                        y = th.zeros(
+                            g.num_nodes(),
+                            self.n_hidden * num_heads
+                            if l != len(self.layers) - 1
+                            else self.n_classes,
+                        )  # .to(th.bfloat16)
+                    else:
+                        y = th.zeros(
+                            g.num_nodes(),
+                            self.n_hidden
+                            if l != len(self.layers) - 1
+                            else self.n_classes,
+                        )
+                else:
+                    if l < self.n_layers - 1:
+                        y = th.zeros(
+                            g.num_nodes(),
+                            self.n_hidden * num_heads
+                            if l != len(self.layers) - 1
+                            else self.n_classes,
+                        )
+                    else:
+                        y = th.zeros(
+                            g.num_nodes(),
+                            self.n_hidden
+                            if l != len(self.layers) - 1
+                            else self.n_classes,
+                        )
 
                 sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
                 dataloader = dgl.dataloading.NodeDataLoader(
@@ -105,29 +154,41 @@ class SAGE(nn.Module):
 
                 for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
                     block = blocks[0].int().to(device)
-
+                    if args.use_bf16:
+                        x = x.to(th.bfloat16)
                     h = x[input_nodes]
                     h_dst = h[: block.num_dst_nodes()]
-                    h = layer(block, (h, h_dst))
-                    if l != len(self.layers) - 1:
-                        h = self.activation(h)
-                        h = self.dropout(h)
+                    if l < self.n_layers - 1:
+                        h = layer(block, (h, h_dst)).flatten(1)
+                    else:
+                        h = layer(block, (h, h_dst)).to(th.float32)
+                        h = h.mean(1)
+                        h = h.log_softmax(dim=-1)
 
-                    y[output_nodes] = h
+                    y[output_nodes] = h.cpu()
 
-                x = y
-            return y
+            x = y
+            return y.to(device)
         else:
             if args.use_bf16:
                 x = x.to(th.bfloat16)
 
             for l, layer in enumerate(self.layers):
-                x = layer(g, (x, x))
-                if not args.opt_mlp:
-                    if l != len(self.layers) - 1:
-                        x = self.activation(x)
-                        x = self.dropout(x)
+                x = layer(g, (x, x), train=False)
+
             return x
+
+    def inference_full(self, g, x, device):
+        h = x.to(device)
+        h_dst = h
+        for l, layer in enumerate(self.layers):
+            if l < self.n_layers - 1:
+                h = layer(g, (h, h)).flatten(1)
+            else:
+                h = layer(g, (h, h))
+                h = h.mean(1)
+                h = h.log_softmax(dim=-1)
+        return h
 
 
 def compute_acc(pred, labels):
@@ -137,23 +198,52 @@ def compute_acc(pred, labels):
     return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
 
 
-def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
+def evaluate(model, g, nfeat, labels, val_nid, test_nid, num_heads, device):
     """
+    Evaluate the model on the validation set specified by ``val_mask``.
     g : The entire graph.
     inputs : The features of all the nodes.
     labels : The labels of all the nodes.
-    val_nid : Validation node ids
-    test_nid: Test node ids
+    val_mask : A 0-1 mask indicating which nodes do we actually compute the accuracy for.
+    batch_size : Number of nodes to compute at the same time.
+    device : The GPU device to evaluate on.
     """
     model.eval()
+    ## =============================
     with th.no_grad():
-        pred = model.inference(g, nfeat, device).to(th.float32)
+        pred = model.inference(g, nfeat, num_heads, device).to(th.float32)
     model.train()
+    ## =============================
     return (
         compute_acc(pred[val_nid], labels[val_nid]),
         compute_acc(pred[test_nid], labels[test_nid]),
         pred,
     )
+
+
+def accuracy(logits, labels):
+    _, indices = torch.max(logits, dim=1)
+    correct = torch.sum(indices == labels)
+    return correct.item() * 1.0 / len(labels)
+
+
+def evaluate_(model, g, nfeat, labels, val_nid, test_nid, num_heads, device):
+    model.eval()
+    with th.no_grad():
+        pred = model(nfeat)
+        pred_val = pred[val_nid]
+        labels_val = labels[val_nid]
+        pred_tst = pred[test_nid]
+        labels_tst = labels[test_nid]
+        return accuracy(pred_val, labels_val), accuracy(pred_tst, labels_tst), pred
+
+
+def evaluate_full(model, g, nfeat, labels, val_nid, device):
+    model.eval()
+    with th.no_grad():
+        pred = model.inference_full(g, nfeat, device)
+    model.train()
+    return compute_acc(pred[val_nid], labels[val_nid].to(pred.device))
 
 
 def load_subtensor(nfeat, labels, seeds, input_nodes):
@@ -171,8 +261,6 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
     def __init__(self):
         self.reset()
 
@@ -196,47 +284,41 @@ def save_checkpoint(state, filename="checkpoint.pth.tar"):
 #### Entry point
 def run(args, device, data):
     # Unpack data
-    train_nid, val_nid, test_nid, in_feats, labels, n_classes, nfeat, g = data
+    (
+        train_nid,
+        val_nid,
+        test_nid,
+        in_feats,
+        labels,
+        n_classes,
+        nfeat,
+        g,
+        num_heads,
+    ) = data
 
     # Create PyTorch DataLoader for constructing blocks
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(",")]
     )
-
-    if args.dataset == "ogbn-papers100M":
-        dataloader = dgl.dataloading.NodeDataLoader(
-            g,
-            train_nid,
-            sampler,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=False,
-            num_workers=args.num_workers,
-            use_cpu_worker_affinity=args.cpu_worker_aff,
-            persistent_workers=args.cpu_worker_aff,
-            formats=["csc"],
-        )
-    else:
-        dataloader = dgl.dataloading.NodeDataLoader(
-            g,
-            train_nid,
-            sampler,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=False,
-            num_workers=args.num_workers,
-            persistent_workers=args.cpu_worker_aff,
-            use_cpu_worker_affinity=args.cpu_worker_aff,
-        )
+    dataloader = dgl.dataloading.NodeDataLoader(
+        g,
+        train_nid,
+        sampler,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False,
+        num_workers=args.num_workers,
+        use_cpu_worker_affinity=args.cpu_worker_aff,
+        persistent_workers=args.cpu_worker_aff,
+    )
 
     # Define model and optimizer
     with opt_impl(args.opt_mlp, args.use_bf16):
-        model = SAGE(
-            in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout
+        model = GAT(
+            in_feats, args.num_hidden, n_classes, args.num_layers, num_heads, F.relu
         )
         model = model.to(device)
-    block(model)
-    loss_fcn = nn.CrossEntropyLoss()
+        print("Model path ", GATConv)
 
     if args.opt_mlp:
         no_decay = ["bias"]
@@ -265,18 +347,28 @@ def run(args, device, data):
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
+    for m in model.modules():
+        if hasattr(m, "maybe_block_params"):
+            m.maybe_block_params()
+
     # Training loop
+    avg = 0
     avgb = 0
+    iter_tput = []
     best_eval_acc = 0
     best_test_acc = 0
     if args.opt_mlp:
         ppx.manual_seed(args.seed)
+    # else:
+    #     manual_seed(args.seed)
     record_shapes = False
     with th.autograd.profiler.profile(
         enabled=args.profile, record_shapes=record_shapes
     ) as prof:
-        if prof and args.opt_mlp:
+        if args.opt_mlp:
             ppx.reset_debug_timers()
+        best_acc = 0
+
         for epoch in range(args.num_epochs):
             batch_fwd_time = AverageMeter()
             batch_bwd_time = AverageMeter()
@@ -290,7 +382,7 @@ def run(args, device, data):
                 if args.opt_mlp and epoch == 0 and step == 0:
                     cores = int(os.environ["OMP_NUM_THREADS"])
                     gnn_utils.affinitize_cores(cores, args.num_workers)
-                # measure data loading time
+
                 t0 = time.time()
                 data_time.update(t0 - end)
 
@@ -298,6 +390,7 @@ def run(args, device, data):
                 batch_inputs, batch_labels = load_subtensor(
                     nfeat, labels, seeds, input_nodes
                 )
+
                 t1 = time.time()
                 gather_time.update(t1 - t0)
                 t2 = time.time()
@@ -307,7 +400,7 @@ def run(args, device, data):
                 t3 = time.time()
                 batch_fwd_time.update(t3 - t2)
 
-                loss = loss_fcn(batch_pred, batch_labels)
+                loss = F.nll_loss(batch_pred, batch_labels)
 
                 optimizer.zero_grad()
 
@@ -319,13 +412,10 @@ def run(args, device, data):
                 optimizer.step()
 
                 end = time.time()
-
                 if step % args.log_every == 0:
                     acc = compute_acc(batch_pred, batch_labels)
-                    # Record step loss, training acc, dataloading time (DL), gather time (GT)
-                    # forward time (FWD) and backprop time (BWD)
                     print(
-                        "Epoch {:05d} | Step {:05d} | Loss {:.4f} | Acc {:.2f} | "
+                        "Epoch {:05d} | Step {:05d} | Loss {:.2f} | Acc {:.4f} | "
                         "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) | "
                         "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) | "
                         "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) | "
@@ -344,62 +434,90 @@ def run(args, device, data):
             toc = time.time()
 
             print("Epoch Time(s): {:.4f}".format(toc - tic))
+            process = psutil.Process(os.getpid())
+            print("Mem usage in GB: ", process.memory_info().rss / 1e9)  # in bytes
 
+            if epoch >= 5:
+                avg += toc - tic
             if epoch >= 1:
                 avgb += toc - tic
 
-            if epoch % args.eval_every == 0 and epoch != 0:
-                if args.dataset == "ogbn-products":
-                    eval_acc, test_acc, pred = evaluate(
-                        model, g, nfeat, labels, val_nid, test_nid, device
+            if args.dataset != "ogbn-papers100M":
+                if not args.profile and epoch % args.eval_every == 0 and epoch != 0:
+                    ## single node inference
+                    cum_acc_val = evaluate_full(
+                        model, g, nfeat, labels, val_nid, device
+                    )
+                    cum_acc_test = evaluate_full(
+                        model, g, nfeat, labels, test_nid, device
                     )
 
-                    if args.save_pred:
-                        np.savetxt(
-                            args.save_pred + "%02d" % epoch,
-                            pred.argmax(1).cpu().numpy(),
-                            "%d",
-                        )
-                    print("Eval Acc {:.4f}".format(eval_acc))
-                    if eval_acc > best_eval_acc:
-                        best_eval_acc = eval_acc
-                        best_test_acc = test_acc
+                    if best_acc < cum_acc_test:
+                        best_acc = cum_acc_test
                     print(
-                        "Best Eval Acc {:.4f} Test Acc {:.4f}".format(
-                            best_eval_acc, best_test_acc
-                        )
+                        "#############################################################",
+                        flush=True,
                     )
-                elif args.dataset == "ogbn-papers100M":
-                    # On low- to medium-sized memory systems (< 512GB DRAM), online inference for ogb-papers100M is not possible
-                    # so, we save the model and run inference separately
-                    save_checkpoint(
-                        {"state_dict": model.state_dict()},
-                        filename="ogbp100M" + str(epoch) + ".pth.tar",
+                    print(
+                        "[SS] Epoch: {} Single node val accuracy Avg: {:0.4f} and test accuracy: "
+                        "Avg: {:0.4f}, best_acc: {:.2f} with lr: {}".format(
+                            epoch,
+                            float(cum_acc_val) * 100,
+                            float(cum_acc_test) * 100,
+                            float(best_acc) * 100,
+                            args.lr,
+                        ),
+                        flush=True,
+                    )
+                    print(
+                        "#############################################################",
+                        flush=True,
                     )
 
-    if prof and args.opt_mlp:
+            else:
+                if epoch % args.eval_every == 0 or epoch == args.n_epochs - 1:
+                    if args.checkpoint:
+                        checkpoint_file = (
+                            args.checkpoint_dir
+                            + "/"
+                            + args.checkpoint_file
+                            + str(epoch)
+                        )
+                        print("Saving model: ")
+                        save_checkpoint(
+                            {
+                                "epoch": epoch + 1,
+                                "state_dict": model.layers.state_dict(),
+                                "optimizer": optimizer.state_dict(),
+                            },
+                            filename=checkpoint_file,
+                        )
+                        print("Model saved! in ", checkpoint_file, flush=True)
+
+    if args.opt_mlp:
         ppx.print_debug_timers(0)
 
     if prof:
-        with open("gsage.prof", "w") as prof_f:
+        with open("gat.prof", "w") as prof_f:
             prof_f.write(
                 prof.key_averages(group_by_input_shape=record_shapes).table(
                     sort_by="cpu_time_total"
                 )
             )
         if ppx.extend_profiler:
-            with open("gsage_nested.prof", "w") as prof_f:
+            with open("gat_nested.prof", "w") as prof_f:
                 prof_f.write(
                     prof.nested_key_averages().table(sort_by=None, row_limit=1000)
                 )
-            with open("gsage_top_level.prof", "w") as prof_f:
+            with open("gat_top_level.prof", "w") as prof_f:
                 prof_f.write(
                     prof.nested_key_averages(only_top_level=True).table(
                         sort_by="cpu_time_total"
                     )
                 )
+            prof.print_op_timings(prefix="gat_time_")
 
-    print("Avg epoch time: {}".format(avgb / (epoch)))
+    print("Avg epoch time: {}".format(avg / (epoch - 4)))
     if args.dataset == "ogbn-products":
         return best_test_acc, avgb / (epoch)
     elif args.dataset == "ogbn-papers100M":
@@ -408,33 +526,33 @@ def run(args, device, data):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("CPU training")
-    argparser.add_argument("--num-epochs", type=int, default=20)
-    argparser.add_argument("--num-hidden", type=int, default=256)
+    argparser.add_argument("--num-epochs", type=int, default=100)
+    argparser.add_argument("--num-hidden", type=int, default=128)
     argparser.add_argument("--num-layers", type=int, default=3)
-    argparser.add_argument("--fan-out", type=str, default="5,10,15")
-    argparser.add_argument("--batch-size", type=int, default=1000)
-    argparser.add_argument("--val-batch-size", type=int, default=10000)
+    argparser.add_argument("--fan-out", type=str, default="10,10,10")
+    argparser.add_argument("--batch-size", type=int, default=512)
+    argparser.add_argument("--val-batch-size", type=int, default=512)
     argparser.add_argument("--log-every", type=int, default=20)
     argparser.add_argument("--eval-every", type=int, default=1)
-    argparser.add_argument("--lr", type=float, default=0.003)
-    argparser.add_argument("--dropout", type=float, default=0.5)
+    argparser.add_argument("--lr", type=float, default=0.001)
     argparser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
+        default=8,
         help="Number of sampling processes. Use 0 for no extra process.",
     )
     argparser.add_argument("--save-pred", type=str, default="")
+    argparser.add_argument("--head", type=int, default=4)
     argparser.add_argument("--wd", type=float, default=0)
     argparser.add_argument(
         "--opt_mlp",
         action="store_true",
-        help="Whether to use optimized MLP impl when available",
+        help="Whether to use Fused impl when available",
     )
     argparser.add_argument(
         "--use_bf16",
         action="store_true",
-        help="Whether to use BF16 datatype when available",
+        help="Whether to use BF16 when available",
     )
     argparser.add_argument(
         "--seed", type=int, default=42, help="random seed for initialization"
@@ -458,6 +576,16 @@ if __name__ == "__main__":
         default="ogbn-products",
         help="default dataset name",
     )
+    argparser.add_argument(
+        "--checkpoint", action="store_true", help="checkpoint or not"
+    )
+    argparser.add_argument(
+        "--checkpoint-file",
+        type=str,
+        default="ogbn-papers-mini-gat.model",
+        help="model file",
+    )
+    argparser.add_argument("--checkpoint-dir", type=str, default=".", help="model dir")
 
     args = argparser.parse_args()
 
@@ -473,16 +601,7 @@ if __name__ == "__main__":
     )
     graph, labels = data[0]
     n_classes = data.num_classes
-
-    if args.dataset == "ogbn-products":
-        nfeat = graph.ndata.pop("feat").to(device)
-        if args.use_bf16:
-            nfeat = nfeat.to(th.bfloat16)
-        labels = labels[:, 0].to(device)
-        in_feats = nfeat.shape[1]
-        n_classes = (labels.max() + 1).item()
-    elif args.dataset == "ogbn-papers100M":
-        # For higher accuracy, add reverse edges
+    if args.dataset == "ogbn-papers100M":
         ed = graph.edges()
         graph = dgl.add_edges(graph, ed[1], ed[0])
         labels = labels[:, 0].long()
@@ -490,21 +609,42 @@ if __name__ == "__main__":
         nfeat = graph.ndata["feat"]
         if args.use_bf16:
             nfeat = nfeat.to(th.bfloat16)
-        del data, ed
+        del ed
+    elif args.dataset == "ogbn-products":
+        nfeat = graph.ndata.pop("feat").to(device)
+        if args.use_bf16:
+            nfeat = nfeat.to(th.bfloat16)
+        labels = labels[:, 0].to(device)
+        in_feats = nfeat.shape[1]
+        n_classes = (labels.max() + 1).item()
 
-    # Create csr/coo/csc formats before launching sampling processes.
+    print("Total edges before adding self-loop {}".format(graph.num_edges()))
+    graph = graph.remove_self_loop().add_self_loop()
+    print("Total edges after adding self-loop {}".format(graph.num_edges()))
+
+    in_feats = nfeat.shape[1]
+    n_classes = (labels.max() + 1).item()
+
+    # Create csr/coo/csc formats before launching sampling processes
     # This avoids creating certain formats in each data loader process, which saves momory and CPU.
-    # Works only for ogbn-products. Crashes when applied to ogbn-papers
-
-    if args.dataset != "ogbn-papers100M":
-        graph.create_formats_()
+    graph.create_formats_()
     # Pack data
-    data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
+    data = (
+        train_idx,
+        val_idx,
+        test_idx,
+        in_feats,
+        labels,
+        n_classes,
+        nfeat,
+        graph,
+        args.head,
+    )
 
-    # Run 10 times
-    test_accs = []
-    epoch_time = []
     if not args.profile:
+        # Run 10 times
+        test_accs = []
+        epoch_time = []
         if args.dataset == "ogbn-products":
             for i in range(1):
                 acc, et = run(args, device, data)

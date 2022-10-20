@@ -48,6 +48,25 @@ def block(model):
             m.maybe_block_params()
 
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
 def train(
     embedding_layer: nn.Module,
     model: nn.Module,
@@ -71,60 +90,105 @@ def train(
     model = model.to(device)
     loss_function = loss_function.to(device)
 
+    batch_fwd_time = AverageMeter()
+    batch_bwd_time = AverageMeter()
+    loss_time = AverageMeter()
+    optim_zero_time = AverageMeter()
+    optim_step_time = AverageMeter()
+    data_time = AverageMeter()
+    gather_time = AverageMeter()
+    init_time = AverageMeter()
+
     iter_time = []
+
     record_shapes = False
     with torch.autograd.profiler.profile(
         enabled=args.profile, use_cuda=False, record_shapes=record_shapes
     ) as prof:
         if args.mlp_profile and args.opt_mlp:
             ppx.reset_debug_timers()
+        end = time.time()
         for step, (in_nodes, out_nodes, blocks) in enumerate(dataloader):
             if args.opt_mlp and epoch == 0 and step == 0:
                 cores = int(os.environ["OMP_NUM_THREADS"])
                 gnn_utils.affinitize_cores(cores, args.num_workers)
-            tic = time.time()
+            t0 = time.time()
+            if step > 0:
+                data_time.update(t0 - end)
+            t1 = time.time()
             embedding_optimizer.zero_grad(set_to_none=True)
             model_optimizer.zero_grad()
+            t2 = time.time()
+            if step > 0:
+                optim_zero_time.update(t2 - t1)
 
             in_nodes = {rel: nid.to(device) for rel, nid in in_nodes.items()}
             out_nodes = out_nodes[predict_category].to(device)
             blocks = [block.to(device) for block in blocks]
 
             batch_labels = labels[out_nodes].to(device)
+            t3 = time.time()
+            if step > 0:
+                init_time.update(t3 - t2)
 
             embedding = embedding_layer(in_nodes=in_nodes, device=device)
+            t4 = time.time()
+            if step > 0:
+                gather_time.update(t4 - t3)
+
             logits = model(blocks, embedding)[predict_category]
+            t5 = time.time()
+            if step > 0:
+                batch_fwd_time.update(t5 - t4)
 
             loss = loss_function(logits, batch_labels)
+            t6 = time.time()
+            if step > 0:
+                loss_time.update(t6 - t5)
+
+            loss.backward()
+            t7 = time.time()
+            if step > 0:
+                batch_bwd_time.update(t7 - t6)
+
+            model_optimizer.step()
+            embedding_optimizer.step()
+            t8 = time.time()
+            if step > 0:
+                optim_step_time.update(t8 - t7)
+            end = time.time()
 
             indices = logits.argmax(dim=-1)
             correct = torch.sum(indices == batch_labels)
             accuracy = correct.item() / len(batch_labels)
-
-            loss.backward()
-
-            """
-            for param in model.parameters():
-                if param.requires_grad and param.grad is not None:
-                    print('{}: {:.4f}'.format(param.shape, param.grad.data.sum()))
-                
-            for param in embedding_layer.parameters():
-                if param.requires_grad and param.grad is not None:
-                    print('{}: {:.4f}'.format(param.shape, param.grad.coalesce().values().sum()))
-            """
-
-            model_optimizer.step()
-            embedding_optimizer.step()
-
-            toc = time.time()
-            iter_time.append(toc - tic)
             total_loss += loss.item()
             total_accuracy += accuracy
 
+            if step > 0 and step % 100 == 0:
+                print(
+                    "Step {:02d} |"
+                    "DL (s) {data_time.val:.3f} ({data_time.avg:.3f}) |"
+                    "OptZ (s) {optim_zero_time.val:.4f} ({optim_zero_time.avg:.4f}) |"
+                    "Init (s) {init_time.val:.4f} ({init_time.avg:.4f}) |"
+                    "GT (s) {gather_time.val:.3f} ({gather_time.avg:.3f}) |"
+                    "FWD (s) {batch_fwd_time.val:.3f} ({batch_fwd_time.avg:.3f}) |"
+                    "Loss (s) {loss_time.val:.4f} ({loss_time.avg:.4f}) |"
+                    "BWD (s) {batch_bwd_time.val:.3f} ({batch_bwd_time.avg:.3f}) |"
+                    "OptS (s) {optim_step_time.val:.4f} ({optim_step_time.avg:.4f}) |".format(
+                        step,
+                        data_time=data_time,
+                        optim_zero_time=optim_zero_time,
+                        init_time=init_time,
+                        gather_time=gather_time,
+                        batch_fwd_time=batch_fwd_time,
+                        loss_time=loss_time,
+                        batch_bwd_time=batch_bwd_time,
+                        optim_step_time=optim_step_time,
+                    )
+                )
             # print('Step {:02d} | Loss {:.4f} | TLoss {:.4f} | Acc {:.4f} | TAcc {:.4f}'.format(
             #  step, loss.item(), total_loss, accuracy, total_accuracy))
 
-    print("Avg batch time: {:.4f}".format(np.mean(iter_time)))
     if args.mlp_profile and args.opt_mlp:
         ppx.print_debug_timers(0)
 
@@ -148,12 +212,12 @@ def train(
                 )
 
     stop = default_timer()
-    tme = stop - start
+    t = stop - start
 
     total_loss /= step + 1
     total_accuracy /= step + 1
 
-    return tme, total_loss, total_accuracy
+    return t, total_loss, total_accuracy
 
 
 def validate(
@@ -164,6 +228,7 @@ def validate(
     loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     hg: dgl.DGLHeteroGraph,
     labels: torch.Tensor,
+    epoch,
     predict_category: str,
     dataloader: dgl.dataloading.NodeDataLoader = None,
     eval_batch_size: int = None,
@@ -187,6 +252,9 @@ def validate(
             total_accuracy = 0
 
             for step, (in_nodes, out_nodes, blocks) in enumerate(dataloader):
+                if args.opt_mlp and epoch == 0 and step == 0:
+                    cores = int(os.environ["OMP_NUM_THREADS"])
+                    gnn_utils.affinitize_cores(cores, args.num_workers)
                 in_nodes = {rel: nid.to(device) for rel, nid in in_nodes.items()}
                 out_nodes = out_nodes[predict_category].to(device)
                 blocks = [block.to(device) for block in blocks]
@@ -268,7 +336,8 @@ def run(args: argparse.ArgumentParser) -> None:
         drop_last=False,
         num_workers=args.num_workers,
         use_cpu_worker_affinity=args.cpu_worker_aff,
-        persistent_workers=args.cpu_worker_aff,
+        formats=["csc"],
+        # persistent_workers=args.cpu_worker_aff,
     )
 
     if inferfence_mode == "neighbor_sampler":
@@ -282,7 +351,8 @@ def run(args: argparse.ArgumentParser) -> None:
             drop_last=False,
             num_workers=args.eval_num_workers,
             use_cpu_worker_affinity=args.cpu_worker_aff,
-            persistent_workers=args.cpu_worker_aff,
+            formats=["csc"],
+            # persistent_workers=args.cpu_worker_aff,
         )
 
         if args.test_validation:
@@ -296,7 +366,8 @@ def run(args: argparse.ArgumentParser) -> None:
                 drop_last=False,
                 num_workers=args.eval_num_workers,
                 use_cpu_worker_affinity=args.cpu_worker_aff,
-                persistent_workers=args.cpu_worker_aff,
+                formats=["csc"],
+                # persistent_workers=args.cpu_worker_aff,
             )
     else:
         valid_dataloader = None
@@ -384,6 +455,7 @@ def run(args: argparse.ArgumentParser) -> None:
             train_dataloader,
             epoch,
         )
+
         if not args.profile:
             valid_time, valid_loss, valid_accuracy = validate(
                 embedding_layer,
@@ -393,6 +465,7 @@ def run(args: argparse.ArgumentParser) -> None:
                 loss_function,
                 hg,
                 labels,
+                epoch,
                 predict_category=predict_category,
                 dataloader=valid_dataloader,
                 eval_batch_size=args.eval_batch_size,
@@ -410,6 +483,7 @@ def run(args: argparse.ArgumentParser) -> None:
                 valid_accuracy,
                 {"embedding_layer": embedding_layer, "model": model},
             )
+
             print(
                 f"Epoch: {epoch + 1:03} "
                 f"Train Loss: {train_loss:.2f} "
@@ -456,6 +530,7 @@ def run(args: argparse.ArgumentParser) -> None:
             loss_function,
             hg,
             labels,
+            epoch,
             predict_category=predict_category,
             dataloader=test_dataloader,
             eval_batch_size=args.eval_batch_size,

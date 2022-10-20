@@ -11,6 +11,7 @@ from .utils.xsmm import manual_seed
 from .utils import blocked_layout
 from .utils import bfloat8
 from . import optim
+from . import embedding
 
 # from . import fused_bert
 
