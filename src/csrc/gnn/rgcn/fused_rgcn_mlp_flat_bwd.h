@@ -84,6 +84,7 @@ auto n2v_wt_tpp = SCOPEIT(
     VNNI);
 auto cpy_tpp = SCOPEIT(CpyTPP<T>(bn, bk, bk, bkp), EW_COPY);
 auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, K, K, K)), EW_COPY);
+auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, C, C, C)), EW_COPY);
 auto add_gwt_tpp = SCOPEIT((AddTPP<float, float>(bc, bk)), EW_ADD);
 
 auto brgemm_di_tpp = SCOPEIT(
@@ -208,42 +209,49 @@ auto brgemm_dw_bf16_tpp_b1 =
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
+      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out_tmp);
       DECL_VLA_PTR_PT(T, grad_in, [nc][bc], t_grad_in);
 
-      auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
-      auto cpy_tpp = SCOPEIT(CpyTPP<T>(rem, bk, bk, bkp), EW_COPY);
-      auto brgemm_di_tpp = SCOPEIT((BrgemmTPP<T, T>(
-          rem,
-          bc,
-          bkp,
-          bkp,
-          nc * bc * bkp,
-          nk * bkp,
-          bc,
-          nc * bc,
-          0.0,
-          0,
-          nk)));
-
-      brgemm_di_tpp.config();
-
       if (bk != bkp) {
+        auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
+        auto cpy_tpp = SCOPEIT(CpyTPP<T>(rem, bk, bk, bkp), EW_COPY);
+        auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(rem, bc, C, C)), EW_COPY);
+        auto brgemm_di_tpp = SCOPEIT((BrgemmTPP<T, T>(
+            rem,
+            bc,
+            bkp,
+            bkp,
+            nc * bc * bkp,
+            nk * bkp,
+            bc,
+            nc * bc,
+            0.0,
+            0,
+            nk)));
+
+        brgemm_di_tpp.config();
+
         T tmp[rem][nk * bkp];
 
         for (int k = 0; k < nk; k++) {
           set_zero_col_tpp(&tmp[0][k * bk] + bk);
           cpy_tpp(grad_out[nn * bn][0], &tmp[0][k * bk]);
         }
-        for (int c = 0; c < nc; c++)
+        for (int c = 0; c < nc; c++) {
           brgemm_di_tpp(tmp[0], wt_TV[0][c], grad_in[nn * bn][c], nk, true);
-
+        }
+        brgemm_di_tpp.release();
       } else {
-        for (int c = 0; c < nc; c++)
+        auto brgemm_di_tpp = SCOPEIT((BrgemmTPP<T, T>(
+            rem, bc, bk, bk, nc * bc * bk, nk * bk, bc, nc * bc, 0.0, 0, nk)));
+
+        brgemm_di_tpp.config();
+        for (int c = 0; c < nc; c++) {
           brgemm_di_tpp(
               grad_out[nn * bn][0], wt_TV[0][c], grad_in[nn * bn][c], nk, true);
+        }
+        brgemm_di_tpp.release();
       }
-      brgemm_di_tpp.release();
     }
   }
 }
@@ -403,7 +411,7 @@ auto trans_tpp = SCOPEIT(
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
+      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out_tmp);
       DECL_VLA_PTR_PT(T, in, [nc][bc], t_in);
       auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
           bc,

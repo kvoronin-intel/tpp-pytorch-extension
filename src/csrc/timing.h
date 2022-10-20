@@ -1,6 +1,7 @@
 #ifndef _BERT_TIMING_H_
 #define _BERT_TIMING_H_
 
+#include <immintrin.h>
 #include <omp.h>
 #include "utils.h"
 
@@ -16,34 +17,22 @@ enum DebugTimer {
   EW_COPY,
   EW_ADD,
   EW_SCL,
-  EW_RECP,
-  EW_RECP_SQRT,
+  EW_RCP,
+  EW_RSQRT,
   EW_MUL,
   EW_ZERO,
   EW_RED,
+  ROW_GT,
+  ROW_ST,
   OPTIM,
   LAST_TIMER
 };
 
 inline const char* DebugTimerName(int t) {
-  const char* names[] = {"BRGEMM",
-                         "XPOSE",
-                         "DROPOUT",
-                         "LYR_NRM",
-                         "SOFTMAX",
-                         "ACT",
-                         "BIAS",
-                         "VNNI",
-                         "COPY",
-                         "ADD",
-                         "SCALE",
-                         "RECP",
-                         "RECP_SQRT",
-                         "MUL",
-                         "ZERO",
-                         "REDUCE",
-                         "OPTIM",
-                         "LAST_TIMER"};
+  const char* names[] = {
+      "BRGEMM", "XPOSE",  "DROPOUT", "LYR_NRM", "SOFTMAX", "ACT",       "BIAS",
+      "VNNI",   "COPY",   "ADD",     "SCALE",   "RCP",     "RSQRT",     "MUL",
+      "ZERO",   "REDUCE", "ROW_GT",  "ROW_ST",  "OPTIM",   "LAST_TIMER"};
   return names[t];
 }
 
@@ -89,6 +78,7 @@ class ScopedTimer {
  public:
   ScopedTimer(DebugTimer t, long f = 0) : type(t), flops(f), start(getTime()) {}
   ~ScopedTimer() {
+    _mm_sfence();
     auto time = getTime() - start;
     int tid = omp_get_thread_num();
     auto& pass = get_pass_list()[globalPass];

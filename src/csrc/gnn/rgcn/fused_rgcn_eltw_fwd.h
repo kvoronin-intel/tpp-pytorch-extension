@@ -79,9 +79,22 @@ if (self_loop) {
     RECORD_SCOPE(rgewo_gemm, {t_in, t_wt_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2)
-      for (int n = 0; n < nn; n++) {
-        for (int k = 0; k < nk; k++) {
+#pragma omp parallel
+      {
+        int tid = omp_get_thread_num();
+        int threads = omp_get_num_threads();
+        int work = nn * nk;
+        int chunk =
+            (work % threads == 0) ? (work / threads) : (work / threads) + 1;
+        int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
+        int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
+
+        brgemm_tpp.config();
+
+        for (int n3k = chunk_start; n3k < chunk_end; n3k++) {
+          int n = n3k / nk;
+          int k = n3k % nk;
+
           cpy_bias_tpp(bias[k], out_f32[n][0][k]);
           brgemm_tpp(in_dst[n][0][0], wt_V[k][0], out_f32[n][0][k], nc);
           cvt_f32_tpp(in[n][0][k], in_f32[n][0][k]);
@@ -99,6 +112,7 @@ if (self_loop) {
           } else
             cvt_tpp(out_f32[n][0][k], out[n][0][k]);
         }
+        brgemm_tpp.release();
       }
       if (rem > 0) {
         DECL_VLA_PTR_PT(T, in, [nk][bk], t_in);
@@ -120,6 +134,8 @@ if (self_loop) {
         auto cvt_f32_tpp =
             SCOPEIT((ConvertTPP<T, float>(1, bk, K, K)), EW_COPY);
         auto add_tpp = SCOPEIT((AddTPP<float, float>(1, bk, K, K)), EW_ADD);
+
+        brgemm_tpp.config();
 
         for (int k = 0; k < nk; k++) {
           for (int r = 0; r < rem; r++)
@@ -148,6 +164,7 @@ if (self_loop) {
               cvt_tpp(out_f32[nn * bn + r][k], out[nn * bn + r][k]);
           }
         }
+        brgemm_tpp.release();
       }
     }
   } else {
@@ -157,9 +174,22 @@ if (self_loop) {
     RECORD_SCOPE(rgewo_gemm, {t_in, t_wt_V});
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2)
-      for (int n = 0; n < nn; n++) {
-        for (int k = 0; k < nk; k++) {
+#pragma omp parallel
+      {
+        int tid = omp_get_thread_num();
+        int threads = omp_get_num_threads();
+        int work = nn * nk;
+        int chunk =
+            (work % threads == 0) ? (work / threads) : (work / threads) + 1;
+        int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
+        int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
+
+        brgemm_tpp.config();
+
+        for (int n3k = chunk_start; n3k < chunk_end; n3k++) {
+          int n = n3k / nk;
+          int k = n3k % nk;
+
           brgemm_tpp(in_dst[n][0][0], wt_V[k][0], out_f32[n][0][k], nc);
           cvt_f32_tpp(in[n][0][k], in_f32[n][0][k]);
           add_tpp(in_f32[n][0][k], out_f32[n][0][k], out_f32[n][0][k]);
@@ -176,6 +206,7 @@ if (self_loop) {
           } else
             cvt_tpp(out_f32[n][0][k], out[n][0][k]);
         }
+        brgemm_tpp.release();
       }
       if (rem > 0) {
         DECL_VLA_PTR_PT(T, in, [nk][bk], t_in);
@@ -196,6 +227,8 @@ if (self_loop) {
         auto cvt_f32_tpp =
             SCOPEIT((ConvertTPP<T, float>(1, bk, K, K)), EW_COPY);
         auto add_tpp = SCOPEIT((AddTPP<float, float>(1, bk, K, K)), EW_ADD);
+
+        brgemm_tpp.config();
 
         for (int k = 0; k < nk; k++) {
           brgemm_tpp(in_dst[nn * bn][0], wt_V[k][0], out_f32[nn * bn][k], nc);
@@ -222,6 +255,8 @@ if (self_loop) {
               cvt_tpp(out_f32[nn * bn + r][k], out[nn * bn + r][k]);
           }
         }
+
+        brgemm_tpp.release();
       }
     }
   }

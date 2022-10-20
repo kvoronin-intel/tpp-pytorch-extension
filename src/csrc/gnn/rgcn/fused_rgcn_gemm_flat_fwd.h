@@ -41,11 +41,25 @@ auto brgemm_tpp = SCOPEITGEMM(
   RECORD_SCOPE(rgo_gemm, {t_in, t_wt_V});
   {
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2)
-    for (int n = 0; n < nn; n++) {
-      for (int k = 0; k < nk; k++) {
+#pragma omp parallel
+    {
+      int tid = omp_get_thread_num();
+      int threads = omp_get_num_threads();
+      int work = nn * nk;
+      int chunk =
+          (work % threads == 0) ? (work / threads) : (work / threads) + 1;
+      int chunk_start = (tid * chunk < work) ? (tid * chunk) : work;
+      int chunk_end = ((tid + 1) * chunk < work) ? ((tid + 1) * chunk) : work;
+
+      brgemm_tpp.config();
+
+      for (int n3k = chunk_start; n3k < chunk_end; n3k++) {
+        int n = n3k / nk;
+        int k = n3k % nk;
         brgemm_tpp(in[n][0][0], wt_V[k][0], out[n][0][k], nc);
       }
+
+      brgemm_tpp.release();
     }
     if (rem > 0) {
       DECL_VLA_PTR_PT(T, in, [nc][bcp], t_in);
@@ -54,9 +68,13 @@ auto brgemm_tpp = SCOPEITGEMM(
       auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, T>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));
 
+      brgemm_tpp.config();
+
       for (int k = 0; k < nk; k++) {
         brgemm_tpp(in[nn * bn][0], wt_V[k][0], out[nn * bn][k], nc);
       }
+
+      brgemm_tpp.release();
     }
   }
 }
