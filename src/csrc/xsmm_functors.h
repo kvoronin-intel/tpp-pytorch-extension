@@ -862,6 +862,7 @@ class MulTPP {
   int ldo;
   BinaryTPP kernel;
 };
+
 template <typename Tin>
 class GradBiasTPP {
  public:
@@ -2531,7 +2532,7 @@ class SiLUFwdTPP {
     for (int i = 0; i < rows; i++) {
       for (int j = 0; j < cols; j++) {
         sigout[i * ldo + j] = 1. / (1. + exp(-in[i * ldi + j]));
-        out[i * ldo + j] = in[i * ldo + j] * sigout[i * ldo + j];
+        out[i * ldo + j] = in[i * ldi + j] * sigout[i * ldo + j];
       }
     }
   }
@@ -2744,6 +2745,7 @@ class SoftMaxFwdTPP {
       for (s1 = 0; s1 < S1; s1++) {
         for (s3 = 0; s3 < ALIGNDOWN(S3, 16); s3 += 16) {
           __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS_3DTS(_mm512_sub_ps(
+          // __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS (_mm512_sub_ps(
               _mm512_loadu_ps_auto(
                   &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
               vmax));
@@ -2754,6 +2756,7 @@ class SoftMaxFwdTPP {
           int rem = S3 - s3;
           __mmask16 mask = (1 << rem) - 1;
           __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS_3DTS(_mm512_sub_ps(
+          // __m512 vz = LIBXSMM_INTRINSICS_MM512_EXP_PS (_mm512_sub_ps(
               _mm512_maskz_loadu_ps_auto(
                   mask, &LIBXSMM_VLA_ACCESS(3, inp, s1, s2, s3, S2, S3)),
               vmax));
