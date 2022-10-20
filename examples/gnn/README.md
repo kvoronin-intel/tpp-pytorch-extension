@@ -5,15 +5,13 @@ Pre-requisites:
 
 1. gcc version 10.x or later
 
-2. DGL version 0.8+ 
+2. DGL version 0.8+ (https://github.com/dmlc/dgl)
 
 ```
-Navigate to https://github.com/dmlc/dgl
 Choose one of 0.8.x or 0.9.x branches
 git clone https://github.com/dmlc/dgl.git
 cd dgl
 git submodule update --init --recursive
-
 
 mkdir build
 cd build
