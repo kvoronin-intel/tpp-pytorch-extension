@@ -46,14 +46,15 @@ void lfsr_Xwide(unsigned int* rng_state, unsigned int* prng_out, int width) {
   const unsigned int state_ld = 16;
   int w = res > 0 ? res : 16;
   for(int i=0; i<w; i++) {
-    s0 = rng_state[i + (0 * state_ld)];
-    s1 = rng_state[i + (1 * state_ld)];
-    s2 = rng_state[i + (2 * state_ld)];
-    s3 = rng_state[i + (3 * state_ld)];
+    auto s0 = rng_state[i + (0 * state_ld)];
+    auto s1 = rng_state[i + (1 * state_ld)];
+    auto s2 = rng_state[i + (2 * state_ld)];
+    auto s3 = rng_state[i + (3 * state_ld)];
 
     unsigned int tmp_0, tmp_1;
-    rng_num.i = state_3 + state_0;
-    rng_num.i = rng_num.i << 9;
+    tmp_1 = s3 + s0;
+    prng_out[i] = tmp_1;
+    tmp_0 = s1 << 9;
     s2 = s2 ^ s0;
     s3 = s3 ^ s1;
     s1 = s1 ^ s2;
@@ -61,7 +62,7 @@ void lfsr_Xwide(unsigned int* rng_state, unsigned int* prng_out, int width) {
     s2 = s2 ^ tmp_0;
     tmp_0 = s3 << 11;
     tmp_1 = s3 >> 21;
-    v3 = tmp_0 | tmp_1;
+    s3 = tmp_0 | tmp_1;
     rng_state[i + (0 * state_ld)] = s0;
     rng_state[i + (1 * state_ld)] = s1;
     rng_state[i + (2 * state_ld)] = s2;
