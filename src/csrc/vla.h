@@ -39,6 +39,24 @@ public:
   }
 };
 
+#if 0
+template<typename T, typename index_t>
+class VLAAccessor<T,1,index_t> : public VLAAccessorBase<T,index_t> {
+public:
+  typedef T* PtrType;
+
+  VLAAccessor(
+      PtrType data_,
+      const index_t* strides_)
+      : VLAAccessorBase<T, index_t>(data_,strides_) {}
+  T* operator[](index_t i) {
+    return this->data_ + i*this->strides_[0];
+  }
+  const T* operator[](index_t i) const {
+    return this->data_ + i*this->strides_[0];
+  }
+};
+#endif
 template<typename T, typename index_t>
 class VLAAccessor<T,0,index_t> : public VLAAccessorBase<T,index_t> {
 public:
@@ -72,10 +90,35 @@ public:
   VLAAccessor<T, N-1, index_t> operator[](index_t i) {
     return VLAAccessor<T, N-1, index_t>(data_ + i * strides[0], strides+1);
   }
+  operator bool() {
+    return data_ != nullptr;
+  }
+  
 protected:
   index_t strides[N];
   T *data_;
 };
+
+#if 0
+template<typename T>
+class VLAPtr<T, 1, int64_t> {
+public:
+  typedef int64_t index_t;
+  VLAPtr(T *data_, const index_t(&sizes)[1]) : data_(data_) {
+      strides[0] = sizes[0];
+  }
+  T * operator[](index_t i) {
+    return data_ + i * strides[0];
+  }
+  operator bool() {
+    return data_ != nullptr;
+  }
+  
+protected:
+  index_t strides[1];
+  T *data_;
+};
+#endif
 
 template<typename T, std::size_t N, typename index_t = int64_t>
 VLAPtr<T,N,index_t> GetVLAPtr(T *data_, const index_t(&list)[N]) {
