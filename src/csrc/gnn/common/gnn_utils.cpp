@@ -19,6 +19,7 @@ REGISTER_SCOPE(scatter, "scatter");
 
 void lfsr_Xwide(unsigned int* rng_state, unsigned int* prng_out, int width) {
   int res = 16 - width;
+#ifdef __AVX512F__
   __mmask16 msk = res ? (1 << res) - 1 : 255;
   __m512i vrng_s0 = _mm512_loadu_epi32(rng_state);
   __m512i vrng_s1 = _mm512_loadu_epi32(rng_state + 16);
@@ -41,6 +42,32 @@ void lfsr_Xwide(unsigned int* rng_state, unsigned int* prng_out, int width) {
   _mm512_storeu_epi32(rng_state + 16, vrng_s1);
   _mm512_storeu_epi32(rng_state + 32, vrng_s2);
   _mm512_storeu_epi32(rng_state + 48, vrng_s3);
+#else
+  const unsigned int state_ld = 16;
+  int w = res > 0 ? res : 16;
+  for(int i=0; i<w; i++) {
+    s0 = rng_state[i + (0 * state_ld)];
+    s1 = rng_state[i + (1 * state_ld)];
+    s2 = rng_state[i + (2 * state_ld)];
+    s3 = rng_state[i + (3 * state_ld)];
+
+    unsigned int tmp_0, tmp_1;
+    rng_num.i = state_3 + state_0;
+    rng_num.i = rng_num.i << 9;
+    s2 = s2 ^ s0;
+    s3 = s3 ^ s1;
+    s1 = s1 ^ s2;
+    s0 = s0 ^ s3;
+    s2 = s2 ^ tmp_0;
+    tmp_0 = s3 << 11;
+    tmp_1 = s3 >> 21;
+    v3 = tmp_0 | tmp_1;
+    rng_state[i + (0 * state_ld)] = s0;
+    rng_state[i + (1 * state_ld)] = s1;
+    rng_state[i + (2 * state_ld)] = s2;
+    rng_state[i + (3 * state_ld)] = s3;
+  }
+#endif
 }
 
 at::Tensor gather_features(const int alignN, std::vector<at::Tensor> inputs) {
@@ -321,8 +348,6 @@ void mapped_spmm_copy_lhs_add(std::vector<at::Tensor> inputs, long soff) {
 
   auto N = t_indptr.size(0);
   const int F = t_dest.size(1);
-  long sN = t_source.size(0);
-  long dN = t_dest.size(0);
 
   if (t_source.dtype() == at::kFloat) {
     typedef float T;

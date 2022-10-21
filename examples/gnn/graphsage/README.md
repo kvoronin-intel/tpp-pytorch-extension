@@ -26,7 +26,7 @@ For BF16 training (works only with optimized version)
 ```
 $bash ./run.sh ogbn-products --opt_mlp --use_bf16
 ```
-FP32 Performance on ICX 8380 (40 cores per socket): 55 sec/epoch (Avg.)
+FP32 Performance on ICX 8380 (40 cores per socket): 8.55 sec/epoch (Avg.)
 Accuracy: 78.x (SOTA)
 
 Training the model with OGBN-Papers100M
@@ -46,5 +46,5 @@ For BF16 training (works only with optimized version)
 ```
 $bash ./run.sh ogbn-papers100M --opt_mlp --use_bf16
 ```
-FP32 Performance on ICX 8380 (40 cores per socket): 54.5 sec/epoch (Avg.)
+FP32 Performance on ICX 8380 (40 cores per socket): 62 sec/epoch (Avg.)
 Accuracy: 65.x % (SOTA)

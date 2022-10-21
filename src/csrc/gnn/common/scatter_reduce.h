@@ -27,7 +27,6 @@
         gather_tpp(out[0], idx[n], temp[0]);
         add_tpp(in[n][0], temp[0], temp[0]);
         scatter_tpp(temp[0], idx[n], out[0]);
-        long i = idx[n][0];
       }
     }
     if (rem > 0) {
