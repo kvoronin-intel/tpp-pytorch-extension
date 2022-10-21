@@ -5,6 +5,7 @@
 #include <torch/csrc/autograd/VariableTypeUtils.h>
 #include <torch/extension.h>
 #include "bfloat8.h"
+#include "vla.h"
 
 #include <cxxabi.h>
 #include <iostream>
@@ -44,6 +45,7 @@ extern thread_local unsigned int* rng_state;
 extern thread_local struct drand48_data drng_state; // For non AVX512 version
 unsigned int* get_rng_state();
 
+#if 0
 template <typename T>
 inline T* pt_get_data_ptr(at::Tensor t) {
   return t.data_ptr<T>();
@@ -54,6 +56,7 @@ inline bfloat8* pt_get_data_ptr<bfloat8>(at::Tensor t) {
   // PCL_ASSERT(t.dtype() == at::kByte, "Wrong prec");
   return (bfloat8*)t.data_ptr<uint8_t>();
 }
+#endif
 #endif
 
 template <typename T>
