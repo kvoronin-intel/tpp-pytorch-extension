@@ -17,9 +17,9 @@ auto rem = N % bn;
 if (p > 0.0) {
   t_grad_in = t_grad_out.new_empty({N, K});
   int rd = (K + 15) / 16;
-  DECL_VLA_PTR_PT(T, grad_out, [bn][K], t_grad_out);
-  DECL_VLA_PTR_PT(T, grad_in, [bn][K], t_grad_in);
-  DECL_VLA_PTR_PT(short, dp_mask, [bn][rd], t_dp_mask);
+  auto grad_out = GetVLAPtr<T>(t_grad_out, {bn, K});
+  auto grad_in = GetVLAPtr<T>(t_grad_in, {bn, K});
+  auto dp_mask = GetVLAPtr<short>(t_dp_mask, {bn, rd});
 
   auto dropout_bwd_tpp =
       SCOPEIT((DropOutBwdTPP<T, T>(bn, K, K, K, p)), DROPOUT);
@@ -31,9 +31,9 @@ if (p > 0.0) {
       for (int n = 0; n < nn; n++)
         dropout_bwd_tpp(grad_out[n][0], grad_in[n][0], dp_mask[n][0]);
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, grad_out, [K], t_grad_out);
-        DECL_VLA_PTR_PT(T, grad_in, [K], t_grad_in);
-        DECL_VLA_PTR_PT(short, dp_mask, [rd], t_dp_mask);
+        auto grad_out = GetVLAPtr<T>(t_grad_out, {K});
+        auto grad_in = GetVLAPtr<T>(t_grad_in, {K});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {rd});
 
         auto dropout_bwd_tpp =
             SCOPEIT((DropOutBwdTPP<T, T>(1, K, K, K, p)), DROPOUT);

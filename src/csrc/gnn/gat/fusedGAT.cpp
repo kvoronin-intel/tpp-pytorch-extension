@@ -31,30 +31,8 @@ REGISTER_SCOPE(go_mlp_attn, "go_mlp_attn");
 REGISTER_SCOPE(gdo_mlp_attn, "gdo_mlp_attn");
 REGISTER_SCOPE(ga_dattn_dbias_din, "ga_dattn_dbias_din");
 
-template <typename Tin, typename Tout>
-inline void omp_reduce_buf(
-    int num_threads,
-    int N,
-    Tin** ptrs,
-    Tout* buf,
-    bool accumulate = false) {
-  ScopedTimer _t(EW_RED);
-#pragma omp for
-  for (int i = 0; i < N; i++) {
-    float sum = 0.0;
-    for (int j = 0; j < num_threads; j++) {
-      sum += ptrs[j][i];
-    }
-    if (accumulate) {
-      buf[i] += sum;
-    } else {
-      buf[i] = sum;
-    }
-  }
-}
-
-//######################################## FUSED GAT MLP & ATTENTION
-//################################################
+// ######################################## FUSED GAT MLP & ATTENTION
+// ################################################
 
 std::vector<at::Tensor> fused_gat_mlp_attn_fwd(
     int align,
@@ -84,8 +62,8 @@ std::vector<at::Tensor> fused_gat_mlp_attn_bwd(
   }
 }
 
-//######################################## Dropout
-//################################################
+// ######################################## Dropout
+// ################################################
 
 std::vector<at::Tensor> gat_dropout_fwd(
     float p,
@@ -112,8 +90,8 @@ at::Tensor gat_dropout_bwd(float p, std::vector<at::Tensor> inputs) {
   }
 }
 
-//######################################## Leaky ReLU
-//################################################
+// ######################################## Leaky ReLU
+// ################################################
 
 std::vector<at::Tensor> leakyrelu_fwd(float alpha, at::Tensor inp) {
   GlobalPass _gp(FWD);

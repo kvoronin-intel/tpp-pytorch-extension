@@ -49,20 +49,20 @@ auto t_dp_mask = at::empty({0}, at::kShort);
 if (p > 0)
   t_dp_mask = at::empty({B, S1, (N * S2 * H + 15) / 16}, at::kShort);
 
-DECL_VLA_PTR_PT(long, in_ids, [S1][S2], t_in_ids);
-DECL_VLA_PTR_PT(long, pos_ids, [S1][S2], t_pos_ids);
-DECL_VLA_PTR_PT(long, tt_ids, [S1][S2], t_tt_ids);
-DECL_VLA_PTR_PT(T, in_emb, [S1][N][S2][H], t_in_emb);
-DECL_VLA_PTR_PT(T, gamma, [H], t_gamma);
-DECL_VLA_PTR_PT(T, beta, [H], t_beta);
-DECL_VLA_PTR_PT(float, mean, [S1][S2], t_mean);
-DECL_VLA_PTR_PT(float, var, [S1][S2], t_var);
-DECL_VLA_PTR_PT(T, emb_out, [S1][N][S2][H], t_emb_out);
-DECL_VLA_PTR_PT(T, out, [S1][N][S2][H], t_out);
-DECL_VLA_PTR_PT(short, dp_mask, [S1][(N * S2 * H + 15) / 16], t_dp_mask);
-DECL_VLA_PTR_PT(ET, word_emb, [N][H], t_word_emb);
-DECL_VLA_PTR_PT(ET, pos_emb, [N][H], t_pos_emb);
-DECL_VLA_PTR_PT(ET, tt_emb, [N][H], t_tt_emb);
+auto in_ids = GetVLAPtr<long>(t_in_ids, {S1, S2});
+auto pos_ids = GetVLAPtr<long>(t_pos_ids, {S1, S2});
+auto tt_ids = GetVLAPtr<long>(t_tt_ids, {S1, S2});
+auto in_emb = GetVLAPtr<T>(t_in_emb, {S1, N, S2, H});
+auto gamma = GetVLAPtr<T>(t_gamma, {H});
+auto beta = GetVLAPtr<T>(t_beta, {H});
+auto mean = GetVLAPtr<float>(t_mean, {S1, S2});
+auto var = GetVLAPtr<float>(t_var, {S1, S2});
+auto emb_out = GetVLAPtr<T>(t_emb_out, {S1, N, S2, H});
+auto out = GetVLAPtr<T>(t_out, {S1, N, S2, H});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {S1, (N * S2 * H + 15) / 16});
+auto word_emb = GetVLAPtr<ET>(t_word_emb, {N, H});
+auto pos_emb = GetVLAPtr<ET>(t_pos_emb, {N, H});
+auto tt_emb = GetVLAPtr<ET>(t_tt_emb, {N, H});
 
 auto layer_norm_fwd_tpp =
     SCOPEIT((LayerNormFwdTPP<T, T>(N, S2, H, eps)), LAYER_NORM);

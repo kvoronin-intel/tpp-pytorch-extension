@@ -23,11 +23,11 @@ else
 
 auto t_norm = t_degs.new_empty({N});
 
-DECL_VLA_PTR_PT(T, in, [bn][C], t_in);
-DECL_VLA_PTR_PT(T, out, [bn][C], t_out);
-DECL_VLA_PTR_PT(float, degs, [bn], t_degs);
-DECL_VLA_PTR_PT(float, norm, [bn], t_norm);
-DECL_VLA_PTR_PT(float, in_f32, [bn][C], t_in_f32);
+auto in = GetVLAPtr<T>(t_in, {bn, C});
+auto out = GetVLAPtr<T>(t_out, {bn, C});
+auto degs = GetVLAPtr<float>(t_degs, {bn});
+auto norm = GetVLAPtr<float>(t_norm, {bn});
+auto in_f32 = GetVLAPtr<float>(t_in_f32, {bn, C});
 
 auto recp_tpp = SCOPEIT((RecpTPP<float>(bn)), EW_RCP);
 auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float>(bn)), EW_RSQRT);
@@ -49,11 +49,11 @@ auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, C)), EW_COPY);
     }
     /**/
     if (rem > 0) {
-      DECL_VLA_PTR_PT(float, degs, [1], t_degs);
-      DECL_VLA_PTR_PT(float, norm, [1], t_norm);
-      DECL_VLA_PTR_PT(T, in, [C], t_in);
-      DECL_VLA_PTR_PT(T, out, [C], t_out);
-      DECL_VLA_PTR_PT(float, in_f32, [C], t_in_f32);
+      auto degs = GetVLAPtr<float>(t_degs, {1});
+      auto norm = GetVLAPtr<float>(t_norm, {1});
+      auto in = GetVLAPtr<T>(t_in, {C});
+      auto out = GetVLAPtr<T>(t_out, {C});
+      auto in_f32 = GetVLAPtr<float>(t_in_f32, {C});
 
       auto recp_tpp = SCOPEIT((RecpTPP<float>(rem)), EW_RCP);
       auto recp_sqrt_tpp = SCOPEIT((RecpSqrtTPP<float>(rem)), EW_RSQRT);

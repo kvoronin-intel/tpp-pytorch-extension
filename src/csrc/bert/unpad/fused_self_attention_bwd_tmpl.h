@@ -87,35 +87,35 @@ auto t_Wk_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wk);
 auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
 
 {
-  DECL_VLA_PTR_PT(T, Wq_TV, [N][H * H], t_Wq_TV);
-  DECL_VLA_PTR_PT(T, Wk_TV, [N][H * H], t_Wk_TV);
-  DECL_VLA_PTR_PT(T, Wv_TV, [N][H * H], t_Wv_TV);
-  DECL_VLA_PTR_PT(T, dWq, [N][H * H], t_dWq);
-  DECL_VLA_PTR_PT(T, dWk, [N][H * H], t_dWk);
-  DECL_VLA_PTR_PT(T, dWv, [N][H * H], t_dWv);
-  DECL_VLA_PTR_PT(T, dBq, [H], t_dBq);
-  DECL_VLA_PTR_PT(T, dBk, [H], t_dBk);
-  DECL_VLA_PTR_PT(T, dBv, [H], t_dBv);
-  DECL_VLA_PTR_PT(T, QL_T, [H * S2], t_QL_T);
-  DECL_VLA_PTR_PT(T, KL_V, [N][S2 * H], t_KL_V);
-  DECL_VLA_PTR_PT(T, VL_TV, [N][H * S2], t_VL_TV);
-  DECL_VLA_PTR_PT(T, dQL, [N][S2 * H], t_dQL);
-  DECL_VLA_PTR_PT(T, dQL_V, [S2 * H], t_dQL_V);
-  DECL_VLA_PTR_PT(T, dKL, [N][S2 * H], t_dKL);
-  DECL_VLA_PTR_PT(T, dKL_V, [S2 * H], t_dKL_V);
-  DECL_VLA_PTR_PT(T, dVL, [N][S2 * H], t_dVL);
-  DECL_VLA_PTR_PT(T, dVL_V, [S2 * H], t_dVL_V);
-  DECL_VLA_PTR_PT(T, AP, [SS1][S2 * S2], t_AP);
-  DECL_VLA_PTR_PT(short, APD_mask, [SS1][(S2 * S2 + 15) / 16], t_APD_mask);
-  DECL_VLA_PTR_PT(T, dCL, [N][S2 * H], t_dCL);
-  DECL_VLA_PTR_PT(T, dCL_V, [S2 * H], t_dCL_V);
-  DECL_VLA_PTR_PT(T, APD_T, [SS1][S2 * S2], t_APD_T);
-  DECL_VLA_PTR_PT(T, dAPO, [SS1][S2 * S2], t_dAPO);
-  DECL_VLA_PTR_PT(T, dAPD_V, [SS1][S2 * S2], t_dAPD_V);
-  DECL_VLA_PTR_PT(T, HS_T, [H * S2], t_HS_T);
-  DECL_VLA_PTR_PT(T, EHS_T, [H * S2], t_EHS_T);
-  DECL_VLA_PTR_PT(T, dHS, [N][S2 * H], t_dHS);
-  DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
+  auto Wq_TV = GetVLAPtr<T>(t_Wq_TV, {N, H * H});
+  auto Wk_TV = GetVLAPtr<T>(t_Wk_TV, {N, H * H});
+  auto Wv_TV = GetVLAPtr<T>(t_Wv_TV, {N, H * H});
+  auto dWq = GetVLAPtr<T>(t_dWq, {N, H * H});
+  auto dWk = GetVLAPtr<T>(t_dWk, {N, H * H});
+  auto dWv = GetVLAPtr<T>(t_dWv, {N, H * H});
+  auto dBq = GetVLAPtr<T>(t_dBq, {H});
+  auto dBk = GetVLAPtr<T>(t_dBk, {H});
+  auto dBv = GetVLAPtr<T>(t_dBv, {H});
+  auto QL_T = GetVLAPtr<T>(t_QL_T, {H * S2});
+  auto KL_V = GetVLAPtr<T>(t_KL_V, {N, S2 * H});
+  auto VL_TV = GetVLAPtr<T>(t_VL_TV, {N, H * S2});
+  auto dQL = GetVLAPtr<T>(t_dQL, {N, S2 * H});
+  auto dQL_V = GetVLAPtr<T>(t_dQL_V, {S2 * H});
+  auto dKL = GetVLAPtr<T>(t_dKL, {N, S2 * H});
+  auto dKL_V = GetVLAPtr<T>(t_dKL_V, {S2 * H});
+  auto dVL = GetVLAPtr<T>(t_dVL, {N, S2 * H});
+  auto dVL_V = GetVLAPtr<T>(t_dVL_V, {S2 * H});
+  auto AP = GetVLAPtr<T>(t_AP, {SS1, S2 * S2});
+  auto APD_mask = GetVLAPtr<short>(t_APD_mask, {SS1, (S2 * S2 + 15) / 16});
+  auto dCL = GetVLAPtr<T>(t_dCL, {N, S2 * H});
+  auto dCL_V = GetVLAPtr<T>(t_dCL_V, {S2 * H});
+  auto APD_T = GetVLAPtr<T>(t_APD_T, {SS1, S2 * S2});
+  auto dAPO = GetVLAPtr<T>(t_dAPO, {SS1, S2 * S2});
+  auto dAPD_V = GetVLAPtr<T>(t_dAPD_V, {SS1, S2 * S2});
+  auto HS_T = GetVLAPtr<T>(t_HS_T, {H * S2});
+  auto EHS_T = GetVLAPtr<T>(t_EHS_T, {H * S2});
+  auto dHS = GetVLAPtr<T>(t_dHS, {N, S2 * H});
+  auto dEHS = GetVLAPtr<T>(t_dEHS, {N, S2 * H});
   auto offs = t_offs.data_ptr<long>();
   auto offs2 = t_offs2.data_ptr<long>();
 
@@ -184,8 +184,8 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, H), BIAS);
 
   // printf("dAPO = %p, t_dAPO.size = %lu\n", dAPO, t_dAPO.numel());
-  //#define PRINT_T(x) std::cout << #x << ": " << x << std::endl
-  //#define PRINT_T(x)
+  // #define PRINT_T(x) std::cout << #x << ": " << x << std::endl
+  // #define PRINT_T(x)
 #if 0
   {
     RECORD_SCOPE(dwc_gemm, {t_APD_T, t_dCL_V});
@@ -385,9 +385,9 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nc = ind[1];
-            DECL_VLA_PTR_PT(T, dVL, [N][S2 * H], t_dVL);
-            DECL_VLA_PTR_PT(T, Wv_TV, [N][H * H], t_Wv_TV);
-            DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
+            // auto dVL = GetVLAPtr<T>(t_dVL, {N, S2 * H});
+            // auto Wv_TV = GetVLAPtr<T>(t_Wv_TV, {N, H * H});
+            // auto dEHS = GetVLAPtr<T>(t_dEHS, {N, S2 * H});
             vi_gemm_tpp(dVL[s1][0], Wv_TV[nc][0], dEHS[s1][nc], N, true);
           },
           [&]() { vi_gemm_tpp.config(); },
@@ -410,9 +410,9 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nc = ind[1];
-            DECL_VLA_PTR_PT(T, dKL, [N][S2 * H], t_dKL);
-            DECL_VLA_PTR_PT(T, Wk_TV, [N][H * H], t_Wk_TV);
-            DECL_VLA_PTR_PT(T, dEHS, [N][S2 * H], t_dEHS);
+            // auto dKL = GetVLAPtr<T>(t_dKL, {N, S2 * H});
+            // auto Wk_TV = GetVLAPtr<T>(t_Wk_TV, {N, H * H});
+            // auto dEHS = GetVLAPtr<T>(t_dEHS, {N, S2 * H});
             ki_gemm_tpp(dKL[s1][0], Wk_TV[nc][0], dEHS[s1][nc], N, true);
           },
           [&]() { ki_gemm_tpp.config(); },
@@ -435,9 +435,9 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nc = ind[1];
-            DECL_VLA_PTR_PT(T, dQL, [N][S2 * H], t_dQL);
-            DECL_VLA_PTR_PT(T, Wq_TV, [N][H * H], t_Wq_TV);
-            DECL_VLA_PTR_PT(T, dHS, [N][S2 * H], t_dHS);
+            // auto dQL = GetVLAPtr<T>(t_dQL, {N, S2 * H});
+            // auto Wq_TV = GetVLAPtr<T>(t_Wq_TV, {N, H * H});
+            // auto dHS = GetVLAPtr<T>(t_dHS, {N, S2 * H});
             qi_gemm_tpp(dQL[s1][0], Wq_TV[nc][0], dHS[s1][nc], N, true);
           },
           [&]() { qi_gemm_tpp.config(); },
@@ -473,14 +473,14 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
           int s1 = ind[0], nk = ind[1], nc = ind[2];
           int count = (s1 + BS <= S1 ? BS : S1 - s1);
           bool is_last_iter = !(s1 + BS < S1);
-          DECL_VLA_PTR_PT(T, dWv, [N][H * H], t_dWv);
-          DECL_VLA_PTR_PT(T, dWk, [N][H * H], t_dWk);
-          DECL_VLA_PTR_PT(T, dWq, [N][H * H], t_dWq);
-          DECL_VLA_PTR_PT(T, EHS_T, [H * S2], t_EHS_T);
-          DECL_VLA_PTR_PT(T, HS_T, [H * S2], t_HS_T);
-          DECL_VLA_PTR_PT(T, dVL_V, [S2 * H], t_dVL_V);
-          DECL_VLA_PTR_PT(T, dKL_V, [S2 * H], t_dKL_V);
-          DECL_VLA_PTR_PT(T, dQL_V, [S2 * H], t_dQL_V);
+          // auto dWv = GetVLAPtr<T>(t_dWv, {N, H * H});
+          // auto dWk = GetVLAPtr<T>(t_dWk, {N, H * H});
+          // auto dWq = GetVLAPtr<T>(t_dWq, {N, H * H});
+          // auto EHS_T = GetVLAPtr<T>(t_EHS_T, {H * S2});
+          // auto HS_T = GetVLAPtr<T>(t_HS_T, {H * S2});
+          // auto dVL_V = GetVLAPtr<T>(t_dVL_V, {S2 * H});
+          // auto dKL_V = GetVLAPtr<T>(t_dKL_V, {S2 * H});
+          // auto dQL_V = GetVLAPtr<T>(t_dQL_V, {S2 * H});
           if (s1 == 0) {
             set_zero_dw_tpp(dWv[nk][nc]);
             set_zero_dw_tpp(dWk[nk][nc]);

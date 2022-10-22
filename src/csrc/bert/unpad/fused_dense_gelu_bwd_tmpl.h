@@ -33,15 +33,15 @@ if (t_grad_gelu.dtype() != at::kFloat) {
 }
 auto gdout_blk = LToPBlockAccessMapper<T>(S1, Nk);
 
-DECL_VLA_PTR_PT(T, in_T, [Hc * S2], t_in_T);
-DECL_VLA_PTR_PT(T, gelu_in, [Nk][S2 * Hk], t_gelu_in);
-DECL_VLA_PTR_PT(T, grad_in, [Nc][S2 * Hc], t_grad_in);
-DECL_VLA_PTR_PT(T, wt_TV, [Nk][Hk * Hc], t_wt_TV);
-DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc * Hk], t_grad_wt);
-DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
-DECL_VLA_PTR_PT(T, grad_gelu, [Nk][S2 * Hk], t_grad_gelu);
-DECL_VLA_PTR_PT(T, grad_out, [Nk][S2 * Hk], t_grad_out);
-DECL_VLA_PTR_PT(T, grad_gelu_V, [S2 * Hk], t_grad_gelu_V);
+auto in_T = GetVLAPtr<T>(t_in_T, {Hc * S2});
+auto gelu_in = GetVLAPtr<T>(t_gelu_in, {Nk, S2* Hk});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {Nc, S2* Hc});
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nk, Hk* Hc});
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc* Hk});
+auto grad_bias = GetVLAPtr<T>(t_grad_bias, {Hk});
+auto grad_gelu = GetVLAPtr<T>(t_grad_gelu, {Nk, S2* Hk});
+auto grad_out = GetVLAPtr<T>(t_grad_out, {Nk, S2* Hk});
+auto grad_gelu_V = GetVLAPtr<T>(t_grad_gelu_V, {S2 * Hk});
 
 constexpr long BS = 8;
 auto Nkb = Nk;
@@ -137,9 +137,9 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
   di_loop(
       [&](int* ind) {
         int nk = ind[0], s1 = ind[1], nc = ind[2];
-        DECL_VLA_PTR_PT(T, grad_gelu, [Nk][S2 * Hk], t_grad_gelu);
-        DECL_VLA_PTR_PT(T, wt_TV, [Nk][Hk * Hc], t_wt_TV);
-        DECL_VLA_PTR_PT(T, grad_in, [Nc][S2 * Hc], t_grad_in);
+        // auto grad_gelu = GetVLAPtr<T>(t_grad_gelu, {Nk, S2 * Hk});
+        // auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nk, Hk * Hc});
+        // auto grad_in = GetVLAPtr<T>(t_grad_in, {Nc, S2 * Hc});
         if (nk == 0)
           di_gemm_b0_tpp(
               grad_gelu[s1][nk], wt_TV[nc][nk], grad_in[s1][nc], Nkb, true);
@@ -179,9 +179,9 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       [&](int* ind) {
         int s1 = ind[0], nk = ind[1], nc = ind[2];
         int count = (s1 + BS <= S1 ? BS : S1 - s1);
-        DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc * Hk], t_grad_wt);
-        DECL_VLA_PTR_PT(T, in_T, [Hc * S2], t_in_T);
-        DECL_VLA_PTR_PT(T, grad_gelu_V, [S2 * Hk], t_grad_gelu_V);
+        // auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc * Hk});
+        // auto in_T = GetVLAPtr<T>(t_in_T, {Hc * S2});
+        // auto grad_gelu_V = GetVLAPtr<T>(t_grad_gelu_V, {S2 * Hk});
         if (s1 == 0)
           dw_set_zero_tpp(grad_wt[nk][nc]);
 #if 1

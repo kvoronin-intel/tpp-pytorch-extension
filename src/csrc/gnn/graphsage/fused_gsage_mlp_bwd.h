@@ -42,8 +42,8 @@ if (t_wt.dtype() == at::kBFloat16) {
 }
 
 int rd = (bn * bk + 15) / 16;
-DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
 const auto grad_wt_flag =
     (t_wt.dim() == 5 ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_NONE_TPP);
@@ -60,8 +60,8 @@ if (res)
 auto t_in_T = t_in;
 if (input_trans_flag == XformTPP::XFORM_NONE_TPP) {
   t_in_T = t_in.new_empty({nn, nc, bnp, bc});
-  DECL_VLA_PTR_PT(bfloat16, in_T, [bnp * bc], t_in_T);
-  DECL_VLA_PTR_PT(bfloat16, in, [bn * bc], t_in);
+  auto in_T = GetVLAPtr<bfloat16>(t_in_T, {bnp * bc});
+  auto in = GetVLAPtr<bfloat16>(t_in, {bn * bc});
   auto trans_tpp =
       SCOPEIT(XformExtTPP<bfloat16>(bn, bc, XformTPP::XFORM_XPOSE_TPP), XPOSE);
   {
@@ -77,8 +77,8 @@ at::Tensor t_in_res_T = t_in_res;
 if (res) {
   if (input_trans_flag == XformTPP::XFORM_NONE_TPP) {
     t_in_res_T = t_in_res.new_empty({nn, nc, bnp, bc});
-    DECL_VLA_PTR_PT(bfloat16, in_res_T, [bnp * bc], t_in_res_T);
-    DECL_VLA_PTR_PT(bfloat16, in_res, [bn * bc], t_in_res);
+    auto in_res_T = GetVLAPtr<bfloat16>(t_in_res_T, {bnp * bc});
+    auto in_res = GetVLAPtr<bfloat16>(t_in_res, {bn * bc});
     auto trans_tpp = SCOPEIT(
         XformExtTPP<bfloat16>(bnp, bc, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
@@ -127,21 +127,21 @@ auto t_grad_out_f32 = t_grad_out;
 if (t_grad_out.dtype() == at::kBFloat16)
   t_grad_out_f32 = at::empty({nn, nk, bn, bk});
 
-DECL_VLA_PTR_PT(T, grad_out, [nk][bn * bk], t_grad_out);
-DECL_VLA_PTR_PT(T, grad_out_K, [nk][bn * bkp], t_grad_out_K);
-DECL_VLA_PTR_PT(T, grad_out_V, [nk][bnp * bk], t_grad_out_V);
-DECL_VLA_PTR_PT(float, grad_out_f32, [nk][bn * bk], t_grad_out_f32);
-DECL_VLA_PTR_PT(T, grad_in, [nc][bn * bc], t_grad_in);
-DECL_VLA_PTR_PT(T, grad_in_res, [nc][bn * bc], t_grad_in_res);
-DECL_VLA_PTR_PT(T, grad_wt, [nc][bcp * bk], t_grad_wt);
-DECL_VLA_PTR_PT(T, grad_wt_res, [nc][bcp * bk], t_grad_wt_res);
-DECL_VLA_PTR_PT(T, grad_wt_tmp, [nc][bc * bk], t_grad_wt_tmp);
-DECL_VLA_PTR_PT(T, grad_wt_res_tmp, [nc][bc * bk], t_grad_wt_res_tmp);
-DECL_VLA_PTR_PT(T, in_T, [nc][bnp * bc], t_in_T);
-DECL_VLA_PTR_PT(T, in_res_T, [nc][bnp * bc], t_in_res_T);
-DECL_VLA_PTR_PT(T, wt_TV, [nc][bkp * bc], t_wt_TV);
-DECL_VLA_PTR_PT(T, wt_res_TV, [nc][bkp * bc], t_wt_res_TV);
-DECL_VLA_PTR_PT(T, grad_bias, [bk], t_grad_bias);
+auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bn* bk});
+auto grad_out_K = GetVLAPtr<T>(t_grad_out_K, {nk, bn* bkp});
+auto grad_out_V = GetVLAPtr<T>(t_grad_out_V, {nk, bnp* bk});
+auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {nk, bn* bk});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {nc, bn* bc});
+auto grad_in_res = GetVLAPtr<T>(t_grad_in_res, {nc, bn* bc});
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {nc, bcp* bk});
+auto grad_wt_res = GetVLAPtr<T>(t_grad_wt_res, {nc, bcp* bk});
+auto grad_wt_tmp = GetVLAPtr<T>(t_grad_wt_tmp, {nc, bc* bk});
+auto grad_wt_res_tmp = GetVLAPtr<T>(t_grad_wt_res_tmp, {nc, bc* bk});
+auto in_T = GetVLAPtr<T>(t_in_T, {nc, bnp* bc});
+auto in_res_T = GetVLAPtr<T>(t_in_res_T, {nc, bnp* bc});
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {nc, bkp* bc});
+auto wt_res_TV = GetVLAPtr<T>(t_wt_res_TV, {nc, bkp* bc});
+auto grad_bias = GetVLAPtr<T>(t_grad_bias, {bk});
 
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(nk * bk), EW_ZERO);
 auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(bn, 1, bkp), EW_ZERO);
@@ -279,7 +279,7 @@ constexpr int nnb=16;
   RECORD_SCOPE(gdw_gemm, {t_in_T, t_grad_out_V});
   {
     setzero_wtptr_tpp(t_weight_ptrs.data_ptr<float>()); 
-    DECL_VLA_PTR_PT(float, weight_ptrs, [nk][nc][bc*bk], t_weight_ptrs);
+    auto  weight_ptrs = GetVLAPtr<float>( t_weight_ptrs, { nk, nc, bc*bk});
     float *wt_ptrs[threads];
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());

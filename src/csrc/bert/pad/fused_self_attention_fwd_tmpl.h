@@ -37,7 +37,7 @@ if (t_EHS.numel() == 0) {
   t_AM = t_EAM;
 }
 
-//#define PRINT_T(x) std::cout << #x << ": " << x << std::endl
+// #define PRINT_T(x) std::cout << #x << ": " << x << std::endl
 auto t_HS_T = t_HS;
 auto t_EHS_T = t_EHS;
 
@@ -87,29 +87,29 @@ if (training) {
 {
   // float (*QL)[S1][N][S2][H] = (float
   // (*)[S1][N][S2][H])t_QL.data_ptr<float>();
-  DECL_VLA_PTR_PT(T, Wq_V, [N][H * H], t_Wq_V);
-  DECL_VLA_PTR_PT(T, Wk_V, [N][H * H], t_Wk_V);
-  DECL_VLA_PTR_PT(T, Wv_V, [N][H * H], t_Wv_V);
-  DECL_VLA_PTR_PT(T, Bq, [H], t_Bq);
-  DECL_VLA_PTR_PT(T, Bk, [H], t_Bk);
-  DECL_VLA_PTR_PT(T, Bv, [H], t_Bv);
-  DECL_VLA_PTR_PT(T, QL, [S1][N][S2 * H], t_QL);
-  DECL_VLA_PTR_PT(T, QL_T, [S1][N][H * S2], t_QL_T); // For BWD only
-  DECL_VLA_PTR_PT(T, KL_V, [S1][N][S2 * H], t_KL_V);
-  DECL_VLA_PTR_PT(T, KL_TV, [S1][N][H * S2], t_KL_TV);
-  DECL_VLA_PTR_PT(T, VL_V, [S1][N][S2 * H], t_VL_V);
-  DECL_VLA_PTR_PT(T, VL_TV, [S1][N][H * S2], t_VL_TV);
-  DECL_VLA_PTR_PT(T, AP, [S1][N][S1][S2 * S2], t_AP);
-  DECL_VLA_PTR_PT(T, APD, [S1][N][S1][S2 * S2], t_APD);
-  DECL_VLA_PTR_PT(T, APD_T, [S1][N][S1][S2 * S2], t_APD_T); // For BWD only
-  DECL_VLA_PTR_PT(
-      short, APD_mask, [S1][N][(S1 * S2 * S2 + 15) / 16], t_APD_mask);
-  DECL_VLA_PTR_PT(T, CL, [S1][N][S2 * H], t_CL);
-  DECL_VLA_PTR_PT(T, HS, [S1][N][S2 * H], t_HS);
-  DECL_VLA_PTR_PT(T, HS_T, [S1][N][H * S2], t_HS_T); // for BWD only
-  DECL_VLA_PTR_PT(T, EHS, [S1][N][S2 * H], t_EHS);
-  DECL_VLA_PTR_PT(T, EHS_T, [S1][N][H * S2], t_EHS_T); // for BWD only
-  DECL_VLA_PTR_PT(T, AM, [S1][S2], t_AM);
+  auto Wq_V = GetVLAPtr<T>(t_Wq_V, {N, H * H});
+  auto Wk_V = GetVLAPtr<T>(t_Wk_V, {N, H * H});
+  auto Wv_V = GetVLAPtr<T>(t_Wv_V, {N, H * H});
+  auto Bq = GetVLAPtr<T>(t_Bq, {H});
+  auto Bk = GetVLAPtr<T>(t_Bk, {H});
+  auto Bv = GetVLAPtr<T>(t_Bv, {H});
+  auto QL = GetVLAPtr<T>(t_QL, {S1, N, S2 * H});
+  auto QL_T = GetVLAPtr<T>(t_QL_T, {S1, N, H * S2}); // For BWD only
+  auto KL_V = GetVLAPtr<T>(t_KL_V, {S1, N, S2 * H});
+  auto KL_TV = GetVLAPtr<T>(t_KL_TV, {S1, N, H * S2});
+  auto VL_V = GetVLAPtr<T>(t_VL_V, {S1, N, S2 * H});
+  auto VL_TV = GetVLAPtr<T>(t_VL_TV, {S1, N, H * S2});
+  auto AP = GetVLAPtr<T>(t_AP, {S1, N, S1, S2 * S2});
+  auto APD = GetVLAPtr<T>(t_APD, {S1, N, S1, S2 * S2});
+  auto APD_T = GetVLAPtr<T>(t_APD_T, {S1, N, S1, S2 * S2}); // For BWD only
+  auto APD_mask =
+      GetVLAPtr<short>(t_APD_mask, {S1, N, (S1 * S2 * S2 + 15) / 16});
+  auto CL = GetVLAPtr<T>(t_CL, {S1, N, S2 * H});
+  auto HS = GetVLAPtr<T>(t_HS, {S1, N, S2 * H});
+  auto HS_T = GetVLAPtr<T>(t_HS_T, {S1, N, H * S2}); // for BWD only
+  auto EHS = GetVLAPtr<T>(t_EHS, {S1, N, S2 * H});
+  auto EHS_T = GetVLAPtr<T>(t_EHS_T, {S1, N, H * S2}); // for BWD only
+  auto AM = GetVLAPtr<T>(t_AM, {S1, S2});
 
   auto copy_bias_tpp = SCOPEIT(CpyBiasTPP<T>(S2, H), BIAS);
   auto qkv_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(

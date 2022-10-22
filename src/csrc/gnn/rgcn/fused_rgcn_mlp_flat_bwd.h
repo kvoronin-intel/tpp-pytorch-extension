@@ -61,17 +61,17 @@ if (t_grad_out.dtype() == at::kBFloat16)
 
 auto t_grad_out_tmp = t_grad_out.new_empty({N, K});
 
-DECL_VLA_PTR_PT(T, grad_out, [bn][K], t_grad_out);
-DECL_VLA_PTR_PT(T, grad_out_tmp, [bn][K], t_grad_out_tmp);
-DECL_VLA_PTR_PT(float, grad_out_f32, [bn][K], t_grad_out_f32);
-DECL_VLA_PTR_PT(float, norm, [bn], t_norm);
-DECL_VLA_PTR_PT(T, grad_in, [bn][nc][bc], t_grad_in);
+auto grad_out = GetVLAPtr<T>(t_grad_out, {bn, K});
+auto grad_out_tmp = GetVLAPtr<T>(t_grad_out_tmp, {bn, K});
+auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {bn, K});
+auto norm = GetVLAPtr<float>(t_norm, {bn});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {bn, nc, bc});
 
 // del-weights and weights in blocked layout
-DECL_VLA_PTR_PT(T, grad_wt, [nc][bc * bk], t_grad_wt);
-DECL_VLA_PTR_PT(float, grad_wt_tmp, [nc][bc * bk], t_grad_wt_tmp);
-DECL_VLA_PTR_PT(T, wt_TV, [nc][bkp * bc], t_wt_TV);
-DECL_VLA_PTR_PT(T, in, [bn][nc][bc], t_in); // flat layout for fp32
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {nc, bc* bk});
+auto grad_wt_tmp = GetVLAPtr<float>(t_grad_wt_tmp, {nc, bc* bk});
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {nc, bkp* bc});
+auto in = GetVLAPtr<T>(t_in, {bn, nc, bc}); // flat layout for fp32
 
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(nk * bk), EW_ZERO);
 auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(bn, 1, bkp), EW_ZERO);
@@ -136,10 +136,10 @@ auto brgemm_dw_bf16_tpp_b1 =
       mul_norm_tpp(norm[n], grad_out_f32[n][0], grad_out_tmp[n][0]);
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [K], t_grad_out);
-      DECL_VLA_PTR_PT(T, grad_out_tmp, [K], t_grad_out_tmp);
-      DECL_VLA_PTR_PT(float, grad_out_f32, [K], t_grad_out_f32);
-      DECL_VLA_PTR_PT(float, norm, [1], t_norm);
+      auto grad_out = GetVLAPtr<T>(t_grad_out, {K});
+      auto grad_out_tmp = GetVLAPtr<T>(t_grad_out_tmp, {K});
+      auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {K});
+      auto norm = GetVLAPtr<float>(t_norm, {1});
 
       auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(rem, K, K, K)), EW_COPY);
       auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(rem, K, K, K)), EW_MUL);
@@ -151,7 +151,7 @@ auto brgemm_dw_bf16_tpp_b1 =
 }
 
 {
-  DECL_VLA_PTR_PT(T, grad_out, [bn][nk][bk], t_grad_out_tmp);
+  auto grad_out = GetVLAPtr<T>(t_grad_out_tmp, {bn, nk, bk});
 
   RECORD_SCOPE(rgdi_mlp, {t_grad_out, t_wt});
   {
@@ -209,8 +209,8 @@ auto brgemm_dw_bf16_tpp_b1 =
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out_tmp);
-      DECL_VLA_PTR_PT(T, grad_in, [nc][bc], t_grad_in);
+      auto grad_out = GetVLAPtr<T>(t_grad_out_tmp, {nk, bk});
+      auto grad_in = GetVLAPtr<T>(t_grad_in, {nc, bc});
 
       if (bk != bkp) {
         auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
@@ -264,7 +264,7 @@ auto trans_tpp = SCOPEIT(
 {
   RECORD_SCOPE(rgdw_mlp, {t_in, t_grad_out_tmp});
   {
-    DECL_VLA_PTR_PT(T, grad_out, [bn][nk][bk], t_grad_out_tmp);
+    auto grad_out = GetVLAPtr<T>(t_grad_out_tmp, {bn, nk, bk});
     int threads = atoi(getenv("OMP_NUM_THREADS")); // omp_get_max_threads();
     int upd_n_weight_copies;
     int BF;
@@ -300,7 +300,7 @@ auto trans_tpp = SCOPEIT(
 
     at::Tensor t_grad_wt_priv =
         at::empty({upd_n_weight_copies, nk, nc, bc * bk});
-    DECL_VLA_PTR_PT(float, grad_wt_priv, [nk][nc][bc * bk], t_grad_wt_priv);
+    auto grad_wt_priv = GetVLAPtr<float>(t_grad_wt_priv, {nk, nc, bc * bk});
 
     at::Tensor t_global_tmp_go = at::empty(0);
     at::Tensor t_global_tmp_inT = at::empty(0);
@@ -311,10 +311,10 @@ auto trans_tpp = SCOPEIT(
       t_global_tmp_inT =
           at::empty({threads, nc, (nn / BF + 1), bnp * bc}, at::kBFloat16);
     }
-    DECL_VLA_PTR_PT(
-        T, global_tmp_go, [(nn / BF + 1)][bnp * bk], t_global_tmp_go);
-    DECL_VLA_PTR_PT(
-        T, global_tmp_inT, [nc][(nn / BF + 1)][bnp * bc], t_global_tmp_inT);
+    auto global_tmp_go =
+        GetVLAPtr<T>(t_global_tmp_go, {(nn / BF + 1), bnp * bk});
+    auto global_tmp_inT =
+        GetVLAPtr<T>(t_global_tmp_inT, {nc, (nn / BF + 1), bnp * bc});
 
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel
@@ -411,8 +411,8 @@ auto trans_tpp = SCOPEIT(
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out_tmp);
-      DECL_VLA_PTR_PT(T, in, [nc][bc], t_in);
+      auto grad_out = GetVLAPtr<T>(t_grad_out_tmp, {nk, bk});
+      auto in = GetVLAPtr<T>(t_in, {nc, bc});
       auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
           bc,
           bk,
@@ -494,7 +494,7 @@ auto setzero_tmpdw_tpp = SCOPEIT(SetZeroTPP<float>(bc * bk), EW_ZERO);
 setzero_delwt_tpp(t_grad_wt_tmp.data_ptr<float>());
 
 {
-  DECL_VLA_PTR_PT(T, grad_out, [bn][nk][bk], t_grad_out);
+  auto grad_out = GetVLAPtr<T>(t_grad_out, {bn, nk, bk});
 
   std::mutex lock[nk * nc];
 
@@ -587,8 +587,8 @@ setzero_delwt_tpp(t_grad_wt_tmp.data_ptr<float>());
       }
       if (rem > 0) {
         if (t_in.dtype() == at::kBFloat16) {
-          DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
-          DECL_VLA_PTR_PT(T, in, [nc][bc], t_in); // blocked layout for bf16
+          auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bk});
+          auto in = GetVLAPtr<T>(t_in, {nc, bc}); // blocked layout for bf16
           auto n2v_tpp = SCOPEIT(
               XformExtTPP<T>(
                   rem,
@@ -643,8 +643,8 @@ setzero_delwt_tpp(t_grad_wt_tmp.data_ptr<float>());
             }
           }
         } else if (t_in.dtype() == at::kFloat) {
-          DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
-          DECL_VLA_PTR_PT(T, in_rem, [nc][bc], t_in);
+          auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bk});
+          auto in_rem = GetVLAPtr<T>(t_in, {nc, bc});
           auto brgemm_dw_f32_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
               bc,
               bk,

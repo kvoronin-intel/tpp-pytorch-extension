@@ -9,9 +9,9 @@
   auto bn = alignN;
   auto rem = N % alignN;
 
-  DECL_VLA_PTR_PT(T, in, [bn][E], t_in);
-  DECL_VLA_PTR_PT(T, out, [E], t_out);
-  DECL_VLA_PTR_PT(int64_t, idx, [bn], t_idx);
+  auto in = GetVLAPtr<T>(t_in, {bn, E});
+  auto out = GetVLAPtr<T>(t_out, {E});
+  auto idx = GetVLAPtr<int64_t>(t_idx, {bn});
 
   auto scatter_tpp = SCOPEIT((ScatterTPP<T, int64_t, T>(bn, E, E, E)), ROW_ST);
 
@@ -25,8 +25,8 @@
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(int64_t, idx, [1], t_idx);
-      DECL_VLA_PTR_PT(T, in, [E], t_in);
+      auto idx = GetVLAPtr<int64_t>(t_idx, {1});
+      auto in = GetVLAPtr<T>(t_in, {E});
       auto scatter_tpp =
           SCOPEIT((ScatterTPP<T, int64_t, T>(rem, E, E, E)), ROW_ST);
       scatter_tpp(in[nn * bn], idx[nn * bn], out[0]);

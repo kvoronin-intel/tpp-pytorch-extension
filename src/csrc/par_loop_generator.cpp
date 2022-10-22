@@ -7,7 +7,7 @@
 #include <string>
 
 #define MAX_CODE_SIZE 1048576
-//#define STAND_ALONE
+// #define STAND_ALONE
 
 typedef struct {
   long start;

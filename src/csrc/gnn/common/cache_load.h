@@ -141,8 +141,8 @@
           int fs = t_feats.size(1);
           auto t_out = t_feats.new_empty({bN, fs});
           if (t_feats.dtype() == at::kFloat) {
-            DECL_VLA_PTR_PT(float, feats, [fs], t_feats);
-            DECL_VLA_PTR_PT(float, out, [fs], t_out);
+            auto feats = GetVLAPtr<float>(t_feats, {fs});
+            auto out = GetVLAPtr<float>(t_out, {fs});
             for (int n = 0; n < bN; n++) {
 #pragma omp parallel for
               for (int f = 0; f < fs; f++) {
@@ -150,8 +150,8 @@
               }
             }
           } else if (t_feats.dtype() == at::kBFloat16) {
-            DECL_VLA_PTR_PT(bfloat16, feats, [fs], t_feats);
-            DECL_VLA_PTR_PT(bfloat16, out, [fs], t_out);
+            auto feats = GetVLAPtr<bfloat16>(t_feats, {fs});
+            auto out = GetVLAPtr<bfloat16>(t_out, {fs});
             for (int n = 0; n < bN; n++) {
 #pragma omp parallel for
               for (int f = 0; f < fs; f++) {

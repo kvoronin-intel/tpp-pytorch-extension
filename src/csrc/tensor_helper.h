@@ -41,8 +41,8 @@ inline at::Tensor wt_tensor_n2v(
 #else
   auto Hcp2 = (Hc + BS - 1) / BS;
   auto output = input.new_empty({Nk, Nc, Hcp2, Hk, BS});
-  DECL_VLA_PTR_PT(T, out, [Hcp2 * Hk * BS], output);
-  DECL_VLA_PTR_PT(T, in, [Hc * Hk], input);
+  auto out = GetVLAPtr<T>(output, {Hcp2 * Hk * BS});
+  auto in = GetVLAPtr<T>(input, {Hc * Hk});
   auto n2v_tpp = SCOPEIT(
       XformExtTPP<T>(Hc, Hk, Hcp2 * BS, Hk, XformTPP::XFORM_N2V_TPP), VNNI);
   RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
@@ -68,8 +68,8 @@ inline at::Tensor wt_tensor_trans_n2v(
 #else
   auto Hkp2 = (Hk + BS - 1) / BS;
   auto output = input.new_empty({Nk, Nc, Hkp2, Hc, BS});
-  DECL_VLA_PTR_PT(T, out, [Hkp2 * Hc * BS], output);
-  DECL_VLA_PTR_PT(T, in, [Hc * Hk], input);
+  auto out = GetVLAPtr<T>(output, {Hkp2 * Hc * BS});
+  auto in = GetVLAPtr<T>(input, {Hc * Hk});
   auto trans_n2v_tpp = SCOPEIT(
       XformExtTPP<T>(
           Hc, Hk, Hc, Hkp2 * BS, XformTPP::XFORM_XPOSE_N2V_TPP, true),
@@ -97,8 +97,8 @@ inline at::Tensor wt_tensor_trans_n2v_compact(
 #else
   auto Hkp2 = (Hk + BS - 1) / BS;
   auto output = input.new_empty({Nc, Nk, Hkp2, Hc, BS});
-  DECL_VLA_PTR_PT(T, out, [Nk][Hkp2 * Hc * BS], output);
-  DECL_VLA_PTR_PT(T, in, [Nc][Hc * Hk], input);
+  auto out = GetVLAPtr<T>(output, {Nk, Hkp2 * Hc * BS});
+  auto in = GetVLAPtr<T>(input, {Nc, Hc * Hk});
   auto trans_n2v_tpp = SCOPEIT(
       XformExtTPP<T>(
           Hc, Hk, Hc, Hkp2 * BS, XformTPP::XFORM_XPOSE_N2V_TPP, true),
@@ -130,8 +130,8 @@ inline at::Tensor wt_tensor_trans_v2v(
   PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
   auto Hkp2 = (Hk + BS - 1) / BS;
   auto output = input.new_empty({Nk, Nc, Hkp2, Hc, BS});
-  DECL_VLA_PTR_PT(T, out, [Hkp2 * Hc * BS], output);
-  DECL_VLA_PTR_PT(T, in, [Hc * Hk], input);
+  auto out = GetVLAPtr<T>(output, {Hkp2 * Hc * BS});
+  auto in = GetVLAPtr<T>(input, {Hc * Hk});
   auto trans_v2v_tpp = SCOPEIT(
       XformExtTPP<T>(
           Hc, Hk, Hkp2 * BS, Hc, XformTPP::XFORM_XPOSE_V2V_TPP, true),
@@ -161,8 +161,8 @@ inline at::Tensor wt_tensor_trans_v2v_compact(
   PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
   auto Hkp2 = (Hk + BS - 1) / BS;
   auto output = input.new_empty({Nc, Nk, Hkp2, Hc, BS});
-  DECL_VLA_PTR_PT(T, out, [Nk][Hkp2 * Hc * BS], output);
-  DECL_VLA_PTR_PT(T, in, [Nc][Hc * Hk], input);
+  auto out = GetVLAPtr<T>(output, {Nk, Hkp2 * Hc * BS});
+  auto in = GetVLAPtr<T>(input, {Nc, Hc * Hk});
   auto trans_v2v_tpp = SCOPEIT(
       XformExtTPP<T>(
           Hc, Hk, Hkp2 * BS, Hc, XformTPP::XFORM_XPOSE_V2V_TPP, true),
@@ -230,8 +230,8 @@ inline at::Tensor wt_tensor_for_bwd(
     return input.permute({0, 1, 3, 2}).contiguous();
 #else
     auto output = input.new_empty({Nk, Nc, Hk, Hc});
-    DECL_VLA_PTR_PT(float, out, [Hk * Hc], output);
-    DECL_VLA_PTR_PT(float, in, [Hc * Hk], input);
+    auto out = GetVLAPtr<float>(output, {Hk * Hc});
+    auto in = GetVLAPtr<float>(input, {Hc * Hk});
     auto trans_tpp =
         SCOPEIT(XformExtTPP<float>(Hc, Hk, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
@@ -270,8 +270,8 @@ inline at::Tensor wt_tensor_for_bwd_compact(
     return input.permute({1, 0, 3, 2}).contiguous();
 #else
     auto output = input.new_empty({Nk, Nc, Hk, Hc});
-    DECL_VLA_PTR_PT(float, out, [Nk][Hk * Hc], output);
-    DECL_VLA_PTR_PT(float, in, [Nc][Hc * Hk], input);
+    auto out = GetVLAPtr<float>(output, {Nk, Hk * Hc});
+    auto in = GetVLAPtr<float>(input, {Nc, Hc * Hk});
     auto trans_tpp =
         SCOPEIT(XformExtTPP<float>(Hc, Hk, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
@@ -303,8 +303,8 @@ inline at::Tensor act_tensor_trans(
 #else
   auto output = input.new_empty({B, S1, N, H, S2});
   if (input.dtype() == at::kBFloat16) {
-    DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
-    DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
+    auto out = GetVLAPtr<bfloat16>(output, {H * S2});
+    auto in = GetVLAPtr<bfloat16>(input, {H * S2});
     auto trans_tpp =
         SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
@@ -315,8 +315,8 @@ inline at::Tensor act_tensor_trans(
       }
     }
   } else if (input.dtype() == at::kBFloat8) {
-    DECL_VLA_PTR_PT(bfloat8, out, [H * S2], output);
-    DECL_VLA_PTR_PT(bfloat8, in, [H * S2], input);
+    auto out = GetVLAPtr<bfloat8>(output, {H * S2});
+    auto in = GetVLAPtr<bfloat8>(input, {H * S2});
     auto trans_tpp =
         SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
@@ -345,8 +345,8 @@ inline at::Tensor act_tensor_trans(
 #else
   auto output = input.new_empty({S1, N, H, S2});
   if (input.dtype() == at::kBFloat16) {
-    DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
-    DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
+    auto out = GetVLAPtr<bfloat16>(output, {H * S2});
+    auto in = GetVLAPtr<bfloat16>(input, {H * S2});
     auto trans_tpp =
         SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
@@ -357,8 +357,8 @@ inline at::Tensor act_tensor_trans(
       }
     }
   } else if (input.dtype() == at::kBFloat8) {
-    DECL_VLA_PTR_PT(bfloat8, out, [H * S2], output);
-    DECL_VLA_PTR_PT(bfloat8, in, [H * S2], input);
+    auto out = GetVLAPtr<bfloat8>(output, {H * S2});
+    auto in = GetVLAPtr<bfloat8>(input, {H * S2});
     auto trans_tpp =
         SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
@@ -387,10 +387,10 @@ inline at::Tensor act_tensor_trans_compact(
 #else
   auto output = input.new_empty({N, S1, H, S2});
   if (input.dtype() == at::kBFloat16) {
-    DECL_VLA_PTR_PT(bfloat16, out, [S1][H * S2], output);
-    DECL_VLA_PTR_PT(bfloat16, in, [N][H * S2], input);
+    auto out = GetVLAPtr<bfloat16>(output, {S1, H * S2});
+    auto in = GetVLAPtr<bfloat16>(input, {N, H * S2});
     auto trans_tpp =
-      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+        SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -401,10 +401,10 @@ inline at::Tensor act_tensor_trans_compact(
       }
     }
   } else if (input.dtype() == at::kBFloat8) {
-    DECL_VLA_PTR_PT(bfloat8, out, [S1][H * S2], output);
-    DECL_VLA_PTR_PT(bfloat8, in, [N][H * S2], input);
+    auto out = GetVLAPtr<bfloat8>(output, {S1, H * S2});
+    auto in = GetVLAPtr<bfloat8>(input, {N, H * S2});
     auto trans_tpp =
-      SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
+        SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_XPOSE_TPP), XPOSE);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -439,8 +439,8 @@ inline at::Tensor act_tensor_n2v(
       .contiguous();
 #else
   auto output = input.new_empty({B, S1, N, S2 / BS, H, BS});
-  DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
-  DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
+  auto out = GetVLAPtr<bfloat16>(output, {H * S2});
+  auto in = GetVLAPtr<bfloat16>(input, {H * S2});
   auto n2v_tpp =
       SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
   {
@@ -469,8 +469,8 @@ inline at::Tensor act_tensor_n2v(
       .contiguous();
 #else
   auto output = input.new_empty({S1, N, S2 / BS, H, BS});
-  DECL_VLA_PTR_PT(bfloat16, out, [H * S2], output);
-  DECL_VLA_PTR_PT(bfloat16, in, [H * S2], input);
+  auto out = GetVLAPtr<bfloat16>(output, {H * S2});
+  auto in = GetVLAPtr<bfloat16>(input, {H * S2});
   auto n2v_tpp =
       SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
   {
@@ -498,10 +498,10 @@ inline at::Tensor act_tensor_n2v_compact(
 #else
   auto output = input.new_empty({N, S1, S2 / BS, H, BS});
   if (input.dtype() == at::kBFloat16) {
-    DECL_VLA_PTR_PT(bfloat16, out, [S1][H * S2], output);
-    DECL_VLA_PTR_PT(bfloat16, in, [N][H * S2], input);
+    auto out = GetVLAPtr<bfloat16>(output, {S1, H * S2});
+    auto in = GetVLAPtr<bfloat16>(input, {N, H * S2});
     auto n2v_tpp =
-      SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+        SCOPEIT(XformExtTPP<bfloat16>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -512,10 +512,10 @@ inline at::Tensor act_tensor_n2v_compact(
       }
     }
   } else if (input.dtype() == at::kBFloat8) {
-    DECL_VLA_PTR_PT(bfloat8, out, [S1][H * S2], output);
-    DECL_VLA_PTR_PT(bfloat8, in, [N][H * S2], input);
+    auto out = GetVLAPtr<bfloat8>(output, {S1, H * S2});
+    auto in = GetVLAPtr<bfloat8>(input, {N, H * S2});
     auto n2v_tpp =
-      SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
+        SCOPEIT(XformExtTPP<bfloat8>(S2, H, XformTPP::XFORM_N2V_TPP), VNNI);
     {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -560,7 +560,7 @@ inline void tensor_set_zero(long N, long sz, at::Tensor& input) {
 #else
   RECORD_SCOPE(zero, {input});
   if (input.dtype() == at::kFloat) {
-    DECL_VLA_PTR_PT(float, in, [sz], input);
+    auto in = GetVLAPtr<float>(input, {sz});
     auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(sz), EW_ZERO);
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -568,7 +568,7 @@ inline void tensor_set_zero(long N, long sz, at::Tensor& input) {
       set_zero_tpp(in[n]);
     }
   } else if (input.dtype() == at::kBFloat16) {
-    DECL_VLA_PTR_PT(bfloat16, in, [sz], input);
+    auto in = GetVLAPtr<bfloat16>(input, {sz});
     auto set_zero_tpp = SCOPEIT(SetZeroTPP<bfloat16>(sz), EW_ZERO);
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -576,7 +576,7 @@ inline void tensor_set_zero(long N, long sz, at::Tensor& input) {
       set_zero_tpp(in[n]);
     }
   } else {
-    DECL_VLA_PTR_PT(bfloat8, in, [sz], input);
+    auto in = GetVLAPtr<bfloat8>(input, {sz});
     auto set_zero_tpp = SCOPEIT(SetZeroTPP<bfloat8>(sz), EW_ZERO);
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for
@@ -602,5 +602,27 @@ class LToPBlockAccessMapper {
  private:
   long M, N;
 };
+
+template <typename Tin, typename Tout>
+inline void omp_reduce_buf(
+    int num_threads,
+    int N,
+    Tout** ptrs,
+    Tin* buf,
+    bool accumulate = false) {
+  ScopedTimer _t(EW_RED);
+#pragma omp for
+  for (int i = 0; i < N; i++) {
+    float sum = 0.0;
+    for (int j = 0; j < num_threads; j++) {
+      sum += ptrs[j][i];
+    }
+    if (accumulate) {
+      buf[i] += sum;
+    } else {
+      buf[i] = sum;
+    }
+  }
+}
 
 #endif // _TENSOR_HELPER_H_

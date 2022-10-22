@@ -51,22 +51,22 @@ if (t_grad_dout.dtype() != at::kFloat) {
 }
 auto gdout_blk = LToPBlockAccessMapper<T>(S1, Nk);
 
-DECL_VLA_PTR_PT(T, in_T, [Hc][S2], t_in_T);
-DECL_VLA_PTR_PT(T, grad_in2, [Nk][S2][Hk], t_grad_in2);
-DECL_VLA_PTR_PT(T, grad_in, [Nc][S2][Hc], t_grad_in);
-DECL_VLA_PTR_PT(T, wt_TV, [Nk][Hk * Hc], t_wt_TV);
-DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc][Hk], t_grad_wt);
-DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
-DECL_VLA_PTR_PT(LT, gamma, [Hk], t_gamma);
-DECL_VLA_PTR_PT(LT, grad_gamma, [Hk], t_grad_gamma);
-DECL_VLA_PTR_PT(LT, grad_beta, [Hk], t_grad_beta);
-DECL_VLA_PTR_PT(float, mean, [S2], t_mean);
-DECL_VLA_PTR_PT(float, var, [S2], t_var);
-DECL_VLA_PTR_PT(T, grad_dout, [Nk][S2][Hk], t_grad_dout);
-DECL_VLA_PTR_PT(T, grad_dout_V, [S2 * Hk], t_grad_dout_V);
-DECL_VLA_PTR_PT(T, dout, [Nk][S2][Hk], t_dout);
-DECL_VLA_PTR_PT(T, grad_out, [Nk][S2][Hk], t_grad_out);
-DECL_VLA_PTR_PT(short, dp_mask, [Nk][(S2 * Hk + 15) / 16], t_dp_mask);
+auto in_T = GetVLAPtr<T>(t_in_T, {Hc * S2});
+auto grad_in2 = GetVLAPtr<T>(t_grad_in2, {Nk, S2, Hk});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {Nc, S2* Hc});
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nk, Hk* Hc});
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc* Hk});
+auto grad_bias = GetVLAPtr<T>(t_grad_bias, {Hk});
+auto gamma = GetVLAPtr<LT>(t_gamma, {Hk});
+auto grad_gamma = GetVLAPtr<LT>(t_grad_gamma, {Hk});
+auto grad_beta = GetVLAPtr<LT>(t_grad_beta, {Hk});
+auto mean = GetVLAPtr<float>(t_mean, {S2});
+auto var = GetVLAPtr<float>(t_var, {S2});
+auto grad_dout = GetVLAPtr<T>(t_grad_dout, {Nk, S2* Hk});
+auto grad_dout_V = GetVLAPtr<T>(t_grad_dout_V, {S2 * Hk});
+auto dout = GetVLAPtr<T>(t_dout, {Nk, S2, Hk});
+auto grad_out = GetVLAPtr<T>(t_grad_out, {Nk, S2, Hk});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {Nk, (S2 * Hk + 15) / 16});
 
 constexpr long BS = 8;
 auto Nkb = Nk;
@@ -150,10 +150,10 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
         for (int nk = 0; nk < Nk; nk++) {
           if (p > 0) {
             drop_out_bwd_tpp(
-                grad_in2[s1][nk][0], grad_dout[s1][nk][0], dp_mask[s1][nk]);
+                grad_in2[s1][nk][0], grad_dout[s1][nk], dp_mask[s1][nk]);
           }
-          grad_bias_tpp(grad_dout[s1][nk][0], prv_grad_bias[nk]);
-          n2v_tpp(grad_dout[s1][nk][0], grad_dout_V[gdout_blk(s1, nk)]);
+          grad_bias_tpp(grad_dout[s1][nk], prv_grad_bias[nk]);
+          n2v_tpp(grad_dout[s1][nk], grad_dout_V[gdout_blk(s1, nk)]);
         }
       }
       omp_reduce_buf(num_threads, Nk * Hk, gamma_ptrs, grad_gamma[0]);
@@ -172,10 +172,10 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       for (int nc = 0; nc < Nc; nc++) {
         if (nk == 0)
           di_gemm_b0_tpp(
-              grad_dout[s1][nk][0], wt_TV[nc][nk], grad_in[s1][nc][0], Nkb);
+              grad_dout[s1][nk], wt_TV[nc][nk], grad_in[s1][nc], Nkb);
         else
           di_gemm_b1_tpp(
-              grad_dout[s1][nk][0], wt_TV[nc][nk], grad_in[s1][nc][0], Nkb);
+              grad_dout[s1][nk], wt_TV[nc][nk], grad_in[s1][nc], Nkb);
       }
     }
   }
@@ -185,23 +185,15 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
   di_loop(
       [&](int* ind) {
         int nk = ind[0], s1 = ind[1], nc = ind[2];
-        DECL_VLA_PTR_PT(T, grad_dout, [Nk][S2][Hk], t_grad_dout);
-        DECL_VLA_PTR_PT(T, wt_TV, [Nk][Hk * Hc], t_wt_TV);
-        DECL_VLA_PTR_PT(T, grad_in, [Nc][S2][Hc], t_grad_in);
+        // auto grad_dout = GetVLAPtr<T>(t_grad_dout, {Nk, S2 * Hk});
+        // auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nk, Hk * Hc});
+        // auto grad_in = GetVLAPtr<T>(t_grad_in, {Nc, S2, Hc});
         if (nk == 0)
           di_gemm_b0_tpp(
-              grad_dout[s1][nk][0],
-              wt_TV[nc][nk],
-              grad_in[s1][nc][0],
-              Nkb,
-              true);
+              grad_dout[s1][nk], wt_TV[nc][nk], grad_in[s1][nc], Nkb, true);
         else
           di_gemm_b1_tpp(
-              grad_dout[s1][nk][0],
-              wt_TV[nc][nk],
-              grad_in[s1][nc][0],
-              Nkb,
-              true);
+              grad_dout[s1][nk], wt_TV[nc][nk], grad_in[s1][nc], Nkb, true);
       },
       [&]() { di_gemm_b0_tpp.config(); },
       [&]() { di_gemm_b0_tpp.release(); });
@@ -235,9 +227,9 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       [&](int* ind) {
         int s1 = ind[0], nc = ind[1], nk = ind[2];
         int count = (s1 + BS <= S1 ? BS : S1 - s1);
-        DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc * Hk], t_grad_wt);
-        DECL_VLA_PTR_PT(T, in_T, [Hc * S2], t_in_T);
-        DECL_VLA_PTR_PT(T, grad_dout_V, [S2 * Hk], t_grad_dout_V);
+        // auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc * Hk});
+        // auto in_T = GetVLAPtr<T>(t_in_T, {Hc * S2});
+        // auto grad_dout_V = GetVLAPtr<T>(t_grad_dout_V, {S2 * Hk});
         if (s1 == 0)
           dw_set_zero_tpp(grad_wt[nk][nc]);
 #if 1

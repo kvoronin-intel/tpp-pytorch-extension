@@ -49,25 +49,25 @@ if (t_grad_dout.dtype() == at::kBFloat16) {
   t_grad_dout_V = t_grad_out.new_empty({B, S1, Nk, S2 / 2, Hk, 2});
 }
 
-// DECL_VLA_PTR_PT(T, in, [S1][Nc][S2][Hc], t_in);
-DECL_VLA_PTR_PT(T, in_T, [S1][Nc][Hc][S2], t_in_T);
-DECL_VLA_PTR_PT(T, grad_in2, [S1][Nk][S2][Hk], t_grad_in2);
-DECL_VLA_PTR_PT(T, grad_in, [S1][Nc][S2][Hc], t_grad_in);
-// DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk / 2][Hc][2], t_wt_TV);
-DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
-DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc][Hk], t_grad_wt);
-DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
-DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
-DECL_VLA_PTR_PT(T, grad_gamma, [Hk], t_grad_gamma);
-DECL_VLA_PTR_PT(T, grad_beta, [Hk], t_grad_beta);
-DECL_VLA_PTR_PT(float, mean, [S1][S2], t_mean);
-DECL_VLA_PTR_PT(float, var, [S1][S2], t_var);
-DECL_VLA_PTR_PT(T, grad_dout, [S1][Nk][S2][Hk], t_grad_dout);
-// DECL_VLA_PTR_PT(T, grad_dout_V, [S1][Nk][S2 / 2][Hk][2], t_grad_dout_V);
-DECL_VLA_PTR_PT(T, grad_dout_V, [S1][Nk][S2 * Hk], t_grad_dout_V);
-DECL_VLA_PTR_PT(T, dout, [S1][Nk][S2][Hk], t_dout);
-DECL_VLA_PTR_PT(T, grad_out, [S1][Nk][S2][Hk], t_grad_out);
-DECL_VLA_PTR_PT(short, dp_mask, [S1][Nk][(S2 * Hk + 15) / 16], t_dp_mask);
+// auto  in = GetVLAPtr<T>( t_in, { S1, Nc, S2, Hc});
+auto in_T = GetVLAPtr<T>(t_in_T, {S1, Nc, Hc, S2});
+auto grad_in2 = GetVLAPtr<T>(t_grad_in2, {S1, Nk, S2, Hk});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {S1, Nc, S2, Hc});
+// auto  wt_TV = GetVLAPtr<T>( t_wt_TV, { Nc, Hk / 2, Hc, 2});
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nc, Hk* Hc});
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc, Hk});
+auto grad_bias = GetVLAPtr<T>(t_grad_bias, {Hk});
+auto gamma = GetVLAPtr<T>(t_gamma, {Hk});
+auto grad_gamma = GetVLAPtr<T>(t_grad_gamma, {Hk});
+auto grad_beta = GetVLAPtr<T>(t_grad_beta, {Hk});
+auto mean = GetVLAPtr<float>(t_mean, {S1, S2});
+auto var = GetVLAPtr<float>(t_var, {S1, S2});
+auto grad_dout = GetVLAPtr<T>(t_grad_dout, {S1, Nk, S2, Hk});
+// auto  grad_dout_V = GetVLAPtr<T>( t_grad_dout_V, { S1, Nk, S2 / 2, Hk, 2});
+auto grad_dout_V = GetVLAPtr<T>(t_grad_dout_V, {S1, Nk, S2* Hk});
+auto dout = GetVLAPtr<T>(t_dout, {S1, Nk, S2, Hk});
+auto grad_out = GetVLAPtr<T>(t_grad_out, {S1, Nk, S2, Hk});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {S1, Nk, (S2 * Hk + 15) / 16});
 
 auto Nkb = Nk;
 if (Nk > Nc && Nk % Nc == 0) {

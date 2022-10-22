@@ -10,9 +10,9 @@
 
   auto t_out = t_in.new_empty({N, E});
 
-  DECL_VLA_PTR_PT(T, in, [E], t_in);
-  DECL_VLA_PTR_PT(T, out, [bn][E], t_out);
-  DECL_VLA_PTR_PT(int64_t, idx, [bn], t_idx);
+  auto in = GetVLAPtr<T>(t_in, {E});
+  auto out = GetVLAPtr<T>(t_out, {bn, E});
+  auto idx = GetVLAPtr<int64_t>(t_idx, {bn});
 
   auto gather_tpp =
       SCOPEIT((EmbeddingFwdTPP<T, int64_t, T>(bn, E, E, E)), ROW_GT);
@@ -27,8 +27,8 @@
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(int64_t, idx, [1], t_idx);
-      DECL_VLA_PTR_PT(T, out, [E], t_out);
+      auto idx = GetVLAPtr<int64_t>(t_idx, {1});
+      auto out = GetVLAPtr<T>(t_out, {E});
       auto gather_tpp =
           SCOPEIT((EmbeddingFwdTPP<T, int64_t, T>(rem, E, E, E)), ROW_GT);
       gather_tpp(in[0], idx[nn * bn], out[nn * bn]);

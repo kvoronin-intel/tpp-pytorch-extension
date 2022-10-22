@@ -18,11 +18,11 @@ if (training) {
   t_out = t_in.new_empty({B, S1, Nk, S2, Hk});
 }
 
-DECL_VLA_PTR_PT(T, in, [S1][Nc][S2 * Hc], t_in);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(T, out, [S1][Nk][S2 * Hk], t_out);
-DECL_VLA_PTR_PT(T, gelu_out, [S1][Nk][S2 * Hk], t_gelu_out);
+auto in = GetVLAPtr<T>(t_in, {S1, Nc, S2* Hc});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc* Hk});
+auto bias = GetVLAPtr<T>(t_bias, {Hk});
+auto out = GetVLAPtr<T>(t_out, {S1, Nk, S2* Hk});
+auto gelu_out = GetVLAPtr<T>(t_gelu_out, {S1, Nk, S2* Hk});
 
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {

@@ -51,7 +51,18 @@ def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
         # which are not required for using pretrained model
         if any(
             # n in ["adam_v", "adam_m", "AdamWeightDecayOptimizer", "AdamWeightDecayOptimizer_1", "global_step"]
-            n in ["adam_v", "adam_m", "AdamWeightDecayOptimizer", "AdamWeightDecayOptimizer_1", "global_step", "LAMB", "LAMB_1", "beta1_power", "beta2_power"]
+            n
+            in [
+                "adam_v",
+                "adam_m",
+                "AdamWeightDecayOptimizer",
+                "AdamWeightDecayOptimizer_1",
+                "global_step",
+                "LAMB",
+                "LAMB_1",
+                "beta1_power",
+                "beta2_power",
+            ]
             for n in name
         ):
             logger.info(f"Skipping {'/'.join(name)}")
@@ -85,7 +96,9 @@ def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
             array = np.transpose(array)
         try:
             if pointer.shape != array.shape:
-                raise ValueError(f"Pointer shape {pointer.shape} and array shape {array.shape} mismatched")
+                raise ValueError(
+                    f"Pointer shape {pointer.shape} and array shape {array.shape} mismatched"
+                )
         except AssertionError as e:
             e.args += (pointer.shape, array.shape)
             raise

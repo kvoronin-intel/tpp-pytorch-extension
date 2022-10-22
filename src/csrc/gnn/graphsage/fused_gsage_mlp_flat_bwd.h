@@ -54,8 +54,8 @@ if (t_wt.dtype() == at::kBFloat16) {
 }
 
 int rd = (bk + 15) / 16;
-DECL_VLA_PTR_PT(short, relu_mask, [bn][nk][rd], t_relu_mask);
-DECL_VLA_PTR_PT(short, dp_mask, [bn][nk][rd], t_dp_mask);
+auto relu_mask = GetVLAPtr<short>(t_relu_mask, {bn, nk, rd});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {bn, nk, rd});
 
 const auto input_trans_flag =
     (t_in.dtype() == at::kFloat ? XformTPP::XFORM_XPOSE_TPP
@@ -96,24 +96,24 @@ at::Tensor t_grad_out_f32 = t_grad_out;
 if (t_grad_out.dtype() == at::kBFloat16)
   t_grad_out_f32 = at::empty({N, K});
 
-DECL_VLA_PTR_PT(T, grad_out, [bn][nk][bk], t_grad_out);
-DECL_VLA_PTR_PT(float, grad_out_f32, [bn][nk][bk], t_grad_out_f32);
+auto grad_out = GetVLAPtr<T>(t_grad_out, {bn, nk, bk});
+auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {bn, nk, bk});
 
-DECL_VLA_PTR_PT(T, grad_in, [bn][nc][bc], t_grad_in);
-DECL_VLA_PTR_PT(T, grad_in_res, [bn][nc][bc], t_grad_in_res);
+auto grad_in = GetVLAPtr<T>(t_grad_in, {bn, nc, bc});
+auto grad_in_res = GetVLAPtr<T>(t_grad_in_res, {bn, nc, bc});
 
 // del-weights and weights in blocked layout
-DECL_VLA_PTR_PT(T, grad_wt, [nc][bc * bk], t_grad_wt);
-DECL_VLA_PTR_PT(T, grad_wt_res, [nc][bc * bk], t_grad_wt_res);
-DECL_VLA_PTR_PT(float, grad_wt_tmp, [nc][bc * bk], t_grad_wt_tmp);
-DECL_VLA_PTR_PT(float, grad_wt_res_tmp, [nc][bc * bk], t_grad_wt_res_tmp);
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {nc, bc* bk});
+auto grad_wt_res = GetVLAPtr<T>(t_grad_wt_res, {nc, bc* bk});
+auto grad_wt_tmp = GetVLAPtr<float>(t_grad_wt_tmp, {nc, bc* bk});
+auto grad_wt_res_tmp = GetVLAPtr<float>(t_grad_wt_res_tmp, {nc, bc* bk});
 
-DECL_VLA_PTR_PT(T, wt_TV, [nc][bkp * bc], t_wt_TV);
-DECL_VLA_PTR_PT(T, wt_res_TV, [nc][bkp * bc], t_wt_res_TV);
-DECL_VLA_PTR_PT(T, grad_bias, [bk], t_grad_bias);
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {nc, bkp* bc});
+auto wt_res_TV = GetVLAPtr<T>(t_wt_res_TV, {nc, bkp* bc});
+auto grad_bias = GetVLAPtr<T>(t_grad_bias, {bk});
 
-DECL_VLA_PTR_PT(T, in, [bn][nc][bc], t_in); // flat layout for fp32
-DECL_VLA_PTR_PT(T, in_res, [bn][nc][bc], t_in_res); // flat layout for fp32
+auto in = GetVLAPtr<T>(t_in, {bn, nc, bc}); // flat layout for fp32
+auto in_res = GetVLAPtr<T>(t_in_res, {bn, nc, bc}); // flat layout for fp32
 
 auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(nk * bk), EW_ZERO);
 auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(bn, 1, bkp), EW_ZERO);
@@ -210,10 +210,10 @@ if (apply_bias) {
         omp_reduce_buf(threads, nk * bk, bias_ptrs, grad_bias[0]);
       }
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
-        DECL_VLA_PTR_PT(float, grad_out_f32, [nk][bk], t_grad_out_f32);
-        DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-        DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+        auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bk});
+        auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {nk, bk});
+        auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
         auto dropout_bwd_tpp =
             SCOPEIT((DropOutBwdTPP<T, float>(1, bk, K, K, p)), DROPOUT);
@@ -279,10 +279,10 @@ if (apply_bias) {
         }
       }
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
-        DECL_VLA_PTR_PT(float, grad_out_f32, [nk][bk], t_grad_out_f32);
-        DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-        DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+        auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bk});
+        auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {nk, bk});
+        auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
         auto dropout_bwd_tpp =
             SCOPEIT((DropOutBwdTPP<T, float>(1, bk, K, K, p)), DROPOUT);
@@ -384,9 +384,9 @@ if (apply_bias) {
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
-      DECL_VLA_PTR_PT(T, grad_in, [nc][bc], t_grad_in);
-      DECL_VLA_PTR_PT(T, grad_in_res, [nc][bc], t_grad_in_res);
+      auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bk});
+      auto grad_in = GetVLAPtr<T>(t_grad_in, {nc, bc});
+      auto grad_in_res = GetVLAPtr<T>(t_grad_in_res, {nc, bc});
 
       auto set_zero_col_tpp = SCOPEIT(SetZeroTPP<T>(rem, 1, bkp), EW_ZERO);
       auto cpy_tpp = SCOPEIT(CpyTPP<T>(rem, bk, bk, bkp), EW_COPY);
@@ -482,9 +482,9 @@ auto trans_tpp = SCOPEIT(
         at::empty({upd_n_weight_copies, nk, nc, bc * bk});
     at::Tensor t_grad_wt_res_priv =
         at::empty({upd_n_weight_copies, nk, nc, bc * bk});
-    DECL_VLA_PTR_PT(float, grad_wt_priv, [nk][nc][bc * bk], t_grad_wt_priv);
-    DECL_VLA_PTR_PT(
-        float, grad_wt_res_priv, [nk][nc][bc * bk], t_grad_wt_res_priv);
+    auto grad_wt_priv = GetVLAPtr<float>(t_grad_wt_priv, {nk, nc, bc * bk});
+    auto grad_wt_res_priv =
+        GetVLAPtr<float>(t_grad_wt_res_priv, {nk, nc, bc * bk});
 
     at::Tensor t_global_tmp_go = at::empty(0);
     at::Tensor t_global_tmp_inT = at::empty(0);
@@ -498,15 +498,12 @@ auto trans_tpp = SCOPEIT(
       t_global_tmp_in_resT =
           at::empty({threads, nc, (nn / BF + 1), bnp * bc}, at::kBFloat16);
     }
-    DECL_VLA_PTR_PT(
-        T, global_tmp_go, [(nn / BF + 1)][bnp * bk], t_global_tmp_go);
-    DECL_VLA_PTR_PT(
-        T, global_tmp_inT, [nc][(nn / BF + 1)][bnp * bc], t_global_tmp_inT);
-    DECL_VLA_PTR_PT(
-        T,
-        global_tmp_in_resT,
-        [nc][(nn / BF + 1)][bnp * bc],
-        t_global_tmp_in_resT);
+    auto global_tmp_go =
+        GetVLAPtr<T>(t_global_tmp_go, {(nn / BF + 1), bnp * bk});
+    auto global_tmp_inT =
+        GetVLAPtr<T>(t_global_tmp_inT, {nc, (nn / BF + 1), bnp * bc});
+    auto global_tmp_in_resT =
+        GetVLAPtr<T>(t_global_tmp_in_resT, {nc, (nn / BF + 1), bnp * bc});
 
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel
@@ -638,9 +635,9 @@ auto trans_tpp = SCOPEIT(
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [nk][bk], t_grad_out);
-      DECL_VLA_PTR_PT(T, in, [nc][bc], t_in);
-      DECL_VLA_PTR_PT(T, in_res, [nc][bc], t_in_res);
+      auto grad_out = GetVLAPtr<T>(t_grad_out, {nk, bk});
+      auto in = GetVLAPtr<T>(t_in, {nc, bc});
+      auto in_res = GetVLAPtr<T>(t_in_res, {nc, bc});
       auto brgemm_dw_f32_tpp_b1 = SCOPEITGEMM2((BrgemmTPP<T, float>(
           bc,
           bk,

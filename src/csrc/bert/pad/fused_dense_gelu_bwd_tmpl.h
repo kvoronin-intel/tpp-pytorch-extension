@@ -31,15 +31,15 @@ if (t_grad_gelu.dtype() == at::kBFloat16) {
   t_grad_gelu_V = t_grad_out.new_empty({B, S1, Nk, S2 / 2, Hk, 2});
 }
 
-DECL_VLA_PTR_PT(T, in_T, [S1][Nc][Hc * S2], t_in_T);
-DECL_VLA_PTR_PT(T, gelu_in, [S1][Nk][S2 * Hk], t_gelu_in);
-DECL_VLA_PTR_PT(T, grad_in, [S1][Nc][S2 * Hc], t_grad_in);
-DECL_VLA_PTR_PT(T, wt_TV, [Nc][Hk * Hc], t_wt_TV);
-DECL_VLA_PTR_PT(T, grad_wt, [Nc][Hc * Hk], t_grad_wt);
-DECL_VLA_PTR_PT(T, grad_bias, [Hk], t_grad_bias);
-DECL_VLA_PTR_PT(T, grad_gelu, [S1][Nk][S2 * Hk], t_grad_gelu);
-DECL_VLA_PTR_PT(T, grad_out, [S1][Nk][S2 * Hk], t_grad_out);
-DECL_VLA_PTR_PT(T, grad_gelu_V, [S1][Nk][S2 * Hk], t_grad_gelu_V);
+auto in_T = GetVLAPtr<T>(t_in_T, {S1, Nc, Hc* S2});
+auto gelu_in = GetVLAPtr<T>(t_gelu_in, {S1, Nk, S2* Hk});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {S1, Nc, S2* Hc});
+auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nc, Hk* Hc});
+auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc* Hk});
+auto grad_bias = GetVLAPtr<T>(t_grad_bias, {Hk});
+auto grad_gelu = GetVLAPtr<T>(t_grad_gelu, {S1, Nk, S2* Hk});
+auto grad_out = GetVLAPtr<T>(t_grad_out, {S1, Nk, S2* Hk});
+auto grad_gelu_V = GetVLAPtr<T>(t_grad_gelu_V, {S1, Nk, S2* Hk});
 
 auto Nkb = Nk;
 if (Nk > Nc && Nk % Nc == 0) {

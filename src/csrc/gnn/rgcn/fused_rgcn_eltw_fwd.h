@@ -53,15 +53,15 @@ if (self_loop) {
   at::Tensor t_relu_mask = at::empty({N, nk * rd}, at::kShort);
   at::Tensor t_dp_mask = at::empty({N, nk * rd}, at::kShort);
 
-  DECL_VLA_PTR_PT(T, in, [bn][nk][bk], t_in);
-  DECL_VLA_PTR_PT(T, in_dst, [bn][nc][bcp], t_in_dst);
-  DECL_VLA_PTR_PT(T, wt_V, [nc][bcp * bk], t_wt_V);
-  DECL_VLA_PTR_PT(float, bias, [bk], t_bias);
-  DECL_VLA_PTR_PT(T, out, [bn][nk][bk], t_out);
-  DECL_VLA_PTR_PT(float, out_f32, [bn][nk][bk], t_out_f32);
-  DECL_VLA_PTR_PT(float, in_f32, [bn][nk][bk], t_in_f32);
-  DECL_VLA_PTR_PT(short, relu_mask, [bn][nk][rd], t_relu_mask);
-  DECL_VLA_PTR_PT(short, dp_mask, [bn][nk][rd], t_dp_mask);
+  auto in = GetVLAPtr<T>(t_in, {bn, nk, bk});
+  auto in_dst = GetVLAPtr<T>(t_in_dst, {bn, nc, bcp});
+  auto wt_V = GetVLAPtr<T>(t_wt_V, {nc, bcp * bk});
+  auto bias = GetVLAPtr<float>(t_bias, {bk});
+  auto out = GetVLAPtr<T>(t_out, {bn, nk, bk});
+  auto out_f32 = GetVLAPtr<float>(t_out_f32, {bn, nk, bk});
+  auto in_f32 = GetVLAPtr<float>(t_in_f32, {bn, nk, bk});
+  auto relu_mask = GetVLAPtr<short>(t_relu_mask, {bn, nk, rd});
+  auto dp_mask = GetVLAPtr<short>(t_dp_mask, {bn, nk, rd});
 
   auto relu_fwd_tpp =
       SCOPEIT(ReLUFwdTPP<float>(bn, bk, nk * bk, nk * bk, true), ACT);
@@ -115,13 +115,13 @@ if (self_loop) {
         brgemm_tpp.release();
       }
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, in, [nk][bk], t_in);
-        DECL_VLA_PTR_PT(T, in_dst, [nc][bcp], t_in_dst);
-        DECL_VLA_PTR_PT(T, out, [nk][bk], t_out);
-        DECL_VLA_PTR_PT(float, out_f32, [nk][bk], t_out_f32);
-        DECL_VLA_PTR_PT(float, in_f32, [nk][bk], t_in_f32);
-        DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-        DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+        auto in = GetVLAPtr<T>(t_in, {nk, bk});
+        auto in_dst = GetVLAPtr<T>(t_in_dst, {nc, bcp});
+        auto out = GetVLAPtr<T>(t_out, {nk, bk});
+        auto out_f32 = GetVLAPtr<float>(t_out_f32, {nk, bk});
+        auto in_f32 = GetVLAPtr<float>(t_in_f32, {nk, bk});
+        auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
         auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
             rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 1.0, 0, nc)));
@@ -209,13 +209,13 @@ if (self_loop) {
         brgemm_tpp.release();
       }
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, in, [nk][bk], t_in);
-        DECL_VLA_PTR_PT(T, in_dst, [nc][bcp], t_in_dst);
-        DECL_VLA_PTR_PT(T, out, [nk][bk], t_out);
-        DECL_VLA_PTR_PT(float, out_f32, [nk][bk], t_out_f32);
-        DECL_VLA_PTR_PT(float, in_f32, [nk][bk], t_in_f32);
-        DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-        DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+        auto in = GetVLAPtr<T>(t_in, {nk, bk});
+        auto in_dst = GetVLAPtr<T>(t_in_dst, {nc, bcp});
+        auto out = GetVLAPtr<T>(t_out, {nk, bk});
+        auto out_f32 = GetVLAPtr<float>(t_out_f32, {nk, bk});
+        auto in_f32 = GetVLAPtr<float>(t_in_f32, {nk, bk});
+        auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
         auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
             rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));
@@ -285,11 +285,11 @@ if (self_loop) {
   at::Tensor t_relu_mask = at::empty({N, rd}, at::kShort);
   at::Tensor t_dp_mask = at::empty({N, rd}, at::kShort);
 
-  DECL_VLA_PTR_PT(T, in, [bn][C], t_in);
-  DECL_VLA_PTR_PT(float, in_f32, [bn][C], t_in_f32);
-  DECL_VLA_PTR_PT(float, bias, [C], t_bias);
-  DECL_VLA_PTR_PT(short, relu_mask, [bn][rd], t_relu_mask);
-  DECL_VLA_PTR_PT(short, dp_mask, [bn][rd], t_dp_mask);
+  auto in = GetVLAPtr<T>(t_in, {bn, C});
+  auto in_f32 = GetVLAPtr<float>(t_in_f32, {bn, C});
+  auto bias = GetVLAPtr<float>(t_bias, {C});
+  auto relu_mask = GetVLAPtr<short>(t_relu_mask, {bn, rd});
+  auto dp_mask = GetVLAPtr<short>(t_dp_mask, {bn, rd});
 
   auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, C)), EW_COPY);
   auto relu_fwd_tpp = SCOPEIT(ReLUFwdTPP<float>(bn, C, true), ACT);
@@ -315,10 +315,10 @@ if (self_loop) {
           cvt_tpp(in_f32[n][0], in[n][0]);
       }
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, in, [C], t_in);
-        DECL_VLA_PTR_PT(float, in_f32, [C], t_in_f32);
-        DECL_VLA_PTR_PT(short, relu_mask, [rd], t_relu_mask);
-        DECL_VLA_PTR_PT(short, dp_mask, [rd], t_dp_mask);
+        auto in = GetVLAPtr<T>(t_in, {C});
+        auto in_f32 = GetVLAPtr<float>(t_in_f32, {C});
+        auto relu_mask = GetVLAPtr<short>(t_relu_mask, {rd});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {rd});
 
         auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(rem, C)), EW_COPY);
         auto add_bias_tpp = SCOPEIT(AddBiasTPP<float>(rem, C), BIAS);
@@ -359,10 +359,10 @@ if (self_loop) {
           cvt_tpp(in_f32[n][0], in[n][0]);
       }
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, in, [C], t_in);
-        DECL_VLA_PTR_PT(float, in_f32, [C], t_in_f32);
-        DECL_VLA_PTR_PT(short, relu_mask, [rd], t_relu_mask);
-        DECL_VLA_PTR_PT(short, dp_mask, [rd], t_dp_mask);
+        auto in = GetVLAPtr<T>(t_in, {C});
+        auto in_f32 = GetVLAPtr<float>(t_in_f32, {C});
+        auto relu_mask = GetVLAPtr<short>(t_relu_mask, {rd});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {rd});
 
         auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(rem, C)), EW_COPY);
         auto relu_fwd_tpp = SCOPEIT(ReLUFwdTPP<float>(rem, C, true), ACT);

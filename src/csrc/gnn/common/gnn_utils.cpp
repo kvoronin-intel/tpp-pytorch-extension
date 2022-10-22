@@ -45,7 +45,7 @@ void lfsr_Xwide(unsigned int* rng_state, unsigned int* prng_out, int width) {
 #else
   const unsigned int state_ld = 16;
   int w = res > 0 ? res : 16;
-  for(int i=0; i<w; i++) {
+  for (int i = 0; i < w; i++) {
     auto s0 = rng_state[i + (0 * state_ld)];
     auto s1 = rng_state[i + (1 * state_ld)];
     auto s2 = rng_state[i + (2 * state_ld)];
@@ -352,8 +352,8 @@ void mapped_spmm_copy_lhs_add(std::vector<at::Tensor> inputs, long soff) {
 
   if (t_source.dtype() == at::kFloat) {
     typedef float T;
-    DECL_VLA_PTR_PT(T, source, [F], t_source);
-    DECL_VLA_PTR_PT(T, dest, [F], t_dest);
+    auto source = GetVLAPtr<T>(t_source, {F});
+    auto dest = GetVLAPtr<T>(t_dest, {F});
 
     auto add_tpp = AddTPP<T, T>(1, F);
 
@@ -372,8 +372,8 @@ void mapped_spmm_copy_lhs_add(std::vector<at::Tensor> inputs, long soff) {
     }
   } else if (t_source.dtype() == at::kBFloat16) {
     typedef bfloat16 T;
-    DECL_VLA_PTR_PT(T, source, [F], t_source);
-    DECL_VLA_PTR_PT(T, dest, [F], t_dest);
+    auto source = GetVLAPtr<T>(t_source, {F});
+    auto dest = GetVLAPtr<T>(t_dest, {F});
 
     auto add_tpp = AddTPP<T, T>(1, F);
 

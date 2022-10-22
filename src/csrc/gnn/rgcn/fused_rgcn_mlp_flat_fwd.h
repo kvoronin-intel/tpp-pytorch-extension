@@ -38,12 +38,12 @@ if (t_wt.dtype() == at::kBFloat16) {
 
 auto t_wt_V = wt_tensor_for_fwd(nk, bk, nc, bc, t_wt);
 
-DECL_VLA_PTR_PT(T, in, [bn][nc][bcp], t_in);
-DECL_VLA_PTR_PT(T, wt_V, [nc][bcp * bk], t_wt_V);
-DECL_VLA_PTR_PT(float, degs, [bn], t_degs);
-DECL_VLA_PTR_PT(float, norm, [bn], t_norm);
-DECL_VLA_PTR_PT(float, out_f32, [bn][nk][bk], t_out_f32);
-DECL_VLA_PTR_PT(T, out, [bn][nk][bk], t_out);
+auto in = GetVLAPtr<T>(t_in, {bn, nc, bcp});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {nc, bcp* bk});
+auto degs = GetVLAPtr<float>(t_degs, {bn});
+auto norm = GetVLAPtr<float>(t_norm, {bn});
+auto out_f32 = GetVLAPtr<float>(t_out_f32, {bn, nk, bk});
+auto out = GetVLAPtr<T>(t_out, {bn, nk, bk});
 
 auto brgemm_tpp = SCOPEITGEMM(
     (BrgemmTPP<
@@ -92,11 +92,11 @@ auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, bk, K, K)), EW_MUL);
       brgemm_tpp.release();
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, in, [nc][bcp], t_in);
-      DECL_VLA_PTR_PT(T, out, [nk][bk], t_out);
-      DECL_VLA_PTR_PT(float, out_f32, [nk][bk], t_out_f32);
-      DECL_VLA_PTR_PT(float, degs, [1], t_degs);
-      DECL_VLA_PTR_PT(float, norm, [1], t_norm);
+      auto in = GetVLAPtr<T>(t_in, {nc, bcp});
+      auto out = GetVLAPtr<T>(t_out, {nk, bk});
+      auto out_f32 = GetVLAPtr<float>(t_out_f32, {nk, bk});
+      auto degs = GetVLAPtr<float>(t_degs, {1});
+      auto norm = GetVLAPtr<float>(t_norm, {1});
 
       auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));

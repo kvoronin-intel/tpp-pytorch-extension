@@ -107,8 +107,8 @@ void dense_sparse_add_tmpl(
 
   PCL_ASSERT(t_dense.is_contiguous(), "dense tensor must be contiguous\n");
   // Not using below due to spurious compiler warnings
-  // DECL_VLA_PTR_PT(scalar_t, dense, [E], t_dense);
-  // DECL_VLA_PTR_PT(scalar_t, values, [E], t_values);
+  // auto  dense = GetVLAPtr<scalar_t>( t_dense, { E});
+  // auto  values = GetVLAPtr<scalar_t>( t_values, { E});
   auto dense = t_dense.data_ptr<scalar_t>();
   auto values = t_values.data_ptr<scalar_t>();
   auto indices = t_indices.data_ptr<long>();
@@ -600,12 +600,12 @@ void fused_lamb_v2_impl(
     bool fused_param_norm) {
   const int BS = block_size;
   auto num_blocks = t_data.numel() / block_size;
-  DECL_VLA_PTR_PT(T, d, [BS], t_data);
-  DECL_VLA_PTR_PT(T, g, [BS], t_grad);
-  DECL_VLA_PTR_PT(T, m, [BS], t_exp_avg);
-  DECL_VLA_PTR_PT(T, v, [BS], t_exp_avg_sq);
-  DECL_VLA_PTR_PT(T, u, [BS], t_adam_step);
-  DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
+  auto d = GetVLAPtr<T>(t_data, {BS});
+  auto g = GetVLAPtr<T>(t_grad, {BS});
+  auto m = GetVLAPtr<T>(t_exp_avg, {BS});
+  auto v = GetVLAPtr<T>(t_exp_avg_sq, {BS});
+  auto u = GetVLAPtr<T>(t_adam_step, {BS});
+  auto dl = GetVLAPtr<T>(t_data_low, {BS});
   // auto sz = t_block_sizes.data_ptr<int>();
   auto b2p = t_block2param.data_ptr<int>();
   auto wnorm = t_weight_norms.data_ptr<TN>();

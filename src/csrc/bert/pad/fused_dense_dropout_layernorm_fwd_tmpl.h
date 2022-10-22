@@ -33,18 +33,18 @@ auto t_var = t_gamma.new_empty({B, S1, S2}, at::kFloat);
 if (p > 0)
   t_dp_mask = at::empty({B, S1, Nk, (S2 * Hk + 15) / 16}, at::kShort);
 
-DECL_VLA_PTR_PT(T, in, [S1][Nc][S2][Hc], t_in);
-DECL_VLA_PTR_PT(T, in2, [S1][Nk][S2][Hk], t_in2);
-// DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc / 2][Hk][2], t_wt_V);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(T, gamma, [Hk], t_gamma);
-DECL_VLA_PTR_PT(T, beta, [Hk], t_beta);
-DECL_VLA_PTR_PT(float, mean, [S1][S2], t_mean);
-DECL_VLA_PTR_PT(float, var, [S1][S2], t_var);
-DECL_VLA_PTR_PT(T, dout, [S1][Nk][S2][Hk], t_dout);
-DECL_VLA_PTR_PT(T, out, [S1][Nk][S2][Hk], t_out);
-DECL_VLA_PTR_PT(short, dp_mask, [S1][Nk][(S2 * Hk + 15) / 16], t_dp_mask);
+auto in = GetVLAPtr<T>(t_in, {S1, Nc, S2, Hc});
+auto in2 = GetVLAPtr<T>(t_in2, {S1, Nk, S2, Hk});
+// auto  wt_V = GetVLAPtr<T>( t_wt_V, { Nc, Hc / 2, Hk, 2});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc* Hk});
+auto bias = GetVLAPtr<T>(t_bias, {Hk});
+auto gamma = GetVLAPtr<T>(t_gamma, {Hk});
+auto beta = GetVLAPtr<T>(t_beta, {Hk});
+auto mean = GetVLAPtr<float>(t_mean, {S1, S2});
+auto var = GetVLAPtr<float>(t_var, {S1, S2});
+auto dout = GetVLAPtr<T>(t_dout, {S1, Nk, S2, Hk});
+auto out = GetVLAPtr<T>(t_out, {S1, Nk, S2, Hk});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {S1, Nk, (S2 * Hk + 15) / 16});
 
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {

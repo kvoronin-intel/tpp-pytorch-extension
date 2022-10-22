@@ -29,9 +29,9 @@ if (t_wt.dtype() == at::kBFloat16) {
 auto t_wt_V = wt_tensor_for_fwd(nk, bk, nc, bc, t_wt);
 auto t_out = t_in.new_empty({N, K});
 
-DECL_VLA_PTR_PT(T, in, [bn][nc][bcp], t_in);
-DECL_VLA_PTR_PT(T, out, [bn][nk][bk], t_out);
-DECL_VLA_PTR_PT(T, wt_V, [nc][bcp * bk], t_wt_V);
+auto in = GetVLAPtr<T>(t_in, {bn, nc, bcp});
+auto out = GetVLAPtr<T>(t_out, {bn, nk, bk});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {nc, bcp* bk});
 
 auto brgemm_tpp = SCOPEITGEMM(
     (BrgemmTPP<
@@ -62,8 +62,8 @@ auto brgemm_tpp = SCOPEITGEMM(
       brgemm_tpp.release();
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, in, [nc][bcp], t_in);
-      DECL_VLA_PTR_PT(T, out, [nk][bk], t_out);
+      auto in = GetVLAPtr<T>(t_in, {nc, bcp});
+      auto out = GetVLAPtr<T>(t_out, {nk, bk});
 
       auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, T>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 0.0, 0, nc)));

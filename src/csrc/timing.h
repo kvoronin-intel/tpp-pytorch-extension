@@ -140,7 +140,7 @@ class GlobalPass {
   double start;
 };
 
-//#define DEBUG_TRACE_TPP
+// #define DEBUG_TRACE_TPP
 #ifdef DEBUG_TRACE_TPP
 static thread_local std::string prev_class_name = "";
 #endif

@@ -771,9 +771,12 @@ def setup_training(args):
         if args.dist_backend == "ccl":
             try:
                 import oneccl_bindings_for_pytorch
-                #import torch_ccl
+
+                # import torch_ccl
             except:
-                print("CCL backend requested but import oneccl_bindings_for_pytorch failed")
+                print(
+                    "CCL backend requested but import oneccl_bindings_for_pytorch failed"
+                )
                 raise
         elif args.dist_backend == "mpi":
             if not torch.distributed.is_mpi_available():
@@ -848,11 +851,16 @@ def prepare_model_and_optimizer(args, device):
     if args.use_pcl:
         pcl_bert.block(model)
 
-    #Log weight initializations
+    # Log weight initializations
     if not args.model_name_or_path == "":
-        checkpoint=torch.load(args.model_name_or_path + '/' + "pytorch_model.bin", map_location="cpu")
+        checkpoint = torch.load(
+            args.model_name_or_path + "/" + "pytorch_model.bin", map_location="cpu"
+        )
         for weight in utils.convert_weight_names(list(checkpoint.keys())):
-            mlperf_logger.log_event(mlperf_logger.constants.WEIGHTS_INITIALIZATION, metadata={'tensor': weight})
+            mlperf_logger.log_event(
+                mlperf_logger.constants.WEIGHTS_INITIALIZATION,
+                metadata={"tensor": weight},
+            )
 
     param_optimizer = list(model.named_parameters())
 
@@ -1860,7 +1868,9 @@ def main():
     )
     trainint_stop_time = time.time()
     if args.local_rank == 0:
-        print(f"Finished Training in {(trainint_stop_time - trainint_start_time)/60.0:.3f} min, steps: {global_step}, converaged: {converged}")
+        print(
+            f"Finished Training in {(trainint_stop_time - trainint_start_time)/60.0:.3f} min, steps: {global_step}, converaged: {converged}"
+        )
     return args, final_loss, train_time_raw
 
 

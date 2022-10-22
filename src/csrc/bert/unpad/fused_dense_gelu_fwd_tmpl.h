@@ -35,14 +35,26 @@ auto brgemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     Ncb)));
 auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
 
+// auto  in = GetVLAPtr<T>( t_in, { Nc, S2 * Hc});
+// auto  wt_V = GetVLAPtr<T>( t_wt_V, { Nc, Hc * Hk});
+// auto  bias = GetVLAPtr<T>( t_bias, { Hk});
+// auto  out = GetVLAPtr<T>( t_out, { Nk, S2 * Hk});
+// auto  gelu_out = GetVLAPtr<T>( t_gelu_out, { Nk, S2 * Hk});
+auto in = GetVLAPtr<T>(t_in, {Nc, S2* Hc});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc* Hk});
+
+auto bias = GetVLAPtr<T>(t_bias, {Hk});
+auto out = GetVLAPtr<T>(t_out, {Nk, S2* Hk});
+auto gelu_out = GetVLAPtr<T>(t_gelu_out, {Nk, S2* Hk});
+
 {
   RECORD_SCOPE(i_gemm, {t_in, t_wt_V});
 #if 0
-DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
-DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
+auto  in = GetVLAPtr<T>( t_in, { Nc, S2 * Hc});
+auto  wt_V = GetVLAPtr<T>( t_wt_V, { Nc, Hc * Hk});
+auto  bias = GetVLAPtr<T>( t_bias, { Hk});
+auto  out = GetVLAPtr<T>( t_out, { Nk, S2 * Hk});
+auto  gelu_out = GetVLAPtr<T>( t_gelu_out, { Nk, S2 * Hk});
   for (int nc = 0; nc < Nc; nc += Ncb) {
     RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
@@ -64,11 +76,6 @@ DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
   gemm_loop(
       [&](int* ind) {
         int nc = ind[0], s1 = ind[1], nk = ind[2];
-        DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
-        DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-        DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-        DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
-        DECL_VLA_PTR_PT(T, gelu_out, [Nk][S2 * Hk], t_gelu_out);
 
         if (nc == 0) {
           copy_bias_tpp(bias[nk], out[s1][nk]);

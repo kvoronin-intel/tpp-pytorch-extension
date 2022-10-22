@@ -20,9 +20,9 @@ if (training && p > 0.0) {
   int rd = (C + 15) / 16;
   t_dp_mask = at::empty({N, rd}, at::kShort);
 
-  DECL_VLA_PTR_PT(T, in, [bn][C], t_in);
-  DECL_VLA_PTR_PT(T, out, [bn][C], t_out);
-  DECL_VLA_PTR_PT(short, dp_mask, [bn][rd], t_dp_mask);
+  auto in = GetVLAPtr<T>(t_in, {bn, C});
+  auto out = GetVLAPtr<T>(t_out, {bn, C});
+  auto dp_mask = GetVLAPtr<short>(t_dp_mask, {bn, rd});
   auto dropout_fwd_tpp =
       SCOPEIT((DropOutFwdTPP<T, T>(bn, C, C, C, p)), DROPOUT);
   {
@@ -34,9 +34,9 @@ if (training && p > 0.0) {
         dropout_fwd_tpp(
             in[n][0], (void*)get_rng_state(), out[n][0], dp_mask[n][0]);
       if (rem > 0) {
-        DECL_VLA_PTR_PT(T, in, [C], t_in);
-        DECL_VLA_PTR_PT(T, out, [C], t_out);
-        DECL_VLA_PTR_PT(short, dp_mask, [rd], t_dp_mask);
+        auto in = GetVLAPtr<T>(t_in, {C});
+        auto out = GetVLAPtr<T>(t_out, {C});
+        auto dp_mask = GetVLAPtr<short>(t_dp_mask, {rd});
         auto dropout_fwd_tpp =
             SCOPEIT((DropOutFwdTPP<T, T>(1, C, C, C, p)), DROPOUT);
         for (int r = 0; r < rem; r++)

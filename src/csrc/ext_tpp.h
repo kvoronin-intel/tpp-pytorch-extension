@@ -193,6 +193,6 @@ class ScopedTPP<pcl::BrgemmExtTPP<Tin, Tout>, impl> {
   pcl::BrgemmExtTPP<Tin, Tout> func;
 };
 
-//#define TCBrgemmTPP BrgemmTPP
+// #define TCBrgemmTPP BrgemmTPP
 
 #endif // _EXT_TPP_H_

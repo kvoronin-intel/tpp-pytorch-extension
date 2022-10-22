@@ -57,15 +57,15 @@ int rd = (bk + 15) / 16;
 at::Tensor t_relu_mask = at::empty({N, nk* rd}, at::kShort);
 at::Tensor t_dp_mask = at::empty({N, nk* rd}, at::kShort);
 
-DECL_VLA_PTR_PT(T, in, [bn][nc][bcp], t_in);
-DECL_VLA_PTR_PT(T, in_res, [bn][nc][bcp], t_in_res);
-DECL_VLA_PTR_PT(T, wt_V, [nc][bcp * bk], t_wt_V);
-DECL_VLA_PTR_PT(T, wt_res_V, [nc][bcp * bk], t_wt_res_V);
-DECL_VLA_PTR_PT(float, bias, [bk], t_bias);
-DECL_VLA_PTR_PT(T, out, [bn][nk][bk], t_out);
-DECL_VLA_PTR_PT(float, out_f32, [bn][nk][bk], t_out_f32);
-DECL_VLA_PTR_PT(short, relu_mask, [bn][nk][rd], t_relu_mask);
-DECL_VLA_PTR_PT(short, dp_mask, [bn][nk][rd], t_dp_mask);
+auto in = GetVLAPtr<T>(t_in, {bn, nc, bcp});
+auto in_res = GetVLAPtr<T>(t_in_res, {bn, nc, bcp});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {nc, bcp* bk});
+auto wt_res_V = GetVLAPtr<T>(t_wt_res_V, {nc, bcp* bk});
+auto bias = GetVLAPtr<float>(t_bias, {bk});
+auto out = GetVLAPtr<T>(t_out, {bn, nk, bk});
+auto out_f32 = GetVLAPtr<float>(t_out_f32, {bn, nk, bk});
+auto relu_mask = GetVLAPtr<short>(t_relu_mask, {bn, nk, rd});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {bn, nk, rd});
 
 auto brgemm_tpp = SCOPEIT(
     (BrgemmTPP<
@@ -119,12 +119,12 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
       brgemm_tpp.release();
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, in, [nc][bcp], t_in);
-      DECL_VLA_PTR_PT(T, in_res, [nc][bcp], t_in_res);
-      DECL_VLA_PTR_PT(T, out, [nk][bk], t_out);
-      DECL_VLA_PTR_PT(float, out_f32, [nk][bk], t_out_f32);
-      DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-      DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+      auto in = GetVLAPtr<T>(t_in, {nc, bcp});
+      auto in_res = GetVLAPtr<T>(t_in_res, {nc, bcp});
+      auto out = GetVLAPtr<T>(t_out, {nk, bk});
+      auto out_f32 = GetVLAPtr<float>(t_out_f32, {nk, bk});
+      auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+      auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
       auto brgemm_tpp = SCOPEIT((BrgemmTPP<T, float>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 1.0, 0, nc)));

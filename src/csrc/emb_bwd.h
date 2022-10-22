@@ -31,8 +31,8 @@ auto E = t_grad_out.size(1);
 
 auto t_values = t_grad_out.new_empty({N, E});
 
-DECL_VLA_PTR_PT(T, grad_out, [E], t_grad_out);
-DECL_VLA_PTR_PT(T, values, [E], t_values);
+auto grad_out = GetVLAPtr<T>(t_grad_out, {E});
+auto values = GetVLAPtr<T>(t_values, {E});
 
 int* input = t_outputRows.data_ptr<int>();
 int* or_offsets = t_outputRowOffsets.data_ptr<int>();

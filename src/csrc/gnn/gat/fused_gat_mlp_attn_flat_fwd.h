@@ -2,7 +2,7 @@ RECORD_FUNCTION("gat_mlp_fwd", std::vector<c10::IValue>());
 
 at::Tensor t_in_mlp, t_attn_3d, t_wt, t_bias;
 int i = 0;
-//#define PRINT_T(x) std::cout << #x << "==: " << x.sizes() << std::endl
+// #define PRINT_T(x) std::cout << #x << "==: " << x.sizes() << std::endl
 
 t_in_mlp = inputs[i++]; // [N, C]
 t_wt = inputs[i++]; // [nk, nc, bc, bk]
@@ -42,12 +42,12 @@ int rd = (bk + 15) / 16;
 
 at::Tensor t_relu_mask = at::empty({N, nk* rd}, at::kShort);
 
-DECL_VLA_PTR_PT(T, in, [bn][nc][bcp], t_in_mlp);
-DECL_VLA_PTR_PT(T, wt_V, [nc][bcp * bk], t_wt_V);
-DECL_VLA_PTR_PT(float, bias, [bk], t_bias);
-DECL_VLA_PTR_PT(T, out, [bn][nk][bk], t_out_mlp);
-DECL_VLA_PTR_PT(float, out_f32, [bn][nk][bk], t_out_f32);
-DECL_VLA_PTR_PT(short, relu_mask, [bn][nk][rd], t_relu_mask);
+auto in = GetVLAPtr<T>(t_in_mlp, {bn, nc, bcp});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {nc, bcp* bk});
+auto bias = GetVLAPtr<float>(t_bias, {bk});
+auto out = GetVLAPtr<T>(t_out_mlp, {bn, nk, bk});
+auto out_f32 = GetVLAPtr<float>(t_out_f32, {bn, nk, bk});
+auto relu_mask = GetVLAPtr<short>(t_relu_mask, {bn, nk, rd});
 
 auto brgemm_tpp = SCOPEITGEMM2(
     (BrgemmTPP<
@@ -75,10 +75,10 @@ auto cvt_tpp = SCOPEIT((ConvertTPP<float, T>(bn, bk, K, K)), EW_COPY);
       }
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, in, [nc][bcp], t_in_mlp);
-      DECL_VLA_PTR_PT(T, out, [nk][bk], t_out_mlp);
-      DECL_VLA_PTR_PT(float, out_f32, [nk][bk], t_out_f32);
-      DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
+      auto in = GetVLAPtr<T>(t_in_mlp, {nc, bcp});
+      auto out = GetVLAPtr<T>(t_out_mlp, {nk, bk});
+      auto out_f32 = GetVLAPtr<float>(t_out_f32, {nk, bk});
+      auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
 
       auto brgemm_tpp = SCOPEITGEMM2((BrgemmTPP<T, float>(
           rem, bk, bcp, bcp, bk * bcp, nc * bcp, bk, nk * bk, 1.0, 0, nc)));
@@ -122,10 +122,10 @@ if (t_in_mlp.dtype() == at::kBFloat16)
 else
   t_out_attn_f32 = t_out_attn;
 
-DECL_VLA_PTR_PT(T, in_attn, [H][F], t_out_mlp);
-DECL_VLA_PTR_PT(T, attn, [F], t_attn); //[nk, bk]
-DECL_VLA_PTR_PT(T, out_attn, [H], t_out_attn); // [N, H]
-DECL_VLA_PTR_PT(float, out_attn_f32, [H], t_out_attn_f32); // [N, H]
+auto in_attn = GetVLAPtr<T>(t_out_mlp, {H, F});
+auto attn = GetVLAPtr<T>(t_attn, {F}); // nk, bk
+auto out_attn = GetVLAPtr<T>(t_out_attn, {H}); // N, H
+auto out_attn_f32 = GetVLAPtr<float>(t_out_attn_f32, {H}); // N, H
 
 auto mul_reduce_tpp = SCOPEIT((MulReduceTPP<T, T, float>(H, F)), EW_MUL);
 auto cvt_attn_tpp = SCOPEIT((ConvertTPP<float, T>(1, H)), EW_COPY);

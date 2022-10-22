@@ -32,18 +32,17 @@ auto t_var = t_gamma.new_empty({S1, S2}, at::kFloat);
 if (p > 0)
   t_dp_mask = at::empty({S1, Nk, (S2 * Hk + 15) / 16}, at::kShort);
 
-DECL_VLA_PTR_PT(T, in, [Nc][S2][Hc], t_in);
-DECL_VLA_PTR_PT(T, in2, [Nk][S2][Hk], t_in2);
-// DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc / 2][Hk][2], t_wt_V);
-DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-DECL_VLA_PTR_PT(LT, gamma, [Hk], t_gamma);
-DECL_VLA_PTR_PT(LT, beta, [Hk], t_beta);
-DECL_VLA_PTR_PT(float, mean, [S2], t_mean);
-DECL_VLA_PTR_PT(float, var, [S2], t_var);
-DECL_VLA_PTR_PT(T, dout, [Nk][S2][Hk], t_dout);
-DECL_VLA_PTR_PT(T, out, [Nk][S2][Hk], t_out);
-DECL_VLA_PTR_PT(short, dp_mask, [Nk][(S2 * Hk + 15) / 16], t_dp_mask);
+auto in = GetVLAPtr<T>(t_in, {Nc, S2* Hc});
+auto in2 = GetVLAPtr<T>(t_in2, {Nk, S2* Hk});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc* Hk});
+auto bias = GetVLAPtr<T>(t_bias, {Hk});
+auto gamma = GetVLAPtr<LT>(t_gamma, {Hk});
+auto beta = GetVLAPtr<LT>(t_beta, {Hk});
+auto mean = GetVLAPtr<float>(t_mean, {S2});
+auto var = GetVLAPtr<float>(t_var, {S2});
+auto dout = GetVLAPtr<T>(t_dout, {Nk, S2* Hk});
+auto out = GetVLAPtr<T>(t_out, {Nk, S2* Hk});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {Nk, (S2 * Hk + 15) / 16});
 
 auto Ncb = Nc;
 if (Nc > Nk && Nc % Nk == 0) {
@@ -78,53 +77,53 @@ auto layer_norm_fwd_tpp =
         for (int s1 = 0; s1 < S1; s1++) {
           for (int nk = 0; nk < Nk; nk++) {
             if (nc == 0) {
-              copy_bias_tpp(bias[nk], dout[s1][nk][0]);
+              copy_bias_tpp(bias[nk], dout[s1][nk]);
             }
-            brgemm_tpp(in[s1][nc][0], wt_V[nk][nc], dout[s1][nk][0], Ncb);
+            brgemm_tpp(in[s1][nc], wt_V[nk][nc], dout[s1][nk], Ncb);
             if (p > 0) {
               dropout_fwd_tpp(
-                  dout[s1][nk][0],
+                  dout[s1][nk],
                   (void*)get_rng_state(),
-                  dout[s1][nk][0],
+                  dout[s1][nk],
                   dp_mask[s1][nk]);
             }
-            add_tpp(dout[s1][nk][0], in2[s1][nk][0], dout[s1][nk][0]);
+            add_tpp(dout[s1][nk], in2[s1][nk], dout[s1][nk]);
           }
           layer_norm_fwd_tpp(
-              dout[s1][0][0],
+              dout[s1][0],
               gamma[0],
               beta[0],
               mean[s1],
               var[s1],
-              out[s1][0][0]);
+              out[s1][0]);
         }
       } else {
 #pragma omp parallel for collapse(2)
         for (int s1 = 0; s1 < S1; s1++) {
           for (int nk = 0; nk < Nk; nk++) {
             if (nc == 0) {
-              copy_bias_tpp(bias[nk], dout[s1][nk][0]);
+              copy_bias_tpp(bias[nk], dout[s1][nk]);
             }
-            brgemm_tpp(in[s1][nc][0], wt_V[nk][nc], dout[s1][nk][0], Ncb);
+            brgemm_tpp(in[s1][nc], wt_V[nk][nc], dout[s1][nk], Ncb);
             if (p > 0) {
               dropout_fwd_tpp(
-                  dout[s1][nk][0],
+                  dout[s1][nk],
                   (void*)get_rng_state(),
-                  dout[s1][nk][0],
+                  dout[s1][nk],
                   dp_mask[s1][nk]);
             }
-            add_tpp(dout[s1][nk][0], in2[s1][nk][0], dout[s1][nk][0]);
+            add_tpp(dout[s1][nk], in2[s1][nk], dout[s1][nk]);
           }
         }
 #pragma omp parallel for
         for (int s1 = 0; s1 < S1; s1++) {
           layer_norm_fwd_tpp(
-              dout[s1][0][0],
+              dout[s1][0],
               gamma[0],
               beta[0],
               mean[s1],
               var[s1],
-              out[s1][0][0]);
+              out[s1][0]);
         }
       }
     } else {
@@ -133,9 +132,9 @@ auto layer_norm_fwd_tpp =
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < Nk; nk++) {
           if (nc == 0) {
-            copy_bias_tpp(bias[nk], dout[s1][nk][0]);
+            copy_bias_tpp(bias[nk], dout[s1][nk]);
           }
-          brgemm_tpp(in[s1][nc][0], wt_V[nk][nc], dout[s1][nk][0], Ncb);
+          brgemm_tpp(in[s1][nc], wt_V[nk][nc], dout[s1][nk], Ncb);
         }
       }
     }
@@ -147,17 +146,16 @@ auto layer_norm_fwd_tpp =
   ogemm_loop(
       [&](int* ind) {
         int nc = ind[0], s1 = ind[1], nk = ind[2];
-        DECL_VLA_PTR_PT(T, bias, [Hk], t_bias);
-        DECL_VLA_PTR_PT(T, dout, [Nk][S2 * Hk], t_dout);
-        DECL_VLA_PTR_PT(T, in, [Nc][S2 * Hc], t_in);
-        DECL_VLA_PTR_PT(T, in2, [Nk][S2 * Hk], t_in2);
-        DECL_VLA_PTR_PT(T, wt_V, [Nc][Hc * Hk], t_wt_V);
-        DECL_VLA_PTR_PT(short, dp_mask, [Nk][(S2 * Hk + 15) / 16], t_dp_mask);
-        DECL_VLA_PTR_PT(LT, gamma, [Hk], t_gamma);
-        DECL_VLA_PTR_PT(LT, beta, [Hk], t_beta);
-        DECL_VLA_PTR_PT(float, mean, [S2], t_mean);
-        DECL_VLA_PTR_PT(float, var, [S2], t_var);
-        DECL_VLA_PTR_PT(T, out, [Nk][S2 * Hk], t_out);
+        // auto bias = GetVLAPtr<T>(t_bias, {Hk});
+        // auto dout = GetVLAPtr<T>(t_dout, {Nk, S2 * Hk});
+        // auto in = GetVLAPtr<T>(t_in, {Nc, S2 * Hc});
+        // auto in2 = GetVLAPtr<T>(t_in2, {Nk, S2 * Hk});
+        // auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc * Hk});
+        // auto dp_mask = GetVLAPtr<short>(t_dp_mask, {Nk, (S2 * Hk + 15) /
+        // 16}); auto gamma = GetVLAPtr<LT>(t_gamma, {Hk}); auto beta =
+        // GetVLAPtr<LT>(t_beta, {Hk}); auto mean = GetVLAPtr<float>(t_mean,
+        // {S2}); auto var = GetVLAPtr<float>(t_var, {S2}); auto out =
+        // GetVLAPtr<T>(t_out, {Nk, S2 * Hk});
         if (nc == 0) {
           copy_bias_tpp(bias[nk], dout[s1][nk]);
         }
@@ -185,7 +183,7 @@ auto layer_norm_fwd_tpp =
 #pragma omp parallel for
     for (int s1 = 0; s1 < S1; s1++) {
       layer_norm_fwd_tpp(
-          dout[s1][0][0], gamma[0], beta[0], mean[s1], var[s1], out[s1][0][0]);
+          dout[s1][0], gamma[0], beta[0], mean[s1], var[s1], out[s1][0]);
     }
   }
 #endif

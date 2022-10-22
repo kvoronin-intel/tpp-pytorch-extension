@@ -19,10 +19,10 @@ if (t_grad_out.dtype() == at::kBFloat16)
 
 auto t_grad_in = t_grad_out.new_empty({N, K});
 
-DECL_VLA_PTR_PT(T, grad_out, [bn][K], t_grad_out);
-DECL_VLA_PTR_PT(T, grad_in, [bn][K], t_grad_in);
-DECL_VLA_PTR_PT(float, grad_out_f32, [bn][K], t_grad_out_f32);
-DECL_VLA_PTR_PT(float, norm, [bn], t_norm);
+auto grad_out = GetVLAPtr<T>(t_grad_out, {bn, K});
+auto grad_in = GetVLAPtr<T>(t_grad_in, {bn, K});
+auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {bn, K});
+auto norm = GetVLAPtr<float>(t_norm, {bn});
 
 auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(bn, K, K, K)), EW_MUL);
 auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, K)), EW_COPY);
@@ -37,10 +37,10 @@ auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(bn, K)), EW_COPY);
       mul_norm_tpp(norm[n], grad_out_f32[n][0], grad_in[n][0]);
     }
     if (rem > 0) {
-      DECL_VLA_PTR_PT(T, grad_out, [K], t_grad_out);
-      DECL_VLA_PTR_PT(T, grad_in, [K], t_grad_in);
-      DECL_VLA_PTR_PT(float, grad_out_f32, [K], t_grad_out_f32);
-      DECL_VLA_PTR_PT(float, norm, [1], t_norm);
+      auto grad_out = GetVLAPtr<T>(t_grad_out, {K});
+      auto grad_in = GetVLAPtr<T>(t_grad_in, {K});
+      auto grad_out_f32 = GetVLAPtr<float>(t_grad_out_f32, {K});
+      auto norm = GetVLAPtr<float>(t_norm, {1});
 
       auto cvt_f32_tpp = SCOPEIT((ConvertTPP<T, float>(rem, K)), EW_COPY);
       auto mul_norm_tpp = SCOPEIT((MulNormTPP<float, T>(rem, K, K, K)), EW_MUL);

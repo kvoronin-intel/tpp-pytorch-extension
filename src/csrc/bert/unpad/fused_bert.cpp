@@ -1,6 +1,6 @@
 
 #include <ATen/record_function.h>
-//#include <torch/csrc/autograd/VariableTypeUtils.h>
+// #include <torch/csrc/autograd/VariableTypeUtils.h>
 #include <torch/extension.h>
 
 #include <iostream>
@@ -43,28 +43,6 @@ REGISTER_LOCAL_SCOPE(dwo_gemm, "dwo_gemm");
 REGISTER_LOCAL_SCOPE(dqkv_bias, "dqkv_bias");
 REGISTER_LOCAL_SCOPE(di_bias, "di_bias");
 REGISTER_LOCAL_SCOPE(do_bias, "do_bias");
-
-template <typename T>
-inline void omp_reduce_buf(
-    int num_threads,
-    int N,
-    float** ptrs,
-    T* buf,
-    bool accumulate = false) {
-  ScopedTimer _t(EW_RED);
-#pragma omp for
-  for (int i = 0; i < N; i++) {
-    float sum = 0.0;
-    for (int j = 0; j < num_threads; j++) {
-      sum += ptrs[j][i];
-    }
-    if (accumulate) {
-      buf[i] += sum;
-    } else {
-      buf[i] = sum;
-    }
-  }
-}
 
 static std::vector<at::Tensor> fused_self_attention_fwd(
     float p,

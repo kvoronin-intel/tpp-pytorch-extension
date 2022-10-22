@@ -11,10 +11,10 @@ int rem = N % alignN;
 
 auto t_out = t_wt.new_empty({N, E});
 
-// DECL_VLA_PTR_PT(T, wt, [nk][bk], t_wt);
-DECL_VLA_PTR_PT(T, wt, [E], t_wt);
-DECL_VLA_PTR_PT(Tind, inp, [bn], t_inp);
-DECL_VLA_PTR_PT(T, out, [bn][E], t_out);
+// auto  wt = GetVLAPtr<T>( t_wt, { nk, bk});
+auto wt = GetVLAPtr<T>(t_wt, {E});
+auto inp = GetVLAPtr<Tind>(t_inp, {bn});
+auto out = GetVLAPtr<T>(t_out, {bn, E});
 
 auto emb_fwd_tpp = SCOPEIT((EmbeddingFwdTPP<T, Tind, T>(bn, E, E, E)), ROW_GT);
 // auto emb_fwd_tpp = EmbeddingFwdTPP<T, T, Tind>(bn, bk, E, E);
@@ -35,9 +35,9 @@ auto emb_fwd_tpp = SCOPEIT((EmbeddingFwdTPP<T, Tind, T>(bn, E, E, E)), ROW_GT);
     }
   }
   if (rem > 0) {
-    DECL_VLA_PTR_PT(Tind, inp, [0], t_inp);
-    // DECL_VLA_PTR_PT(T, out, [nk][bk], t_out);
-    DECL_VLA_PTR_PT(T, out, [E], t_out);
+    auto inp = GetVLAPtr<Tind>(t_inp, {0});
+    // auto  out = GetVLAPtr<T>( t_out, { nk, bk});
+    auto out = GetVLAPtr<T>(t_out, {E});
     auto emb_fwd_tpp =
         SCOPEIT((EmbeddingFwdTPP<T, Tind, T>(rem, E, E, E)), ROW_GT);
     // auto emb_fwd_tpp = EmbeddingFwdTPP<T, T, Tind>(rem, bk, E, E);

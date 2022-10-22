@@ -51,17 +51,17 @@ int rd = (bn * bk + 15) / 16;
 at::Tensor t_relu_mask = at::empty({nn, nk, rd}, at::kShort);
 at::Tensor t_dp_mask = at::empty({nn, nk, rd}, at::kShort);
 
-DECL_VLA_PTR_PT(T, in, [nc][bn * bcp], t_in);
-DECL_VLA_PTR_PT(T, wt_V, [nc][bk * bcp], t_wt_V);
-DECL_VLA_PTR_PT(T, wt_res_V, [nc][bk * bcp], t_wt_res_V);
-DECL_VLA_PTR_PT(T, bias, [bk], t_bias);
-DECL_VLA_PTR_PT(T, in_res, [nc][bn * bcp], t_in_res);
-DECL_VLA_PTR_PT(T, out, [nk][bn * bk], t_out);
-DECL_VLA_PTR_PT(float, out_f32, [nk][bn * bk], t_out);
-DECL_VLA_PTR_PT(float, out_res, [nk][bn * bk], t_out_res);
+auto in = GetVLAPtr<T>(t_in, {nc, bn* bcp});
+auto wt_V = GetVLAPtr<T>(t_wt_V, {nc, bk* bcp});
+auto wt_res_V = GetVLAPtr<T>(t_wt_res_V, {nc, bk* bcp});
+auto bias = GetVLAPtr<T>(t_bias, {bk});
+auto in_res = GetVLAPtr<T>(t_in_res, {nc, bn* bcp});
+auto out = GetVLAPtr<T>(t_out, {nk, bn* bk});
+auto out_f32 = GetVLAPtr<float>(t_out, {nk, bn* bk});
+auto out_res = GetVLAPtr<float>(t_out_res, {nk, bn* bk});
 
-DECL_VLA_PTR_PT(short, relu_mask, [nk][rd], t_relu_mask);
-DECL_VLA_PTR_PT(short, dp_mask, [nk][rd], t_dp_mask);
+auto relu_mask = GetVLAPtr<short>(t_relu_mask, {nk, rd});
+auto dp_mask = GetVLAPtr<short>(t_dp_mask, {nk, rd});
 
 auto brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T, float>(
     bn,

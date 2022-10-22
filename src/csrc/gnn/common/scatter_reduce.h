@@ -10,10 +10,10 @@
   auto rem = N % alignN;
 
   auto t_temp = t_out.new_empty({alignN, E});
-  DECL_VLA_PTR_PT(T, in, [bn][E], t_in);
-  DECL_VLA_PTR_PT(T, out, [E], t_out);
-  DECL_VLA_PTR_PT(T, temp, [E], t_temp);
-  DECL_VLA_PTR_PT(long, idx, [bn], t_idx);
+  auto in = GetVLAPtr<T>(t_in, {bn, E});
+  auto out = GetVLAPtr<T>(t_out, {E});
+  auto temp = GetVLAPtr<T>(t_temp, {E});
+  auto idx = GetVLAPtr<long>(t_idx, {bn});
 
   auto scatter_tpp = SCOPEIT((ScatterTPP<T, long, T>(bn, E, E, E)), ROW_ST);
   auto gather_tpp = SCOPEIT((EmbeddingFwdTPP<T, long, T>(bn, E, E, E)), ROW_GT);
@@ -31,9 +31,9 @@
     }
     if (rem > 0) {
       auto t_temp_rem = t_out.new_empty({rem, E});
-      DECL_VLA_PTR_PT(T, tempr, [E], t_temp_rem);
-      DECL_VLA_PTR_PT(long, idx, [1], t_idx);
-      DECL_VLA_PTR_PT(T, in, [E], t_in);
+      auto tempr = GetVLAPtr<T>(t_temp_rem, {E});
+      auto idx = GetVLAPtr<long>(t_idx, {1});
+      auto in = GetVLAPtr<T>(t_in, {E});
       auto scatter_tpp =
           SCOPEIT((ScatterTPP<T, long, T>(rem, E, E, E)), ROW_ST);
       auto gather_tpp =
