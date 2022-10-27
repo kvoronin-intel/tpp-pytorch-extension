@@ -721,12 +721,13 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 */
 
   if (sizeof(T) == 2)
-    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d %d %d %d %d %d %d %d %d %d %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
+    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d %d %d  %d %d %d  %d %d %d  %d %d %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
                                           N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out,
                                           bc, bk, 1000,
-                                          bf16_use_nchw_format, bf16_fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront,
-                                          use_intermediate_f32_wt_tensor, use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block,
-                                          pixels_blocking_factor);
+                                          bf16_use_nchw_format, bf16_fuse_upd_transposes, bf16_acc_nw,
+                                          par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor,
+                                          use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams,
+                                          use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pixels_blocking_factor);
   else /* fp32 */
     printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
                                           N, ifhp - 2 * pad_h_in, ifwp - 2 * pad_w_in, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out,
