@@ -17,17 +17,17 @@ To run reference code (HuggingFace Transformers+PyTorch FP32 code) bert pretrain
 $bash cmd.sh
 
 For Optimized FP32 code:
-$bash cmd.sh --use_pcl
+$bash cmd.sh --use_tpp
 
 For Optimized BF16 code:
-$bash cmd.sh --use_pcl --pcl_bf16
+$bash cmd.sh --use_tpp --tpp_bf16
 
 You can enable unpad optimization by adding --unpad to optimized command line (FP32 or BF16).
 
 To enable cpp profiling in extension add "--profile" to above command line.
 
 To run bert pretraining on multi-node run:
-$run_dist.sh -n <num_ranks> -ppn <ranks_per_node> -f hostfile bash cmd.sh --use_pcl --pcl_bf16 --unpad
+$run_dist.sh -n <num_ranks> -ppn <ranks_per_node> -f hostfile bash cmd.sh --use_tpp --tpp_bf16 --unpad
 
 By Default, script uses oneCCL backend for communication, use --dist_backend=mpi to use MPI backend.
 

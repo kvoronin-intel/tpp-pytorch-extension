@@ -66,12 +66,12 @@ from transformers import (
     set_seed,
 )
 
-from pcl_pytorch_extension import bert as pcl_bert
+from tpp_pytorch_extension import bert as tpp_bert
 from schedulers import LinearWarmUpScheduler, LinearWarmupPolyDecayScheduler
 import mlperf_logger
 from lamb import Lamb
 
-from pcl_pytorch_extension.optim import DistLamb
+from tpp_pytorch_extension.optim import DistLamb
 
 ref_time = 0
 
@@ -633,13 +633,13 @@ def parse_args():
         "--dist_lamb",
         default=False,
         action="store_true",
-        help="Whether to use DistLamb from pcl_bert",
+        help="Whether to use DistLamb from tpp_bert",
     )
     parser.add_argument(
         "--fused_param_norm",
         default=False,
         action="store_true",
-        help="Enable Fused Param Norm optimization with DistLamb from pcl_bert",
+        help="Enable Fused Param Norm optimization with DistLamb from tpp_bert",
     )
 
     parser.add_argument(
@@ -696,12 +696,12 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--use_pcl",
+        "--use_tpp",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use TPP Fused impl when available",
     )
     parser.add_argument(
-        "--pcl_bf16", action="store_true", help="Whether to use PCL BF16 impl"
+        "--tpp_bf16", action="store_true", help="Whether to use TPP BF16 impl"
     )
     parser.add_argument(
         "--profile", action="store_true", help="Whether to enable profiling"
@@ -838,7 +838,7 @@ def prepare_model_and_optimizer(args, device):
         logger.warning("You are instantiating a new config instance from scratch.")
 
     config.dense_seq_output = args.dense_seq_output
-    with pcl_bert.pcl_impl(args.use_pcl, args.pcl_bf16, args.unpad):
+    with tpp_bert.tpp_impl(args.use_tpp, args.tpp_bf16, args.unpad):
         if args.model_name_or_path:
             model = AutoModelForPreTraining.from_pretrained(
                 args.model_name_or_path,
@@ -848,8 +848,8 @@ def prepare_model_and_optimizer(args, device):
         else:
             logger.info("Training new model from scratch")
             model = AutoModelForPreTraining.from_config(config)
-    if args.use_pcl:
-        pcl_bert.block(model)
+    if args.use_tpp:
+        tpp_bert.block(model)
 
     # Log weight initializations
     if not args.model_name_or_path == "":
@@ -1434,8 +1434,8 @@ def main():
             t0 = get_time()
             for step, batch in enumerate(train_dataloader):
                 training_steps += 1
-                if args.profile and args.use_pcl:
-                    pcl_bert.reset_debug_timers()
+                if args.profile and args.use_tpp:
+                    tpp_bert.reset_debug_timers()
                 t1 = get_time()
                 (
                     input_ids,
@@ -1574,8 +1574,8 @@ def main():
                         print_summary("SYS:", t_all_time[:, 7])
                         print_summary("ARS:", t_all_time[:, 8])
                         print_summary("ARE:", t_all_time[:, 9])
-                if args.local_rank == 0 and args.profile and args.use_pcl:
-                    pcl_bert.print_debug_timers()
+                if args.local_rank == 0 and args.profile and args.use_tpp:
+                    tpp_bert.print_debug_timers()
                 if args.benchmark_steps > 0 and global_step + 1 >= args.benchmark_steps:
                     mlperf_logger.barrier()
                     if args.local_rank == 0:

@@ -4,7 +4,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-namespace pcl {
+namespace tpp {
 
 template <typename Tin, typename Tout>
 class BrgemmExtTPP {
@@ -126,12 +126,12 @@ class BrgemmExtTPP {
   DebugTimer xform_type;
 };
 
-} // namespace pcl
+} // namespace tpp
 
 template <typename Tin, typename Tout, int impl>
-class ScopedTPP<pcl::BrgemmTPP<Tin, Tout>, impl> {
+class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
  public:
-  ScopedTPP(pcl::BrgemmTPP<Tin, Tout> func) : func(std::move(func)) {}
+  ScopedTPP(tpp::BrgemmTPP<Tin, Tout> func) : func(std::move(func)) {}
   void operator()(
       Tin* A,
       Tin* B,
@@ -158,13 +158,13 @@ class ScopedTPP<pcl::BrgemmTPP<Tin, Tout>, impl> {
   }
 
  private:
-  pcl::BrgemmTPP<Tin, Tout> func;
+  tpp::BrgemmTPP<Tin, Tout> func;
 };
 
 template <typename Tin, typename Tout, int impl>
-class ScopedTPP<pcl::BrgemmExtTPP<Tin, Tout>, impl> {
+class ScopedTPP<tpp::BrgemmExtTPP<Tin, Tout>, impl> {
  public:
-  ScopedTPP(pcl::BrgemmExtTPP<Tin, Tout> func) : func(std::move(func)) {}
+  ScopedTPP(tpp::BrgemmExtTPP<Tin, Tout> func) : func(std::move(func)) {}
   void operator()(
       Tin* A,
       Tin* B,
@@ -190,7 +190,7 @@ class ScopedTPP<pcl::BrgemmExtTPP<Tin, Tout>, impl> {
   }
 
  private:
-  pcl::BrgemmExtTPP<Tin, Tout> func;
+  tpp::BrgemmExtTPP<Tin, Tout> func;
 };
 
 // #define TCBrgemmTPP BrgemmTPP

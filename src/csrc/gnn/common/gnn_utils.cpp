@@ -13,7 +13,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 REGISTER_SCOPE(gather, "gather");
 REGISTER_SCOPE(scatter, "scatter");
 

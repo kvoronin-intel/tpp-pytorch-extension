@@ -1,5 +1,5 @@
-#ifndef _PCL_UTILS_H_
-#define _PCL_UTILS_H_
+#ifndef _TPP_UTILS_H_
+#define _TPP_UTILS_H_
 
 #include <ATen/record_function.h>
 #include <torch/csrc/autograd/VariableTypeUtils.h>
@@ -21,7 +21,7 @@
 
 #define MAX_THREADS 640
 #define ALIGNDOWN(N, A) ((N) & ~((A)-1))
-#define PCL_ASSERT(cond, x...) \
+#define TPP_ASSERT(cond, x...) \
   do {                         \
     if (!(cond)) {             \
       printf(x);               \
@@ -53,7 +53,7 @@ inline T* pt_get_data_ptr(at::Tensor t) {
 #ifndef PYTORCH_SUPPORTS_BFLOAT8
 template <>
 inline bfloat8* pt_get_data_ptr<bfloat8>(at::Tensor t) {
-  // PCL_ASSERT(t.dtype() == at::kByte, "Wrong prec");
+  // TPP_ASSERT(t.dtype() == at::kByte, "Wrong prec");
   return (bfloat8*)t.data_ptr<uint8_t>();
 }
 #endif
@@ -148,4 +148,4 @@ class SafePrint {
   int len = 0;
 };
 
-#endif //_PCL_UTILS_H_
+#endif //_TPP_UTILS_H_

@@ -10,9 +10,9 @@ import time
 import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
-from pcl_pytorch_extension.gnn.graphsage import fused_graphsage
-from pcl_pytorch_extension.gnn.common import gnn_utils
-import pcl_pytorch_extension as ppx
+from tpp_pytorch_extension.gnn.graphsage import fused_graphsage
+from tpp_pytorch_extension.gnn.common import gnn_utils
+import tpp_pytorch_extension as ppx
 import os, psutil
 from contextlib import contextmanager
 

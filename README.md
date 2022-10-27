@@ -1,5 +1,5 @@
-PCL PyTorch Extension for blocked layout and TPP based optimized custom Ops
-=================================================================================
+Intel(R) Tensor Processing Primitives extension for PyTorch\*
+=============================================================
 *Copyright (c) Intel corp.*
 
 # Pre-requisite

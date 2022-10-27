@@ -7,13 +7,13 @@ from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.autograd import Function
 
-# from pcl_pytorch_extension.utils.blocked_layout import (
+# from tpp_pytorch_extension.utils.blocked_layout import (
 #     BlockedParameter,
 #     BlockedModule,
 #     BlockedTensor,
 #     get_blocking_signature,
 # )
-from pcl_pytorch_extension._C import _alpha_attention as Alpha_Attention_cpp
+from tpp_pytorch_extension._C import _alpha_attention as Alpha_Attention_cpp
 import time
 from contextlib import contextmanager
 

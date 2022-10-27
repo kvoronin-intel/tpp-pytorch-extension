@@ -13,7 +13,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 static int my_rank = guess_mpi_rank();
@@ -62,7 +62,7 @@ static std::vector<at::Tensor> fused_self_attention_fwd(
     typedef bfloat8 T;
 #include "fused_self_attention_fwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
+    TPP_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -80,7 +80,7 @@ static std::vector<at::Tensor> fused_self_attention_bwd(
     typedef bfloat8 T;
 #include "fused_self_attention_bwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
+    TPP_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -116,7 +116,7 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_fwd(
     typedef bfloat8 LT;
 #include "fused_dense_dropout_layernorm_fwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
+    TPP_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -150,7 +150,7 @@ static std::vector<at::Tensor> fused_dense_dropout_layernorm_bwd(
     typedef bfloat8 LT;
 #include "fused_dense_dropout_layernorm_bwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
+    TPP_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -170,7 +170,7 @@ static std::vector<at::Tensor> fused_dense_gelu_fwd(
     typedef bfloat8 T;
 #include "fused_dense_gelu_fwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
+    TPP_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -190,7 +190,7 @@ static std::vector<at::Tensor> fused_dense_gelu_bwd(
     typedef bfloat8 T;
 #include "fused_dense_gelu_bwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
+    TPP_ASSERT(0, "%s:%d Unsupported type\n", __FILE__, __LINE__);
   }
 }
 
@@ -238,7 +238,7 @@ static std::vector<at::Tensor> fused_embedding_layernorm_dropout_fwd(
     typedef bfloat8 ET;
 #include "fused_embedding_layernorm_dropout_fwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "Should not come here\n");
+    TPP_ASSERT(0, "Should not come here\n");
   }
 }
 
@@ -268,7 +268,7 @@ static std::vector<at::Tensor> fused_embedding_layernorm_dropout_bwd(
     typedef bfloat16 ET;
 #include "fused_embedding_layernorm_dropout_bwd_tmpl.h"
   } else {
-    PCL_ASSERT(0, "Should not come here\n");
+    TPP_ASSERT(0, "Should not come here\n");
   }
 }
 
@@ -276,27 +276,27 @@ REGISTER_SUBMODULE(_fused_bert_unpad, m) {
   m.def(
       "fused_self_attention_fwd",
       &fused_self_attention_fwd,
-      "Pcl BERT forward");
+      "Tpp BERT forward");
   m.def(
       "fused_self_attention_bwd",
       &fused_self_attention_bwd,
-      "Pcl BERT backward");
+      "Tpp BERT backward");
   m.def(
       "fused_dense_dropout_layernorm_fwd",
       &fused_dense_dropout_layernorm_fwd,
-      "Pcl BERT forward");
+      "Tpp BERT forward");
   m.def(
       "fused_dense_dropout_layernorm_bwd",
       &fused_dense_dropout_layernorm_bwd,
-      "Pcl BERT forward");
-  m.def("fused_dense_gelu_fwd", &fused_dense_gelu_fwd, "Pcl BERT forward");
-  m.def("fused_dense_gelu_bwd", &fused_dense_gelu_bwd, "Pcl BERT forward");
+      "Tpp BERT forward");
+  m.def("fused_dense_gelu_fwd", &fused_dense_gelu_fwd, "Tpp BERT forward");
+  m.def("fused_dense_gelu_bwd", &fused_dense_gelu_bwd, "Tpp BERT forward");
   m.def(
       "fused_embedding_layernorm_dropout_fwd",
       &fused_embedding_layernorm_dropout_fwd,
-      "Pcl BERT forward");
+      "Tpp BERT forward");
   m.def(
       "fused_embedding_layernorm_dropout_bwd",
       &fused_embedding_layernorm_dropout_bwd,
-      "Pcl BERT backward");
+      "Tpp BERT backward");
 }

@@ -16,7 +16,7 @@ bool tt_ids_null = t_tt_ids.numel() == 0;
 bool pos_ids_null = t_pos_ids.numel() == 0;
 bool in_emb_null = t_in_emb.numel() == 0;
 
-PCL_ASSERT(
+TPP_ASSERT(
     (!in_ids_null || !in_emb_null),
     "Either Input_ids or input_embeddings must be non-empty");
 

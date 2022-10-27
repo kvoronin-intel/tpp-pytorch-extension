@@ -36,7 +36,7 @@ inline at::Tensor wt_tensor_n2v(
     at::Tensor& input) {
   constexpr int BS = get_vnni_block_size<T>();
 #if 0
-  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  TPP_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
   return input.view({Nk, Nc, Hc/BS, BS, Hk}).permute({0, 1, 2, 4, 3}).contiguous();
 #else
   auto Hcp2 = (Hc + BS - 1) / BS;
@@ -63,7 +63,7 @@ inline at::Tensor wt_tensor_trans_n2v(
     at::Tensor& input) {
   constexpr int BS = get_vnni_block_size<T>();
 #if 0
-  PCL_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
+  TPP_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
   return input.view({Nk, Nc, Hc, Hk/BS, BS}).permute({0, 1, 3, 2, 4}).contiguous();
 #else
   auto Hkp2 = (Hk + BS - 1) / BS;
@@ -92,7 +92,7 @@ inline at::Tensor wt_tensor_trans_n2v_compact(
     at::Tensor& input) {
   constexpr int BS = get_vnni_block_size<T>();
 #if 0
-  PCL_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
+  TPP_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
   return input.view({Nk, Nc, Hc, Hk/BS, BS}).permute({1, 0, 3, 2, 4}).contiguous();
 #else
   auto Hkp2 = (Hk + BS - 1) / BS;
@@ -123,11 +123,11 @@ inline at::Tensor wt_tensor_trans_v2v(
     at::Tensor& input) {
   constexpr int BS = get_vnni_block_size<T>();
 #if 0
-  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
-  PCL_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
+  TPP_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  TPP_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
   return input.view({Nk, Nc, Hc/BS, Hk/BS, BS, BS}).permute({0, 1, 3, 2, 5, 4}).contiguous().view({Nk, Nc, Hk/BS, Hc, BS});
 #else
-  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  TPP_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
   auto Hkp2 = (Hk + BS - 1) / BS;
   auto output = input.new_empty({Nk, Nc, Hkp2, Hc, BS});
   auto out = GetVLAPtr<T>(output, {Hkp2 * Hc * BS});
@@ -154,11 +154,11 @@ inline at::Tensor wt_tensor_trans_v2v_compact(
     at::Tensor& input) {
   constexpr int BS = get_vnni_block_size<T>();
 #if 0
-  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
-  PCL_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
+  TPP_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  TPP_ASSERT(Hk % BS == 0, "Uneven number for Hk\n");
   return input.view({Nk, Nc, Hc/BS, Hk/BS, BS, BS}).permute({1, 0, 3, 2, 5, 4}).contiguous().view({Nc, Nk, Hk/BS, Hc, BS});
 #else
-  PCL_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
+  TPP_ASSERT(Hc % BS == 0, "Uneven number for Hc\n");
   auto Hkp2 = (Hk + BS - 1) / BS;
   auto output = input.new_empty({Nc, Nk, Hkp2, Hc, BS});
   auto out = GetVLAPtr<T>(output, {Nk, Hkp2 * Hc * BS});
@@ -196,7 +196,7 @@ inline at::Tensor wt_tensor_for_fwd(
       } else if (input.dtype() == at::kBFloat8) {
         return wt_tensor_n2v<bfloat8>(Nk, Hk, Nc, Hc, input);
       } else {
-        PCL_ASSERT(false, "Unsupported datatype!");
+        TPP_ASSERT(false, "Unsupported datatype!");
       }
     }
   } else {
@@ -242,7 +242,7 @@ inline at::Tensor wt_tensor_for_bwd(
     return output;
 #endif
   } else {
-    PCL_ASSERT(false, "Unsupported datatype!");
+    TPP_ASSERT(false, "Unsupported datatype!");
   }
 }
 
@@ -284,7 +284,7 @@ inline at::Tensor wt_tensor_for_bwd_compact(
     return output;
 #endif
   } else {
-    PCL_ASSERT(false, "Unsupported datatype!");
+    TPP_ASSERT(false, "Unsupported datatype!");
   }
 }
 
@@ -327,7 +327,7 @@ inline at::Tensor act_tensor_trans(
       }
     }
   } else {
-    PCL_ASSERT(false, "Unsupported datatype!");
+    TPP_ASSERT(false, "Unsupported datatype!");
   }
   return output;
 #endif
@@ -369,7 +369,7 @@ inline at::Tensor act_tensor_trans(
       }
     }
   } else {
-    PCL_ASSERT(false, "Unsupported datatype!");
+    TPP_ASSERT(false, "Unsupported datatype!");
   }
   return output;
 #endif
@@ -415,7 +415,7 @@ inline at::Tensor act_tensor_trans_compact(
       }
     }
   } else {
-    PCL_ASSERT(false, "Unsupported datatype!");
+    TPP_ASSERT(false, "Unsupported datatype!");
   }
   return output;
 #endif
@@ -432,7 +432,7 @@ inline at::Tensor act_tensor_n2v(
     at::Tensor& input) {
   RECORD_SCOPE(a_vnni, {input});
   const int BS = get_vnni_block_size(input.dtype());
-  PCL_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
+  TPP_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
 #if 1
   return input.view({B, S1, N, S2 / BS, BS, H})
       .permute({0, 1, 2, 3, 5, 4})
@@ -462,7 +462,7 @@ inline at::Tensor act_tensor_n2v(
     at::Tensor& input) {
   RECORD_SCOPE(a_vnni, {input});
   const int BS = get_vnni_block_size(input.dtype());
-  PCL_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
+  TPP_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
 #if 1
   return input.view({S1, N, S2 / BS, BS, H})
       .permute({0, 1, 2, 4, 3})
@@ -492,7 +492,7 @@ inline at::Tensor act_tensor_n2v_compact(
     at::Tensor& input) {
   RECORD_SCOPE(a_vnni, {input});
   const int BS = get_vnni_block_size(input.dtype());
-  PCL_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
+  TPP_ASSERT(S2 % BS == 0, "Uneven number for S2\n");
 #if 0
   return input.view({S1, N, S2/BS, BS, H}).permute({1,0,2,4,3}).contiguous();
 #else
@@ -526,7 +526,7 @@ inline at::Tensor act_tensor_n2v_compact(
       }
     }
   } else {
-    PCL_ASSERT(false, "Unsupported datatype!");
+    TPP_ASSERT(false, "Unsupported datatype!");
   }
 
   return output;
@@ -541,7 +541,7 @@ inline at::Tensor get_padded_activation_for_vnni(at::Tensor& input) {
   const int align = get_vnni_block_size(dtype);
   auto sizes = input.sizes();
   int ndims = input.dim();
-  PCL_ASSERT(ndims >= 2, "Invalid shape\n");
+  TPP_ASSERT(ndims >= 2, "Invalid shape\n");
   auto C = sizes[ndims - 1];
   int pad = C % align;
   if (pad == 0)

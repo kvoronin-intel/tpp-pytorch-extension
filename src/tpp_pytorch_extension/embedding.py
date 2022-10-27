@@ -2,13 +2,13 @@ import torch
 from torch import nn
 from torch.autograd import Function
 
-from pcl_pytorch_extension._C import _embedding as embedding_cpp
+from tpp_pytorch_extension._C import _embedding as embedding_cpp
 
 # from embedding_cpp import bf16_update
 torch_embedding = torch.embedding
 
 
-def pcl_embedding(weight, input, padding_idx, scale_grad_by_freq, sparse=False):
+def tpp_embedding(weight, input, padding_idx, scale_grad_by_freq, sparse=False):
     if (
         sparse
         and padding_idx == -1
@@ -25,8 +25,8 @@ def pcl_embedding(weight, input, padding_idx, scale_grad_by_freq, sparse=False):
     return ret
 
 
-torch.embedding = pcl_embedding
-print("Using PCL Embedding Implementation")
+torch.embedding = tpp_embedding
+print("Using TPP Embedding Implementation")
 
 
 class EmbeddingFunction(Function):

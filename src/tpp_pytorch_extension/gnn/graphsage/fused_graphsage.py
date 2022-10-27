@@ -6,14 +6,14 @@ from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.autograd import Function
-from pcl_pytorch_extension.utils.blocked_layout import (
+from tpp_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
 )
-from pcl_pytorch_extension.utils import blocked_layout, xsmm
-from pcl_pytorch_extension._C import _fused_gsage as fused_gsage_cpp
-from pcl_pytorch_extension._C import _xsmm as xsmm_cpp
+from tpp_pytorch_extension.utils import blocked_layout, xsmm
+from tpp_pytorch_extension._C import _fused_gsage as fused_gsage_cpp
+from tpp_pytorch_extension._C import _xsmm as xsmm_cpp
 import time
 from contextlib import contextmanager
 from dgl.nn.pytorch.conv.sageconv import *

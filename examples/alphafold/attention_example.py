@@ -5,8 +5,8 @@ from torch.nn import functional as F
 import numpy as np
 import math
 
-import pcl_pytorch_extension
-from pcl_pytorch_extension.alphafold.Alpha_Attention import GatingAttentionOpti
+import tpp_pytorch_extension
+from tpp_pytorch_extension.alphafold.Alpha_Attention import GatingAttentionOpti
 
 torch.set_default_tensor_type(torch.FloatTensor)
 
@@ -195,12 +195,12 @@ for _ in range(N):  # MKLDNN PyTorch layer Forward and Backward pass timing
     Y1 = net1(q_data, m_data, bias, nonbatched_bias)
     forward1 += time.time() - start
 
-pcl_pytorch_extension.reset_debug_timers()
+tpp_pytorch_extension.reset_debug_timers()
 for _ in range(N):  # Optimized PyTorch layer Forward and Backward pass timing
     start = time.time()
     Y2 = net2(q_data, m_data, bias, nonbatched_bias)
     forward2 += time.time() - start
-pcl_pytorch_extension.print_debug_timers()
+tpp_pytorch_extension.print_debug_timers()
 
 print(
     "Forward pass time (PyTorch layer): {:.3f} ms | Forward pass time (Optimized layer): {:.3f} ms".format(

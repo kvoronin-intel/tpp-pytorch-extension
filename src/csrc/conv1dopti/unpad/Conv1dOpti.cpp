@@ -25,10 +25,10 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
-// #define PCL_ASSERT(cond, x...) do { if(!(cond)) { printf(x); fflush(stdout);
+// #define TPP_ASSERT(cond, x...) do { if(!(cond)) { printf(x); fflush(stdout);
 // exit(1); } } while(0)
 
 #define XS_TILE_FORWARD 64

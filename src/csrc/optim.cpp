@@ -56,7 +56,7 @@ static inline void atomic_add_float(float* dst, float fvalue) {
   }
 }
 
-using namespace pcl;
+using namespace tpp;
 
 #define MYASSERT(x)                     \
   do {                                  \
@@ -80,16 +80,16 @@ static int sparse_add_use_lock_free() {
   if (lock_free != -1)
     return lock_free;
 #ifdef ENABLE_RTM
-  char* str = getenv("PCL_USE_RTM_UPDATE");
+  char* str = getenv("TPP_USE_RTM_UPDATE");
 #else
   char* str = NULL;
 #endif
   if (str && atoi(str) > 0) {
     lock_free = 0;
-    printf("PCL_SPARSE_ADD: Using RTM Based Update\n");
+    printf("TPP_SPARSE_ADD: Using RTM Based Update\n");
   } else {
     lock_free = 1;
-    printf("PCL_SPARSE_ADD: Using Lock Free Update\n");
+    printf("TPP_SPARSE_ADD: Using Lock Free Update\n");
   }
   return lock_free;
 }
@@ -105,7 +105,7 @@ void dense_sparse_add_tmpl(
   auto t_values = t_sparse._values();
   auto t_indices = t_sparse._indices();
 
-  PCL_ASSERT(t_dense.is_contiguous(), "dense tensor must be contiguous\n");
+  TPP_ASSERT(t_dense.is_contiguous(), "dense tensor must be contiguous\n");
   // Not using below due to spurious compiler warnings
   // auto  dense = GetVLAPtr<scalar_t>( t_dense, { E});
   // auto  values = GetVLAPtr<scalar_t>( t_values, { E});
@@ -169,7 +169,7 @@ void dense_sparse_add_(
     //} else if (dense.dtype() == at::kHalf) {
     //  dense_sparse_add_tmpl<half>(dense, sparse, alpha);
   } else {
-    PCL_ASSERT(0, "This datatype is not supported\n");
+    TPP_ASSERT(0, "This datatype is not supported\n");
   }
 }
 
@@ -300,7 +300,7 @@ void fused_adamw(
       adamw_tpp(&data[i], &grad[i], &exp_avg[i], &exp_avg_sq[i], step_size, lr);
     }
   } else {
-    PCL_ASSERT(t_data.dim() == 2, "Sparse Adam support only 2D params\n");
+    TPP_ASSERT(t_data.dim() == 2, "Sparse Adam support only 2D params\n");
     t_grad = t_grad.coalesce();
     auto t_values = t_grad._values();
     auto t_indices = t_grad._indices();
@@ -382,7 +382,7 @@ void fused_split_adamw(
           lr);
     }
   } else {
-    PCL_ASSERT(t_data_hi.dim() == 2, "Sparse Adam support only 2D params\n");
+    TPP_ASSERT(t_data_hi.dim() == 2, "Sparse Adam support only 2D params\n");
     // TODO: BFloat16 coalesce() might not be optimal in pytorch, implement our
     // own
     // t_grad = t_grad.coalesce();
@@ -462,7 +462,7 @@ double clip_grad_norm(std::vector<at::Tensor>& grads, double max_norm) {
     } else if (grads[i].dtype() == at::kBFloat8) {
       total_norm += norm2(pt_get_data_ptr<bfloat8>(grads[i]), grads[i].numel());
     } else {
-      PCL_ASSERT(0, "Unsupported data type");
+      TPP_ASSERT(0, "Unsupported data type");
     }
   }
 
@@ -480,7 +480,7 @@ double clip_grad_norm(std::vector<at::Tensor>& grads, double max_norm) {
         tensor_scale(
             pt_get_data_ptr<bfloat8>(grads[i]), grads[i].numel(), clip_coef);
       } else {
-        PCL_ASSERT(0, "Unsupported data type");
+        TPP_ASSERT(0, "Unsupported data type");
       }
     }
   }
@@ -753,7 +753,7 @@ void fused_lamb_v2(
           step,
           fused_param_norm);
     } else {
-      PCL_ASSERT(0, "Should not come here\n");
+      TPP_ASSERT(0, "Should not come here\n");
     }
   } else if (t_weight_norms.dtype() == at::kDouble) {
     if (t_data.dtype() == at::kFloat) {
@@ -799,22 +799,22 @@ void fused_lamb_v2(
           step,
           fused_param_norm);
     } else {
-      PCL_ASSERT(0, "Should not come here\n");
+      TPP_ASSERT(0, "Should not come here\n");
     }
   } else {
-    PCL_ASSERT(0, "Should not come here\n");
+    TPP_ASSERT(0, "Should not come here\n");
   }
 }
 
 REGISTER_SUBMODULE(_optim, m) {
-  m.def("dense_sparse_add_", &dense_sparse_add_, "Pcl pcl_dense_sparse_add");
-  m.def("bf16_split_add_", &bf16_split_add_, "Pcl pcl_bf16_update");
+  m.def("dense_sparse_add_", &dense_sparse_add_, "Tpp tpp_dense_sparse_add");
+  m.def("bf16_split_add_", &bf16_split_add_, "Tpp tpp_bf16_update");
   m.def("fused_adamw", &fused_adamw, "Fused AdamW optimizer");
   m.def(
       "fused_split_adamw",
       &fused_split_adamw,
       "Fused AdamW optimizer for BF16");
-  m.def("clip_grad_norm", &clip_grad_norm, "Pcl BERT clip_grad_norm");
+  m.def("clip_grad_norm", &clip_grad_norm, "Tpp BERT clip_grad_norm");
   m.def("fused_lamb", &fused_lamb, "Fused LAMB optimizer");
   m.def("fused_lamb_v2", &fused_lamb_v2, "Fused LAMB optimizer version 2");
 }

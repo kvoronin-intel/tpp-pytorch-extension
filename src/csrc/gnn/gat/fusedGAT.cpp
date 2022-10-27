@@ -11,7 +11,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 static int my_rank = guess_mpi_rank();
@@ -120,13 +120,13 @@ REGISTER_SUBMODULE(_fused_gsage, m) {
   m.def(
       "fused_gat_mlp_attn_fwd",
       &fused_gat_mlp_attn_fwd,
-      "Pcl GAT fused MLP-Attention forward");
+      "Tpp GAT fused MLP-Attention forward");
   m.def(
       "fused_gat_mlp_attn_bwd",
       &fused_gat_mlp_attn_bwd,
-      "Pcl GAT fused MLP-Attention backward");
-  m.def("gat_dropout_fwd", &gat_dropout_fwd, "Pcl Optimized Dropout FWD");
-  m.def("gat_dropout_bwd", &gat_dropout_bwd, "Pcl Optimized Dropout BWD");
-  m.def("leakyrelu_fwd", &leakyrelu_fwd, "Pcl Optimized Leaky Relu FWD");
-  m.def("leakyrelu_bwd", &leakyrelu_bwd, "Pcl Optimized Leaky Relu BWD");
+      "Tpp GAT fused MLP-Attention backward");
+  m.def("gat_dropout_fwd", &gat_dropout_fwd, "Tpp Optimized Dropout FWD");
+  m.def("gat_dropout_bwd", &gat_dropout_bwd, "Tpp Optimized Dropout BWD");
+  m.def("leakyrelu_fwd", &leakyrelu_fwd, "Tpp Optimized Leaky Relu FWD");
+  m.def("leakyrelu_bwd", &leakyrelu_bwd, "Tpp Optimized Leaky Relu BWD");
 }

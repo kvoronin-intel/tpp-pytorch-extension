@@ -58,7 +58,7 @@ try:
 except ImportError:
     from tensorboardX import SummaryWriter
 
-from pcl_pytorch_extension import bert as pcl_bert
+from tpp_pytorch_extension import bert as tpp_bert
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +70,8 @@ def set_seed(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    if args.use_pcl:
-        pcl_bert.set_rnd_seed(args.seed)
+    if args.use_tpp:
+        tpp_bert.set_rnd_seed(args.seed)
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
@@ -129,8 +129,8 @@ def train(args, train_dataset, model, tokenizer):
             "weight_decay": 0.0,
         },
     ]
-    if args.use_pcl:
-        optimizer = pcl_bert.AdamW(
+    if args.use_tpp:
+        optimizer = tpp_bert.AdamW(
             optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon
         )
     else:
@@ -183,7 +183,7 @@ def train(args, train_dataset, model, tokenizer):
                 find_unused_parameters=True,
             )
 
-    low_prec = args.pcl_bf16 or args.pcl_bf8
+    low_prec = args.tpp_bf16 or args.tpp_bf8
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -257,8 +257,8 @@ def train(args, train_dataset, model, tokenizer):
                     steps_trained_in_current_epoch -= 1
                     continue
 
-                if prof and args.use_pcl:
-                    pcl_bert.reset_debug_timers()
+                if prof and args.use_tpp:
+                    tpp_bert.reset_debug_timers()
                 start_fwd_time = timeit.default_timer()
                 model.train()
                 batch = tuple(t.to(args.device) for t in batch)
@@ -324,8 +324,8 @@ def train(args, train_dataset, model, tokenizer):
                             global_norm = torch.nn.utils.clip_grad_norm_(
                                 amp.master_params(optimizer), args.max_grad_norm
                             )
-                        elif args.use_pcl and low_prec:
-                            global_norm = pcl_bert.clip_grad_norm_(
+                        elif args.use_tpp and low_prec:
+                            global_norm = tpp_bert.clip_grad_norm_(
                                 model.parameters(), args.max_grad_norm
                             )
                         else:
@@ -399,8 +399,8 @@ def train(args, train_dataset, model, tokenizer):
                     print(
                         f"Step: {global_step-1}, loss: {step_loss:6g}  tr_loss: {tr_loss/(global_step-1):6g} DT: {data_time*1e3:6g} FT: {(start_bwd_time-start_fwd_time)*1e3:6g} BT: {(start_opt_time-start_bwd_time)*1e3:6g} OT: {(end_time-start_opt_time)*1e3:6g} TT: {(end_time-start_fwd_time+data_time)*1e3:6g} GN: {global_norm:6g}"
                     )
-                if prof and args.use_pcl:
-                    pcl_bert.print_debug_timers()
+                if prof and args.use_tpp:
+                    tpp_bert.print_debug_timers()
                 if args.max_steps > 0 and global_step > args.max_steps:
                     epoch_iterator.close()
                     break
@@ -908,27 +908,27 @@ def main():
     parser.add_argument(
         "--profile",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use TPP Fused impl when available",
     )
     parser.add_argument(
-        "--use_pcl",
+        "--use_tpp",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use TPP Fused impl when available",
     )
     parser.add_argument(
-        "--pcl_bf16",
+        "--tpp_bf16",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use TPP Fused impl when available",
     )
     parser.add_argument(
-        "--pcl_bf8",
+        "--tpp_bf8",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use TPP Fused impl when available",
     )
     parser.add_argument(
         "--unpad",
         action="store_true",
-        help="Whether to use PCL Fused impl when available",
+        help="Whether to use TPP Fused impl when available",
     )
     parser.add_argument(
         "--dist_backend",
@@ -989,7 +989,7 @@ def main():
             "examples. This could result in errors when building features from the examples. Please reduce the doc "
             "stride or increase the maximum length to ensure the features are correctly built."
         )
-    if args.pcl_bf16 and args.pcl_bf8:
+    if args.tpp_bf16 and args.tpp_bf8:
         logger.warning("Both BF16 and BF8 precision specified, using BF8")
 
     if (
@@ -1095,8 +1095,8 @@ def main():
         use_fast=False,  # SquadDataset is not compatible with Fast tokenizers which have a smarter overflow handeling
     )
 
-    low_prec = args.pcl_bf16 or args.pcl_bf8
-    with pcl_bert.pcl_impl(args.use_pcl, low_prec, args.unpad, args.pcl_bf8):
+    low_prec = args.tpp_bf16 or args.tpp_bf8
+    with tpp_bert.tpp_impl(args.use_tpp, low_prec, args.unpad, args.tpp_bf8):
         model = AutoModelForQuestionAnswering.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -1104,8 +1104,8 @@ def main():
             cache_dir=args.cache_dir if args.cache_dir else None,
         )
 
-    if args.use_pcl:
-        pcl_bert.block(model)
+    if args.use_tpp:
+        tpp_bert.block(model)
 
     if args.local_rank == 0:
         # Make sure only the first process in distributed training will download model & vocab
@@ -1186,14 +1186,14 @@ def main():
         for checkpoint in checkpoints:
             # Reload the model
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            low_prec = args.pcl_bf16 or args.pcl_bf8
-            with pcl_bert.pcl_impl(args.use_pcl, low_prec, args.unpad, args.pcl_bf8):
+            low_prec = args.tpp_bf16 or args.tpp_bf8
+            with tpp_bert.tpp_impl(args.use_tpp, low_prec, args.unpad, args.tpp_bf8):
                 model = AutoModelForQuestionAnswering.from_pretrained(
                     checkpoint
                 )  # , force_download=True)
             model.to(args.device)
-            if args.use_pcl:
-                pcl_bert.block(model)
+            if args.use_tpp:
+                tpp_bert.block(model)
             # for n, p in model.named_parameters():
             #     print(f"{n}: {p.dtype}")
 

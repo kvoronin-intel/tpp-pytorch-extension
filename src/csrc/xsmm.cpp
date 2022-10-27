@@ -44,7 +44,7 @@ unsigned int* get_rng_state() {
 
 void init_libxsmm() {
   auto max_threads = omp_get_max_threads();
-  PCL_ASSERT(
+  TPP_ASSERT(
       max_threads <= MAX_THREADS,
       "Maximun %d threads supported, %d threads being used, please compile with increased  MAX_THREADS value\n",
       MAX_THREADS,

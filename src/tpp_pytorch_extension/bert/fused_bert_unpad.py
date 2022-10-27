@@ -4,14 +4,14 @@ from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.autograd import Function
-from pcl_pytorch_extension.utils.blocked_layout import (
+from tpp_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
     get_blocking_signature,
     get_vnni_blocking,
 )
-from pcl_pytorch_extension._C import _fused_bert_unpad as fused_bert_cpp
+from tpp_pytorch_extension._C import _fused_bert_unpad as fused_bert_cpp
 import time
 from contextlib import contextmanager
 
@@ -231,7 +231,7 @@ class BertSelfAttentionFunction(torch.autograd.Function):
 
 
 class BertSelfAttention(BlockedModule):
-    r"""PCL Bert Self Attention Layer using libxsmm blocked GEMM"""
+    r"""TPP Bert Self Attention Layer using libxsmm blocked GEMM"""
 
     # __constants__ = ['bias', 'C', 'K']
 
@@ -1224,7 +1224,7 @@ except:
 
 
 @contextmanager
-def pcl_impl(enable=True, use_low_prec=False, use_bf8=False):
+def tpp_impl(enable=True, use_low_prec=False, use_bf8=False):
     global global_layer_dtype
     try:
         import transformers

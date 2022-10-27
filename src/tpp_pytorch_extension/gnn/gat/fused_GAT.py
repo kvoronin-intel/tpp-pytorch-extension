@@ -12,15 +12,15 @@ from dgl.base import DGLError
 from dgl.nn.pytorch.utils import Identity
 import dgl.function as fn
 from dgl.utils import expand_as_pair
-from pcl_pytorch_extension.utils.blocked_layout import (
+from tpp_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
 )
-from pcl_pytorch_extension.utils import blocked_layout, xsmm
-from pcl_pytorch_extension._C import _fused_gsage as fused_gat_cpp
+from tpp_pytorch_extension.utils import blocked_layout, xsmm
+from tpp_pytorch_extension._C import _fused_gsage as fused_gat_cpp
 
-# from pcl_pytorch_extension._C import _fused_gat as fused_gat_cpp
+# from tpp_pytorch_extension._C import _fused_gat as fused_gat_cpp
 import time
 from contextlib import contextmanager
 

@@ -12,7 +12,7 @@ from torch.nn import init
 from torch.autograd import Function
 from torch.nn.modules.utils import _single
 
-from pcl_pytorch_extension._C import _conv1dopti as Conv1dOpti_cpp
+from tpp_pytorch_extension._C import _conv1dopti as Conv1dOpti_cpp
 
 
 class _ConvNd(Module):

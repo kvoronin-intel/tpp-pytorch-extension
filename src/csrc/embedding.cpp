@@ -13,7 +13,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "prep_radix_sort.h"
 #include "radix_sort.h"
 #include "tensor_helper.h"
@@ -72,6 +72,6 @@ at::Tensor emb_bwd(std::vector<at::Tensor> inputs) {
 }
 
 REGISTER_SUBMODULE(_embedding, m) {
-  m.def("emb_fwd", &emb_fwd, "Pcl Embedding forward");
-  m.def("emb_bwd", &emb_bwd, "Pcl Embedding backward");
+  m.def("emb_fwd", &emb_fwd, "Tpp Embedding forward");
+  m.def("emb_bwd", &emb_bwd, "Tpp Embedding backward");
 }

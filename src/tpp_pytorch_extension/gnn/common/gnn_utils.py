@@ -1,5 +1,5 @@
 import torch
-from pcl_pytorch_extension._C import _gnn_utils as gnn_utils_cpp
+from tpp_pytorch_extension._C import _gnn_utils as gnn_utils_cpp
 
 
 def affinitize_cores(nthreads, nworkers):

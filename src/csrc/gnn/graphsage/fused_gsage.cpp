@@ -11,7 +11,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 static int my_rank = guess_mpi_rank();
@@ -83,11 +83,11 @@ at::Tensor dropout_bwd(float p, std::vector<at::Tensor> inputs) {
 
 REGISTER_SUBMODULE(_fused_gsage, m) {
   m.def(
-      "fused_gsage_mlp_fwd", &fused_gsage_mlp_fwd, "Pcl GraphSAGE MLP forward");
+      "fused_gsage_mlp_fwd", &fused_gsage_mlp_fwd, "Tpp GraphSAGE MLP forward");
   m.def(
       "fused_gsage_mlp_bwd",
       &fused_gsage_mlp_bwd,
-      "Pcl GraphSAGE MLP backward");
-  m.def("dropout_fwd", &dropout_fwd, "Pcl Optimized Dropout FWD");
-  m.def("dropout_bwd", &dropout_bwd, "Pcl Optimized Dropout BWD");
+      "Tpp GraphSAGE MLP backward");
+  m.def("dropout_fwd", &dropout_fwd, "Tpp Optimized Dropout FWD");
+  m.def("dropout_bwd", &dropout_bwd, "Tpp Optimized Dropout BWD");
 }

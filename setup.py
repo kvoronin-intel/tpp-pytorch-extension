@@ -125,19 +125,19 @@ print("extra_compile_args = ", extra_compile_args)
 print(sources)
 
 setup(
-    name="pcl-pytorch-extension",
+    name="tpp-pytorch-extension",
     version="0.0.1",
     author="Dhiraj Kalamkar",
     author_email="dhiraj.d.kalamkar@intel.com",
-    description="A collection of pytorch extensions for Xeon",
+    description="Intel(R) Tensor Processing Primitives extension for PyTorch*",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/intel-sandbox/pcl-pytorch-extension",
+    url="https://github.com/libxsmm/tpp-pytorch-extension",
     package_dir={"": "src"},
     packages=find_packages("src"),
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: BSD 3-Clause 'New' or 'Revised' License (BSD-3-Clause)",
         "Operating System :: Linux",
     ],
     python_requires=">=3.6",
@@ -146,7 +146,7 @@ setup(
     libraries=[("xsmm", xsmm_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"])],
     ext_modules=[
         CppExtension(
-            "pcl_pytorch_extension._C",
+            "tpp_pytorch_extension._C",
             sources,
             extra_compile_args=extra_compile_args,
             include_dirs=[

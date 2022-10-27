@@ -15,7 +15,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 #define QKV_BLOCKSIZE 128

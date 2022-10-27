@@ -1,6 +1,6 @@
 
-#ifndef _PCL_BFLOAT8_H_
-#define _PCL_BFLOAT8_H_
+#ifndef _TPP_BFLOAT8_H_
+#define _TPP_BFLOAT8_H_
 
 #ifndef PYTORCH_SUPPORTS_BFLOAT8
 #include <libxsmm.h>
@@ -34,4 +34,4 @@ class BFloat8 {
 
 #endif // PYTORCH_SUPPORTS_BFLOAT8
 
-#endif // _PCL_BFLOAT8_H_
+#endif // _TPP_BFLOAT8_H_

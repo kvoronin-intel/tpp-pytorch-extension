@@ -10,7 +10,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 template <typename Tin, typename Tout>
@@ -38,13 +38,13 @@ static at::Tensor cvt_to_bf8(at::Tensor self) {
   } else if (self.dtype() == at::kHalf) {
     cvt_impl(N, pt_get_data_ptr<half>(self), pt_get_data_ptr<bfloat8>(out));
   } else {
-    PCL_ASSERT(false, "Unsupported datatype for cvt_to_bf8\n");
+    TPP_ASSERT(false, "Unsupported datatype for cvt_to_bf8\n");
   }
   return out;
 }
 
 static at::Tensor cvt_from_bf8(at::Tensor self, py::object dtype_) {
-  PCL_ASSERT(self.dtype() == at::kBFloat8, "Input must be of BFloat8 datatype");
+  TPP_ASSERT(self.dtype() == at::kBFloat8, "Input must be of BFloat8 datatype");
   at::ScalarType dtype = torch::python::detail::py_object_to_dtype(dtype_);
   auto out = at::empty_like(self, dtype);
   long N = self.numel();
@@ -55,7 +55,7 @@ static at::Tensor cvt_from_bf8(at::Tensor self, py::object dtype_) {
   } else if (dtype == at::kHalf) {
     cvt_impl(N, pt_get_data_ptr<bfloat8>(self), pt_get_data_ptr<half>(out));
   } else {
-    PCL_ASSERT(false, "Unsupported datatype for cvt_from_bf8\n");
+    TPP_ASSERT(false, "Unsupported datatype for cvt_from_bf8\n");
   }
   return out;
 }

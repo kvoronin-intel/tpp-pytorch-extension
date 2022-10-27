@@ -12,7 +12,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 static int my_rank = guess_mpi_rank();
@@ -176,17 +176,17 @@ at::Tensor rgcn_dropout_bwd(
 }
 
 REGISTER_SUBMODULE(_fused_rgcn, m) {
-  m.def("fused_rgcn_norm_fwd", &fused_rgcn_norm_fwd, "Pcl RGCN Norm forward");
-  m.def("fused_rgcn_mlp_fwd", &fused_rgcn_mlp_fwd, "Pcl RGCN MLP forward");
-  m.def("fused_rgcn_gemm_fwd", &fused_rgcn_gemm_fwd, "Pcl RGCN MatMul forward");
+  m.def("fused_rgcn_norm_fwd", &fused_rgcn_norm_fwd, "Tpp RGCN Norm forward");
+  m.def("fused_rgcn_mlp_fwd", &fused_rgcn_mlp_fwd, "Tpp RGCN MLP forward");
+  m.def("fused_rgcn_gemm_fwd", &fused_rgcn_gemm_fwd, "Tpp RGCN MatMul forward");
   m.def(
-      "fused_rgcn_eltw_fwd", &fused_rgcn_eltw_fwd, "Pcl RGCN Eltwise forward");
-  m.def("fused_rgcn_norm_bwd", &fused_rgcn_norm_bwd, "Pcl RGCN Norm backward");
-  m.def("fused_rgcn_mlp_bwd", &fused_rgcn_mlp_bwd, "Pcl RGCN MLP backward");
+      "fused_rgcn_eltw_fwd", &fused_rgcn_eltw_fwd, "Tpp RGCN Eltwise forward");
+  m.def("fused_rgcn_norm_bwd", &fused_rgcn_norm_bwd, "Tpp RGCN Norm backward");
+  m.def("fused_rgcn_mlp_bwd", &fused_rgcn_mlp_bwd, "Tpp RGCN MLP backward");
   m.def(
-      "fused_rgcn_gemm_bwd", &fused_rgcn_gemm_bwd, "Pcl RGCN MatMul backward");
+      "fused_rgcn_gemm_bwd", &fused_rgcn_gemm_bwd, "Tpp RGCN MatMul backward");
   m.def(
-      "fused_rgcn_eltw_bwd", &fused_rgcn_eltw_bwd, "Pcl RGCN Eltwise backward");
-  m.def("rgcn_dropout_fwd", &rgcn_dropout_fwd, "Pcl Optimized Dropout FWD");
-  m.def("rgcn_dropout_bwd", &rgcn_dropout_bwd, "Pcl Optimized Dropout BWD");
+      "fused_rgcn_eltw_bwd", &fused_rgcn_eltw_bwd, "Tpp RGCN Eltwise backward");
+  m.def("rgcn_dropout_fwd", &rgcn_dropout_fwd, "Tpp Optimized Dropout FWD");
+  m.def("rgcn_dropout_bwd", &rgcn_dropout_bwd, "Tpp Optimized Dropout BWD");
 }

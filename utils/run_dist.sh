@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function print_vars {
-  for VAR in ${!CCL*} ${!I_MPI*} ${!i_mpi*} ${!PSM3*} ${!FI_*} ${!KMP_*} ${!OMP_*} ${!ATL_*} LD_PRELOAD LD_LIBRARY_PATH ${!DLRM_*} ${!PYTORCH_*} ${!PCL_*} ${!LIBXSMM_*} ${!EMULATE_*} DATALOADER_WORKER_COUNT VIRTUAL_ENV ${!ARGS_*} $@ ; do
+  for VAR in ${!CCL*} ${!I_MPI*} ${!i_mpi*} ${!PSM3*} ${!FI_*} ${!KMP_*} ${!OMP_*} ${!ATL_*} LD_PRELOAD LD_LIBRARY_PATH ${!DLRM_*} ${!PYTORCH_*} ${!TPP_*} ${!LIBXSMM_*} ${!EMULATE_*} DATALOADER_WORKER_COUNT VIRTUAL_ENV ${!ARGS_*} $@ ; do
     if ! test -z ${!VAR} ; then
        echo "Using $VAR=${!VAR}"
     fi

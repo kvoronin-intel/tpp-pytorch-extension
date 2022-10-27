@@ -237,7 +237,7 @@ if (training) {
             }
             if (t_HM.numel() != 0) {
               // FIXME: shape of head mask is not correct here yet
-              PCL_ASSERT(0, "t_HM used");
+              TPP_ASSERT(0, "t_HM used");
               // t_APD[b][s11][n] *= t_HM[b][s11][n];
             }
             if (bf16_training)

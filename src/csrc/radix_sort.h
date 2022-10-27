@@ -1,5 +1,5 @@
-#ifndef _PCL_RADIX_SORT_
-#define _PCL_RADIX_SORT_
+#ifndef _TPP_RADIX_SORT_
+#define _TPP_RADIX_SORT_
 
 // #include "sort_headers.h"
 #include <omp.h>

@@ -8,11 +8,11 @@ import time
 import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
-from pcl_pytorch_extension.gnn.gat import fused_GAT as fused_gat
+from tpp_pytorch_extension.gnn.gat import fused_GAT as fused_gat
 from dgl.nn.pytorch.conv import GATConv
-from pcl_pytorch_extension.gnn.common import gnn_utils
+from tpp_pytorch_extension.gnn.common import gnn_utils
 
-import pcl_pytorch_extension as ppx
+import tpp_pytorch_extension as ppx
 import os
 import psutil
 

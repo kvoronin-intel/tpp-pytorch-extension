@@ -6,14 +6,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import dgl
 import dgl.nn as dglnn
-from pcl_pytorch_extension.utils.blocked_layout import (
+from tpp_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
 )
-from pcl_pytorch_extension.utils import blocked_layout, xsmm
-from pcl_pytorch_extension._C import _fused_rgcn as fused_rgcn_cpp
-from pcl_pytorch_extension._C import _xsmm as xsmm_cpp
+from tpp_pytorch_extension.utils import blocked_layout, xsmm
+from tpp_pytorch_extension._C import _fused_rgcn as fused_rgcn_cpp
+from tpp_pytorch_extension._C import _xsmm as xsmm_cpp
 from dgl.nn.pytorch.conv.graphconv import *
 
 import time
@@ -570,7 +570,7 @@ class OptRelGraphConvLayer(BlockedModule):
 
         for ntype, h in hs.items():
             N = h.size(0)
-            rst_pcl = None
+            rst_tpp = None
             if inputs_dst is not None:
                 inps = [h, inputs_dst[ntype], self.loop_weight]
             else:
@@ -582,7 +582,7 @@ class OptRelGraphConvLayer(BlockedModule):
 
             align = self.align if (N > self.align or N == 0) else N
 
-            rst_pcl = RGCNEltwiseFunction.apply(
+            rst_tpp = RGCNEltwiseFunction.apply(
                 self.self_loop,
                 align,
                 self.bias,
@@ -592,7 +592,7 @@ class OptRelGraphConvLayer(BlockedModule):
                 *inps
             )
 
-            rdict[ntype] = rst_pcl
+            rdict[ntype] = rst_tpp
 
         return rdict
 

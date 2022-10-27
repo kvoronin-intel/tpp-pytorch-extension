@@ -8,4 +8,4 @@ cd ../../../
 
 python setup.py install
 
-cd examples/gnn/graphsage
+cd examples/gnn/gat

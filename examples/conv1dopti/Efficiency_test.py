@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # from Conv1dOpti_ext import Conv1dOpti, ReLU_bf16                    # Import Layer from the extension
-import pcl_pytorch_extension
-from pcl_pytorch_extension.conv1dopti.Conv1dOpti_ext import Conv1dOpti, ReLU_bf16
+import tpp_pytorch_extension
+from tpp_pytorch_extension.conv1dopti.Conv1dOpti_ext import Conv1dOpti, ReLU_bf16
 
 
 """
@@ -115,7 +115,7 @@ X = torch.randn(
 if enable_BF16 == True:  # if BFloat16 computation is enabled
     X = X.to(torch.bfloat16)
 
-# pcl_pytorch_extension.reset_debug_timers()
+# tpp_pytorch_extension.reset_debug_timers()
 for _ in range(N):  # Optimized PyTorch layer Forward and Backward pass timing
     start = time.time()
     Y2 = net2(X)
@@ -125,7 +125,7 @@ for _ in range(N):  # Optimized PyTorch layer Forward and Backward pass timing
     Y2.sum().backward()
     backward2 += time.time() - start
 
-# pcl_pytorch_extension.print_debug_timers()
+# tpp_pytorch_extension.print_debug_timers()
 print(
     "Forward pass time (PyTorch layer): {:.3f} ms | Forward pass time (Optimized layer): {:.3f} ms".format(
         forward1 * 1e3 / N, forward2 * 1e3 / N

@@ -212,7 +212,7 @@ auto t_Wv_TV = wt_tensor_for_bwd(N, H, N, H, t_Wv);
             }
             if (t_HM.numel() != 0) {
               // FIXME: shape of head mask is not correct here yet
-              PCL_ASSERT(0, "t_HM used");
+              TPP_ASSERT(0, "t_HM used");
               // t_dAPD[b][s11][n] = t_dAPD[b][s11][n] * t_HM[b][s11][n];
             }
             if (p > 0) {

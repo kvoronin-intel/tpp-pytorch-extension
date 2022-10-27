@@ -103,7 +103,7 @@ class ScopedTimer {
 class GlobalScope {
  public:
   GlobalScope(int t) : oldScope(globalScope), start(getTime()) {
-    PCL_ASSERT(t < (int)get_scope_list().size(), "Invalid scope initialized");
+    TPP_ASSERT(t < (int)get_scope_list().size(), "Invalid scope initialized");
     globalScope = t;
   }
   ~GlobalScope() {
