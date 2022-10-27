@@ -161,7 +161,8 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop = ThreadedLoop<3>({{0L, N, BN, false}, {S1}, {N}}, "acB");
+      auto loop_scheme = large_cache_opt ? "acB" : "aBC";
+      auto qkv_loop = ThreadedLoop<3>({{0L, N, BN, false}, {S1}, {N}}, loop_scheme);
       qkv_loop(
           [&](int* ind) {
             int bn = ind[0], s1 = ind[1], nk = ind[2];
@@ -199,7 +200,8 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, "bA");
+      auto loop_scheme = large_cache_opt ? "bA" : "AB";
+      auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, loop_scheme);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nk = ind[1];
@@ -237,7 +239,8 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, "bA");
+      auto loop_scheme = large_cache_opt ? "bA" : "AB";
+      auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, loop_scheme);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nk = ind[1];
@@ -259,7 +262,6 @@ if (training) {
   {
     RECORD_SCOPE(ac_gemm, {t_QL, t_KL_TV});
     {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2) schedule(static, 1)
       for (int b = 0; b < B; b++) {
         for (int n = 0; n < N; n++) {

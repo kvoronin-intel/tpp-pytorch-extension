@@ -269,7 +269,8 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   }
 
 #ifndef NO_PARLOOPER
-  auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, "bA");
+  auto loop_scheme = large_cache_opt ? "bA" : "AB";
+  auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, loop_scheme);
 #endif
   {
     RECORD_SCOPE(div_gemm, {t_dVL, t_Wv_TV});

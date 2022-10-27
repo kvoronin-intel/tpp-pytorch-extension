@@ -128,8 +128,9 @@ auto layer_norm_fwd_tpp =
     }
   }
 #else
-  auto ogemm_loop = ThreadedLoop<3>({{0, Nc, Ncb, false}, {S1}, {Nk}}, "acB");
-  bool parallelized_on_nk = false; // ogemm_loop.is_parallel(2);
+  auto loop_scheme = large_cache_opt ? "acB" : "aBC";
+  auto ogemm_loop = ThreadedLoop<3>({{0, Nc, Ncb, false}, {S1}, {Nk}}, loop_scheme);
+  bool parallelized_on_nk = large_cache_opt ? false : true; // ogemm_loop.is_parallel(2);
   ogemm_loop(
       [&](int* ind) {
         int nc = ind[0], s1 = ind[1], nk = ind[2];
