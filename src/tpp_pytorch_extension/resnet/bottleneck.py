@@ -907,16 +907,23 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                               1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                               7, 7, 7, 7, # h_in_gemms
                                               0, 0 ] # pack_input, fuse_stats
-                    self.tuning_strings_fwd = ['ACfgbdec', 'ACfgbdec', 'ACfgbdec', 'ACfgbdec']
-                    #self.tuning_strings_fwd = ['A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
-                    #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
-                    #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
-                    #                           'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde']
+                    #self.tuning_strings_fwd = ['ACfgbdec', 'ACfgbdec', 'ACfgbdec', 'ACfgbdec']
+                    self.tuning_strings_fwd = ['A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
+                                               'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
+                                               'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde',
+                                               'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbde'] # last one is a dummy
+                    #self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
+                    #                        4, 1, 4, 1, 4, 1, 1, 1 , # c,k blocks
+                    #                          7, 1, 7, 7] # h_in_gemms
                     self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
-                                            4, 1, 4, 1, 4, 1, 1, 1 , # c,k blocks
-                                              7, 1, 7, 7] # h_in_gemms
+                                            1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
+                                              7, 7, 7, 7] # h_in_gemms
                     #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_strings_d = ['BAfgcedb', 'BAfgcedb', 'BAfgcedb', 'BAfgcedb']
+                    #self.tuning_strings_d = ['BAfgcedb', 'BAfgcedb', 'BAfgcedb', 'BAfgcedb']
+                    self.tuning_strings_d = ['A{C:' + str(self.hybrid_cols) + '}B{R:' + str(self.hybrid_rows) +'}fgcbde',
+                                               'A{C:' + str(self.hybrid_cols) + '}B{R:' + str(self.hybrid_rows) +'}fgcbde',
+                                               'A{C:' + str(self.hybrid_cols) + '}B{R:' + str(self.hybrid_rows) +'}fgcbde',
+                                               'A{C:' + str(self.hybrid_cols) + '}B{R:' + str(self.hybrid_rows) +'}fgcbde'] # last one is dummy
                     self.tuning_params_w = [1, 1, 1, 1, # p blocks
                                             1, 1, 1, 1, # use nchw formats
                                             0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
@@ -924,6 +931,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
                     #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
                     self.tuning_strings_w = ['Aefcdb', 'Adbcef', 'Aefcdb', 'Aefcdb']
+                    #self.tuning_strings_w = ['Aefcdb', 'Adbcef',
+                    #                          'A{C:' + str(self.hybrid_cols) + '}B{R:' + str(self.hybrid_rows) +'}fgcbde']
             else: # fp32
                 # fwd tunings are based on results in bottleneck_*_tuning_fp32_dbg.txt
                 # bwd tunings are defaults
