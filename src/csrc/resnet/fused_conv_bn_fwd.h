@@ -5,7 +5,8 @@
 t_start = getTime();
 #endif
 
-#define NTIMES 1
+#define NTIMES_CONV 1
+#define NTIMES_BATCHNORM_SCALE 1
 
 #define BN_PREHEAT_INPUT
 #define BN_PREHEAT_OUTPUT
@@ -19,6 +20,7 @@ t_start = getTime();
 //#define NO_BATCHNORM
 
 //#define VERBOSE
+
 
 #ifdef BATCHNORM_SCALE_REVERSE_ORDER
   #warning "BATCHNORM_SCALE_REVERSE_ORDER is enabled"
@@ -614,8 +616,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
   t_conv_start = getTime();
 #endif
 
-//for (int i = 0; i < 1000; i++) {
-
+for (int i = 0; i < NTIMES_CONV; i++) {
   {
 #ifdef NO_BATCHNORM
 //#  ifdef GLOBAL_SHARED_WEIGHTS
@@ -790,6 +791,7 @@ std::cout << "Running conv part in conv/bn fusion" << std::endl;
         [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
     } /* end of the fusedbtlnk_conv_fwd scope with recorded parallel for */
   } /* end of the dummy scope */
+} /* end of the NTIMES_CONV loop */
 
 #ifdef TIMING
   t_conv_end = getTime();
@@ -956,7 +958,7 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   {
     // while debugging, disabling the record_scope here
     //RECORD_SCOPE(fusedbtlnk_bn_fwd_scale, {});
-    for (int i = 0; i < NTIMES; i++)
+    for (int i = 0; i < NTIMES_BATCHNORM_SCALE; i++)
     {
 #ifdef BN_PREHEAT_OUTPUT
 //    if (Kb*bk == 256 && bn_ifhp == 56 && bn_ifwp == 56) {
@@ -1111,18 +1113,18 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
   printf("dbg: read uncore counters afterwards\n");
   read_uncore_ctrs( &b );
   difa_uncore_ctrs( &a, &b, &s );
-  divi_uncore_ctrs( &s, NTIMES );
+  divi_uncore_ctrs( &s, NTIMES_BATCHNORM_SCALE );
 #endif
 #ifdef USE_CORE_PERF_COUNTERS
   printf("dbg: read core counters afterwards\n");
   read_core_ctrs( &b );
   difa_core_ctrs( &a, &b, &s );
-  divi_core_ctrs( &s, NTIMES );
+  divi_core_ctrs( &s, NTIMES_BATCHNORM_SCALE );
 #endif
 */
 
 /*
-  double l_avgTime = (t_bn_end - t_bn_stats_end) / NTIMES;
+  double l_avgTime = (t_bn_end - t_bn_stats_end) / NTIMES_BATCHNORM_SCALE;
 
 #ifdef USE_UNCORE_PERF_COUNTERS
 #ifdef USE_DRAM_COUNTERS
