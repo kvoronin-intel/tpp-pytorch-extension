@@ -143,42 +143,28 @@ if (training) {
   {
     RECORD_SCOPE(q_gemm, {t_HS, t_Wq_V});
     {
-#if 0
-        auto  HS = GetVLAPtr<T>( t_HS, { N, S2 * H});
-        auto  HS_T = GetVLAPtr<T>( t_HS_T, { S1, H * S2}); // for BWD only
-        auto  Bq = GetVLAPtr<T>( t_Bq, { H});
-        auto  Wq_V = GetVLAPtr<T>( t_Wq_V, { N, H * H});
-        auto  QL = GetVLAPtr<T>( t_QL, { N, S2 * H});
-        auto  QL_T = GetVLAPtr<T>( t_QL_T, { S1, H * S2}); // For BWD only
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+      long BN = N;
+#ifdef NO_PARLOOPER
+      for (int bn = 0; bn < N; bn += BN) {
 #pragma omp parallel for collapse(2)
-      for (int s1 = 0; s1 < S1; s1++) {
-        for (int nk = 0; nk < N; nk++) {
-          if (low_prec_training && nk == 0)
-            xpose_tpp(N, S2 * H, S1 * S2 * H, HS[s1][0], HS_T[0][s1]);
-          copy_bias_tpp(Bq[nk], QL[s1][nk]);
-          qkv_gemm_tpp(HS[s1][0], Wq_V[nk][0], QL[s1][nk], N);
-          if (low_prec_training)
-            xpose_tpp(QL[s1][nk], QL_T[nk][s1]);
+        for (int s1 = 0; s1 < S1; s1++) {
+          for (int nk = 0; nk < N; nk++) {
+            if (low_prec_training && nk == 0)
+              xpose_tpp(BN, S2 * H, S1 * S2 * H, HS[s1][bn], HS_T[bn][s1]);
+            if (bn == 0)
+              copy_bias_tpp(Bq[nk], QL[s1][nk]);
+            qkv_gemm_tpp(HS[s1][bn], Wq_V[nk][bn], QL[s1][nk], BN);
+            if (low_prec_training)
+              if (bn == N - BN)
+                xpose_tpp(QL[s1][nk], QL_T[nk][s1]);
+          }
         }
       }
 #else
-      long BN = N;
-      auto qkv_loop = ThreadedLoop<3>(
-          {LoopSpecs{0L, N, BN}, LoopSpecs{S1}, LoopSpecs{N}}, "acB");
-      // ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1}, LoopSpecs{N}},
-      // "acB");  ThreadedLoop<3>({LoopSpecs{0L,N,BN}, LoopSpecs{S1},
-      // LoopSpecs{N}}, "aBC");  ThreadedLoop<3>({LoopSpecs{0L,N,BN},
-      // LoopSpecs{S1}, LoopSpecs{N, {4}}}, "acBC");
+      auto qkv_loop = ThreadedLoop<3>({{0L, N, BN, false}, {S1}, {N}}, "acB");
       qkv_loop(
           [&](int* ind) {
             int bn = ind[0], s1 = ind[1], nk = ind[2];
-            // auto HS = GetVLAPtr<T>(t_HS, {N, S2 * H});
-            // auto HS_T = GetVLAPtr<T>(t_HS_T, {S1, H * S2}); // for BWD only
-            // auto Bq = GetVLAPtr<T>(t_Bq, {H});
-            // auto Wq_V = GetVLAPtr<T>(t_Wq_V, {N, H * H});
-            // auto QL = GetVLAPtr<T>(t_QL, {N, S2 * H});
-            // auto QL_T = GetVLAPtr<T>(t_QL_T, {S1, H * S2}); // For BWD only
             if (low_prec_training && nk == 0)
               xpose_tpp(BN, S2 * H, S1 * S2 * H, HS[s1][bn], HS_T[bn][s1]);
             if (bn == 0)
@@ -194,17 +180,10 @@ if (training) {
     }
   }
 
-  // PRINT_T(t_QL.permute({0,1,3,2,4}).contiguous().view({B,S1*S2,N*H}));
-
   {
     RECORD_SCOPE(k_gemm, {t_EHS, t_Wk_V});
     {
-#if 0
-        auto  EHS_T = GetVLAPtr<T>( t_EHS_T, { S1, H * S2}); // for BWD only
-        auto  KL_V = GetVLAPtr<T>( t_KL_V, { N, S2 * H});
-        auto  Bk = GetVLAPtr<T>( t_Bk, { H});
-        auto  Wk_V = GetVLAPtr<T>( t_Wk_V, { N, H * H});
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#ifdef NO_PARLOOPER
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < N; nk++) {
@@ -220,16 +199,10 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop = ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
+      auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, "bA");
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nk = ind[1];
-            // auto Bk = GetVLAPtr<T>(t_Bk, {H});
-            // auto Wk_V = GetVLAPtr<T>(t_Wk_V, {N, H * H});
-            // auto KL_V = GetVLAPtr<T>(t_KL_V, {N, S2 * H});
-            // auto KL_TV = GetVLAPtr<T>(t_KL_TV, {N, H * S2});
-            // auto EHS = GetVLAPtr<T>(t_EHS, {N, S2 * H});
-            // auto EHS_T = GetVLAPtr<T>(t_EHS_T, {S1, H * S2}); // for BWD only
 
             T tmp[S2 * H];
             T* tmpp = (training && !low_prec_training) ? KL_V[s1][nk] : tmp;
@@ -246,18 +219,11 @@ if (training) {
 #endif
     }
   }
-  // PRINT_T(t_EHS);
-  // PRINT_T(t_Wk_V.permute({0,1,2,4,3}).contiguous().view({N,N,H,H}));
-  // PRINT_T(t_Wk_V);
-  // PRINT_T(t_Bk);
-  // PRINT_T(t_KL_V.permute({0,1,3,5,2,4}).contiguous().view({B,S1*S2,N*H}));
 
   {
     RECORD_SCOPE(v_gemm, {t_EHS, t_Wv_V});
     {
-#if 0
-      auto  EHS = GetVLAPtr<T>( t_EHS, { N, S2 * H});
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#ifdef NO_PARLOOPER
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < N; nk++) {
@@ -271,16 +237,10 @@ if (training) {
         }
       }
 #else
-      auto qkv_loop = ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
+      auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, "bA");
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nk = ind[1];
-            // auto Bv = GetVLAPtr<T>(t_Bv, {H});
-            // auto Wv_V = GetVLAPtr<T>(t_Wv_V, {N, H * H});
-            // auto VL_V = GetVLAPtr<T>(t_VL_V, {N, S2 * H});
-            // auto VL_TV = GetVLAPtr<T>(t_VL_TV, {N, H * S2});
-            // auto EHS = GetVLAPtr<T>(t_EHS, {N, S2 * H});
-
             T tmp[S2 * H];
             T* tmpp = (!dt_low_prec) ? VL_V[s1][nk] : tmp;
             copy_bias_tpp(Bv[nk], tmpp);

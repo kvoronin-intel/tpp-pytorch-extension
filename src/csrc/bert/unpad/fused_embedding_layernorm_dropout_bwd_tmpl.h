@@ -15,7 +15,6 @@ auto t_emb_out = inputs[i++]; // [N][H]
 auto t_dp_mask = inputs[i++];
 
 long B, S1, N, S2, H;
-// bool in_ids_null = t_in_ids.numel() == 0;
 bool tt_ids_null = t_tt_ids.numel() == 0;
 bool pos_ids_null = t_pos_ids.numel() == 0;
 bool in_emb_null = t_in_emb.numel() == 0;
@@ -64,13 +63,8 @@ auto set_zero_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
 
 {
   RECORD_SCOPE(db_emb, {t_grad_out, t_word_emb});
-#if 0
-    t_grad_gamma.zero_();
-    t_grad_beta.zero_();
-#else
   tensor_set_zero(N, H, t_grad_gamma);
   tensor_set_zero(N, H, t_grad_beta);
-#endif
   int num_threads = omp_get_max_threads();
   float* gamma_ptrs[num_threads];
   float* beta_ptrs[num_threads];

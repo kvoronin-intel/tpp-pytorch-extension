@@ -46,11 +46,9 @@ auto t_dBk = t_QL_T.new_empty({N * H});
 auto t_dBv = t_QL_T.new_empty({N * H});
 
 auto t_dHS = t_QL_T.new_empty({S1, N, S2, H});
-// auto t_dEHS = t_QL.new_empty({S1, N, S2, H});
-at::Tensor t_dEHS; // = t_QL.new_empty({S1, N, S2, H});
+at::Tensor t_dEHS;
 
 auto t_dAPD = at::empty_like(t_AP);
-// auto t_dAPD_V = at::empty_like(t_dAPO);
 auto t_dAPD_V = t_AP.new_empty({N, SS1, S2, S2});
 
 auto null_EHS = false;
@@ -183,102 +181,6 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   auto set_zero_f32_tpp = SCOPEIT(SetZeroTPP<float>(N * H), EW_ZERO);
   auto grad_bias_tpp = SCOPEIT(GradBiasTPP<T>(S2, H), BIAS);
 
-  // printf("dAPO = %p, t_dAPO.size = %lu\n", dAPO, t_dAPO.numel());
-  // #define PRINT_T(x) std::cout << #x << ": " << x << std::endl
-  // #define PRINT_T(x)
-#if 0
-  {
-    RECORD_SCOPE(dwc_gemm, {t_APD_T, t_dCL_V});
-    {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-      // dVL = APD_T * dCL
-#pragma omp parallel for collapse(2) schedule(static, 1)
-      for (int b = 0; b < B; b++) {
-        for (int n = 0; n < N; n++) {
-          long start = offs[b];
-          long ss1 = offs2[b];
-          long end = offs[b + 1];
-          long len = end - start;
-          for (int s21 = start; s21 < end; s21++, ss1 += len) {
-            cw_gemm_tpp(APD_T[n][ss1], dCL_V[atrans_blk(start,n)], dVL[s21][n], len);
-            if (dt_low_prec)
-              cw_n2v_tpp(dVL[s21][n], dVL_V[atrans_blk(s21,n)]);
-          }
-        }
-      }
-    }
-  }
-  // PRINT_T(t_AP);
-  {
-    RECORD_SCOPE(dica_gemm, {t_dCL, t_VL_TV});
-    {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-      // dAPD = dCL * VL_TV
-#pragma omp parallel for collapse(2) schedule(static, 1)
-      for (int b = 0; b < B; b++) {
-        for (int n = 0; n < N; n++) {
-          long start = offs[b];
-          long ss1 = offs2[b];
-          long end = offs[b + 1];
-          long len = end - start;
-          for (int s11 = start; s11 < end; s11++, ss1 += len) {
-            float dtAPD[len][S2][S2] = {0};
-            T dtAPD_bf[len][S2][S2] = {0};
-            for (int s21 = start; s21 < end; s21++) {
-              auto ls21 = s21 - start;
-              if (dAPO)
-                a_convert_tpp(dAPO[n][ss1 + ls21], dtAPD[ls21][0]);
-              ci_gemm_tpp(dCL[s11][n], VL_TV[s21][n], dtAPD[ls21][0], 1);
-            }
-            if (t_HM.numel() != 0) {
-              // FIXME: shape of head mask is not correct here yet
-              PCL_ASSERT(0, "t_HM used");
-              // t_dAPD[b][s11][n] = t_dAPD[b][s11][n] * t_HM[b][s11][n];
-            }
-            if (p > 0) {
-              for (int l = 0; l < len; l++) {
-                dropout_bwd_tpp(dtAPD[l][0], dtAPD[l][0], APD_mask[n][ss1 + l]);
-              }
-            }
-            softmax_bwd_tpp(len, dtAPD[0][0], dtAPD[0][0], AP[n][ss1]);
-            for (int s21 = start; s21 < end; s21++) {
-              auto ls21 = s21 - start;
-              long l = s11 - start;
-              long ss = offs2[b];
-              scale_tpp(dtAPD[ls21][0], dtAPD_bf[ls21][0], one_by_sqrt_H);
-              a_n2v_tpp(dtAPD_bf[ls21][0], dAPD_V[n][ss + ls21 * len + l]);
-            }
-            // dQL = dADP * KL_V
-            ai_gemm_tpp(dtAPD_bf[0][0], KL_V[start][n], dQL[s11][n], len);
-            if (dt_low_prec)
-              cw_n2v_tpp(dQL[s11][n], dQL_V[atrans_blk(s11,n)]);
-          }
-        }
-      }
-    }
-  }
-  {
-    RECORD_SCOPE(dwa_gemm, {t_QL_T, t_dAPD_V});
-    {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
-#pragma omp parallel for collapse(2) schedule(static, 1)
-      for (int b = 0; b < B; b++) {
-        for (int n = 0; n < N; n++) {
-          long start = offs[b];
-          long ss1 = offs2[b];
-          long end = offs[b + 1];
-          long len = end - start;
-          for (int s21 = start; s21 < end; s21++, ss1 += len) {
-            // dKL = (QL_T * dAPD)T
-            aw_gemm_tpp(QL_T[atrans_blk(start,n)], dAPD_V[n][ss1], dKL[s21][n], len);
-            if (dt_low_prec)
-              cw_n2v_tpp(dKL[s21][n], dKL_V[atrans_blk(s21,n)]);
-          }
-        }
-      }
-    }
-  }
-#else
   {
     RECORD_SCOPE(dac_gemm, {t_APD_T, t_dCL_V});
     {
@@ -365,16 +267,14 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       }
     }
   }
+
+#ifndef NO_PARLOOPER
+  auto qkv_loop = ThreadedLoop<2>({{S1}, {N}}, "bA");
 #endif
-  // PRINT_T(t_QL_T.permute({0,1,2,4,3}).contiguous());
-  // PRINT_T(t_dAPD_V.permute({0,1,2,3,4,6,5}).contiguous().view({B,S1,N,S1,S2,S2}));
-  // PRINT_T(t_dKL);
-  auto qkv_loop = ThreadedLoop<2>({LoopSpecs{S1}, LoopSpecs{N}}, "bA");
   {
     RECORD_SCOPE(div_gemm, {t_dVL, t_Wv_TV});
     {
-#if 0
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#ifdef NO_PARLOOPER
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nc = 0; nc < N; nc++) {
@@ -385,9 +285,6 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nc = ind[1];
-            // auto dVL = GetVLAPtr<T>(t_dVL, {N, S2 * H});
-            // auto Wv_TV = GetVLAPtr<T>(t_Wv_TV, {N, H * H});
-            // auto dEHS = GetVLAPtr<T>(t_dEHS, {N, S2 * H});
             vi_gemm_tpp(dVL[s1][0], Wv_TV[nc][0], dEHS[s1][nc], N, true);
           },
           [&]() { vi_gemm_tpp.config(); },
@@ -398,8 +295,7 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   {
     RECORD_SCOPE(dik_gemm, {t_dKL, t_Wk_TV});
     {
-#if 0
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#ifdef NO_PARLOOPER
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nc = 0; nc < N; nc++) {
@@ -410,9 +306,6 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nc = ind[1];
-            // auto dKL = GetVLAPtr<T>(t_dKL, {N, S2 * H});
-            // auto Wk_TV = GetVLAPtr<T>(t_Wk_TV, {N, H * H});
-            // auto dEHS = GetVLAPtr<T>(t_dEHS, {N, S2 * H});
             ki_gemm_tpp(dKL[s1][0], Wk_TV[nc][0], dEHS[s1][nc], N, true);
           },
           [&]() { ki_gemm_tpp.config(); },
@@ -423,8 +316,7 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   {
     RECORD_SCOPE(diq_gemm, {t_dQL, t_Wq_TV});
     {
-#if 0
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+#ifdef NO_PARLOOPER
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nc = 0; nc < N; nc++) {
@@ -435,9 +327,6 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
       qkv_loop(
           [&](int* ind) {
             int s1 = ind[0], nc = ind[1];
-            // auto dQL = GetVLAPtr<T>(t_dQL, {N, S2 * H});
-            // auto Wq_TV = GetVLAPtr<T>(t_Wq_TV, {N, H * H});
-            // auto dHS = GetVLAPtr<T>(t_dHS, {N, S2 * H});
             qi_gemm_tpp(dQL[s1][0], Wq_TV[nc][0], dHS[s1][nc], N, true);
           },
           [&]() { qi_gemm_tpp.config(); },
@@ -447,10 +336,10 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
   }
   {
     RECORD_SCOPE(dwqkv_gemm, {t_HS_T, t_dQL_V});
-#if 0
+#ifdef NO_PARLOOPER
     for (int s1 = 0; s1 < S1; s1 += BS) {
       int count = (s1 + BS <= S1 ? BS : S1 - s1);
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
+      bool is_last_iter = !(s1 + BS < S1);
 #pragma omp parallel for collapse(2)
       for (int nk = 0; nk < N; nk++) {
         for (int nc = 0; nc < N; nc++) {
@@ -459,28 +348,46 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
             set_zero_dw_tpp(dWk[nk][nc]);
             set_zero_dw_tpp(dWq[nk][nc]);
           }
-          qkvw_gemm_tpp(EHS_T[atrans_blk(s1,nc)], dVL_V[atrans_blk(s1,nk)], dWv[nk][nc], count);
-          qkvw_gemm_tpp(EHS_T[atrans_blk(s1,nc)], dKL_V[atrans_blk(s1,nk)], dWk[nk][nc], count);
-          qkvw_gemm_tpp(HS_T[atrans_blk(s1,nc)],  dQL_V[atrans_blk(s1,nk)], dWq[nk][nc], count);
+          qkvw_gemm_tpp(
+              EHS_T[atrans_blk(s1, nc)],
+              dVL_V[atrans_blk(s1, nk)],
+              dWv[nk][nc],
+              count);
+          if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
+            T tmp[H * H];
+            dw_cpy_tpp(dWv[nk][nc], tmp);
+            dw_n2v_tpp(tmp, dWv[nk][nc]);
+          }
+          qkvw_gemm_tpp(
+              EHS_T[atrans_blk(s1, nc)],
+              dKL_V[atrans_blk(s1, nk)],
+              dWk[nk][nc],
+              count);
+          if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
+            T tmp[H * H];
+            dw_cpy_tpp(dWk[nk][nc], tmp);
+            dw_n2v_tpp(tmp, dWk[nk][nc]);
+          }
+          qkvw_gemm_tpp(
+              HS_T[atrans_blk(s1, nc)],
+              dQL_V[atrans_blk(s1, nk)],
+              dWq[nk][nc],
+              count);
+          if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
+            T tmp[H * H];
+            dw_cpy_tpp(dWq[nk][nc], tmp);
+            dw_n2v_tpp(tmp, dWq[nk][nc]);
+          }
         }
       }
     }
 #else
-    auto qkvw_loop = ThreadedLoop<3>(
-        {LoopSpecs{0, S1, BS}, LoopSpecs{N}, LoopSpecs{N}}, "aBC");
+    auto qkvw_loop = ThreadedLoop<3>({{0, S1, BS, false}, {N}, {N}}, "aBC");
     qkvw_loop(
         [&](int* ind) {
           int s1 = ind[0], nk = ind[1], nc = ind[2];
           int count = (s1 + BS <= S1 ? BS : S1 - s1);
           bool is_last_iter = !(s1 + BS < S1);
-          // auto dWv = GetVLAPtr<T>(t_dWv, {N, H * H});
-          // auto dWk = GetVLAPtr<T>(t_dWk, {N, H * H});
-          // auto dWq = GetVLAPtr<T>(t_dWq, {N, H * H});
-          // auto EHS_T = GetVLAPtr<T>(t_EHS_T, {H * S2});
-          // auto HS_T = GetVLAPtr<T>(t_HS_T, {H * S2});
-          // auto dVL_V = GetVLAPtr<T>(t_dVL_V, {S2 * H});
-          // auto dKL_V = GetVLAPtr<T>(t_dKL_V, {S2 * H});
-          // auto dQL_V = GetVLAPtr<T>(t_dQL_V, {S2 * H});
           if (s1 == 0) {
             set_zero_dw_tpp(dWv[nk][nc]);
             set_zero_dw_tpp(dWk[nk][nc]);
@@ -524,14 +431,11 @@ auto t_Wv_TV = wt_tensor_for_bwd_compact(N, H, N, H, t_Wv);
         [&]() { qkvw_gemm_tpp.release(); });
 #endif
   }
-  // PRINT_T(t_EHS_T.permute({0,1,2,4,3}).contiguous());
-  // PRINT_T(t_HS_T.permute({0,1,2,4,3}).contiguous());
   {
     RECORD_SCOPE(dqkv_bias, {t_dQL});
     int num_threads = omp_get_max_threads();
     float* bias_ptrs[num_threads];
     {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel
       {
         int tid = omp_get_thread_num();

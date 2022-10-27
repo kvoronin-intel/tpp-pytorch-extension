@@ -164,9 +164,8 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
 }
 {
   RECORD_SCOPE(dio_gemm, {t_grad_dout, t_wt_TV});
-#if 0
+#ifdef NO_PARLOOPER
   for (int nk = 0; nk < Nk; nk += Nkb) {
-    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
     for (int s1 = 0; s1 < S1; s1++) {
       for (int nc = 0; nc < Nc; nc++) {
@@ -180,14 +179,10 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     }
   }
 #else
-  auto di_loop = ThreadedLoop<3>(
-      {LoopSpecs{0, Nk, Nkb, false}, LoopSpecs{S1}, LoopSpecs{Nc}}, "acB");
+  auto di_loop = ThreadedLoop<3>({{0, Nk, Nkb, false}, {S1}, {Nc}}, "acB");
   di_loop(
       [&](int* ind) {
         int nk = ind[0], s1 = ind[1], nc = ind[2];
-        // auto grad_dout = GetVLAPtr<T>(t_grad_dout, {Nk, S2 * Hk});
-        // auto wt_TV = GetVLAPtr<T>(t_wt_TV, {Nk, Hk * Hc});
-        // auto grad_in = GetVLAPtr<T>(t_grad_in, {Nc, S2, Hc});
         if (nk == 0)
           di_gemm_b0_tpp(
               grad_dout[s1][nk], wt_TV[nc][nk], grad_in[s1][nc], Nkb, true);
@@ -201,16 +196,19 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
 }
 {
   RECORD_SCOPE(dwo_gemm, {t_in_T, t_grad_dout_V});
-#if 0
+#ifdef NO_PARLOOPER
   for (int s1 = 0; s1 < S1; s1 += BS) {
     int count = (s1 + BS <= S1 ? BS : S1 - s1);
-    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
     for (int nk = 0; nk < Nk; nk++) {
       for (int nc = 0; nc < Nc; nc++) {
         if (s1 == 0)
           dw_set_zero_tpp(grad_wt[nk][nc]);
-        dw_gemm_tpp(in_T[in_blk(s1, nc)], grad_dout_V[gdout_blk(s1, nk)], grad_wt[nk][nc], count);
+        dw_gemm_tpp(
+            in_T[in_blk(s1, nc)],
+            grad_dout_V[gdout_blk(s1, nk)],
+            grad_wt[nk][nc],
+            count);
         bool is_last_iter = !(s1 + BS < S1);
         if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
           T tmp[Hc * Hk];
@@ -227,12 +225,8 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
       [&](int* ind) {
         int s1 = ind[0], nc = ind[1], nk = ind[2];
         int count = (s1 + BS <= S1 ? BS : S1 - s1);
-        // auto grad_wt = GetVLAPtr<T>(t_grad_wt, {Nc, Hc * Hk});
-        // auto in_T = GetVLAPtr<T>(t_in_T, {Hc * S2});
-        // auto grad_dout_V = GetVLAPtr<T>(t_grad_dout_V, {S2 * Hk});
         if (s1 == 0)
           dw_set_zero_tpp(grad_wt[nk][nc]);
-#if 1
         dw_gemm_tpp(
             in_T[in_blk(s1, nc)],
             grad_dout_V[gdout_blk(s1, nk)],
@@ -245,27 +239,6 @@ auto dw_gemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
           dw_cpy_tpp(grad_wt[nk][nc], tmp);
           dw_n2v_tpp(tmp, grad_wt[nk][nc]);
         }
-#else
-        bool is_last_iter = !(s1 + BS < S1);
-        if (grad_wt_flag != XformTPP::XFORM_NONE_TPP && is_last_iter) {
-          T tmp[Hc * Hk];
-          dw_cpy_tpp(grad_wt[nk][nc], tmp);
-          dw_gemm_tpp(
-              in_T[in_blk(s1, nc)],
-              grad_dout_V[gdout_blk(s1, nk)],
-              tmp,
-              count,
-              true);
-          dw_n2v_tpp(tmp, grad_wt[nk][nc]);
-        } else {
-          dw_gemm_tpp(
-              in_T[in_blk(s1, nc)],
-              grad_dout_V[gdout_blk(s1, nk)],
-              grad_wt[nk][nc],
-              count,
-              true);
-        }
-#endif
       },
       [&]() { dw_gemm_tpp.config(); },
       [&]() { dw_gemm_tpp.release(); });

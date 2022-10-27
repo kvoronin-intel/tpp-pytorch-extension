@@ -43,7 +43,6 @@ if (training)
 auto t_mean = t_gamma.new_empty({B, S1, S2}, at::kFloat);
 auto t_var = t_gamma.new_empty({B, S1, S2}, at::kFloat);
 
-// auto t_dp_mask = at::empty({B, S1, (N*S2*H+15)/16}, at::kShort);
 auto t_dp_mask = at::empty({0}, at::kShort);
 
 if (p > 0)
@@ -71,7 +70,6 @@ auto dropout_fwd_tpp = SCOPEIT(DropOutFwdTPP<T>(N * S2 * H, p), DROPOUT);
 {
   RECORD_SCOPE(b_emb, {t_out, t_word_emb});
   {
-    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
     for (int b = 0; b < B; b++) {
       for (int s1 = 0; s1 < S1; s1++) {

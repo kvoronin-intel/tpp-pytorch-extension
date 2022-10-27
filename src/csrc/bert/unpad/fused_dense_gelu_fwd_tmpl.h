@@ -35,28 +35,16 @@ auto brgemm_tpp = SCOPEITGEMM((BrgemmExtTPP<T, T>(
     Ncb)));
 auto gelu_fwd_tpp = SCOPEIT(GeluFwdTPP<T>(S2 * Hk), ACT);
 
-// auto  in = GetVLAPtr<T>( t_in, { Nc, S2 * Hc});
-// auto  wt_V = GetVLAPtr<T>( t_wt_V, { Nc, Hc * Hk});
-// auto  bias = GetVLAPtr<T>( t_bias, { Hk});
-// auto  out = GetVLAPtr<T>( t_out, { Nk, S2 * Hk});
-// auto  gelu_out = GetVLAPtr<T>( t_gelu_out, { Nk, S2 * Hk});
 auto in = GetVLAPtr<T>(t_in, {Nc, S2* Hc});
 auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc* Hk});
-
 auto bias = GetVLAPtr<T>(t_bias, {Hk});
 auto out = GetVLAPtr<T>(t_out, {Nk, S2* Hk});
 auto gelu_out = GetVLAPtr<T>(t_gelu_out, {Nk, S2* Hk});
 
 {
   RECORD_SCOPE(i_gemm, {t_in, t_wt_V});
-#if 0
-auto  in = GetVLAPtr<T>( t_in, { Nc, S2 * Hc});
-auto  wt_V = GetVLAPtr<T>( t_wt_V, { Nc, Hc * Hk});
-auto  bias = GetVLAPtr<T>( t_bias, { Hk});
-auto  out = GetVLAPtr<T>( t_out, { Nk, S2 * Hk});
-auto  gelu_out = GetVLAPtr<T>( t_gelu_out, { Nk, S2 * Hk});
+#ifdef NO_PARLOOPER
   for (int nc = 0; nc < Nc; nc += Ncb) {
-    RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
     for (int s1 = 0; s1 < S1; s1++) {
       for (int nk = 0; nk < Nk; nk++) {
@@ -71,8 +59,7 @@ auto  gelu_out = GetVLAPtr<T>( t_gelu_out, { Nk, S2 * Hk});
     }
   }
 #else
-  auto gemm_loop = ThreadedLoop<3>(
-      {LoopSpecs{0, Nc, Ncb, false}, LoopSpecs{S1}, LoopSpecs{Nk}}, "acB");
+  auto gemm_loop = ThreadedLoop<3>({{0, Nc, Ncb, false}, {S1}, {Nk}}, "acB");
   gemm_loop(
       [&](int* ind) {
         int nc = ind[0], s1 = ind[1], nk = ind[2];
@@ -90,7 +77,4 @@ auto  gelu_out = GetVLAPtr<T>( t_gelu_out, { Nk, S2 * Hk});
 
 #endif
 }
-// if (at::isnan(t_out).any().item<bool>()) std::cout << "t_out has NaN" <<
-// std::endl; if (at::isnan(t_gelu_out).any().item<bool>()) std::cout <<
-// "t_gelu_out has NaN" << std::endl;
 return std::vector<at::Tensor>({t_out, t_gelu_out});

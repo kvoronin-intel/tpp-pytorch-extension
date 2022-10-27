@@ -7,7 +7,9 @@
 #include <vector>
 #include "ext_tpp.h"
 #include "init.h"
+#ifndef NO_PARLOOPER
 #include "threaded_loops.h"
+#endif
 #include "timing.h"
 #include "xsmm_functors.h"
 

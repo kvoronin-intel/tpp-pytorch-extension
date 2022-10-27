@@ -11,6 +11,8 @@ import platform
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
+use_parlooper = True
+
 libxsmm_root = os.path.join(cwd, "libxsmm")
 
 if "LIBXSMM_ROOT" in os.environ:
@@ -98,11 +100,6 @@ sources = [
     "src/csrc/embedding.cpp",
     "src/csrc/bfloat8.cpp",
 ]
-sources += [
-    "src/csrc/jit_compile.cpp",
-    "src/csrc/common_loops.cpp",
-    "src/csrc/par_loop_generator.cpp",
-]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")
 sources += glob.glob("src/csrc/gnn/graphsage/*.cpp")
@@ -117,6 +114,11 @@ if platform.processor() != "aarch64":
 
 if hasattr(torch, "bfloat8"):
     extra_compile_args.append("-DPYTORCH_SUPPORTS_BFLOAT8")
+
+if use_parlooper is not True:
+    extra_compile_args.append("-DNO_PARLOOPER")
+else:
+    sources += ["src/csrc/common_loops.cpp"]
 
 print("extra_compile_args = ", extra_compile_args)
 

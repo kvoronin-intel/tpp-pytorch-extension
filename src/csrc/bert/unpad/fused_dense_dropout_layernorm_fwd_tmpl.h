@@ -67,11 +67,10 @@ auto layer_norm_fwd_tpp =
 
 {
   RECORD_SCOPE(o_gemm, {t_in, t_wt});
-#if 0
+#ifdef NO_PARLOOPER
   auto nThreads = omp_get_max_threads();
   for (int nc = 0; nc < Nc; nc += Ncb) {
     if (nc == Nc - Ncb) {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
       if (nThreads < S1) {
 #pragma omp parallel for
         for (int s1 = 0; s1 < S1; s1++) {
@@ -90,12 +89,7 @@ auto layer_norm_fwd_tpp =
             add_tpp(dout[s1][nk], in2[s1][nk], dout[s1][nk]);
           }
           layer_norm_fwd_tpp(
-              dout[s1][0],
-              gamma[0],
-              beta[0],
-              mean[s1],
-              var[s1],
-              out[s1][0]);
+              dout[s1][0], gamma[0], beta[0], mean[s1], var[s1], out[s1][0]);
         }
       } else {
 #pragma omp parallel for collapse(2)
@@ -118,16 +112,10 @@ auto layer_norm_fwd_tpp =
 #pragma omp parallel for
         for (int s1 = 0; s1 < S1; s1++) {
           layer_norm_fwd_tpp(
-              dout[s1][0],
-              gamma[0],
-              beta[0],
-              mean[s1],
-              var[s1],
-              out[s1][0]);
+              dout[s1][0], gamma[0], beta[0], mean[s1], var[s1], out[s1][0]);
         }
       }
     } else {
-      RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel for collapse(2)
       for (int s1 = 0; s1 < S1; s1++) {
         for (int nk = 0; nk < Nk; nk++) {
@@ -140,28 +128,16 @@ auto layer_norm_fwd_tpp =
     }
   }
 #else
-  auto ogemm_loop = ThreadedLoop<3>(
-      {LoopSpecs{0, Nc, Ncb, false}, LoopSpecs{S1}, LoopSpecs{Nk}}, "acB");
+  auto ogemm_loop = ThreadedLoop<3>({{0, Nc, Ncb, false}, {S1}, {Nk}}, "acB");
   bool parallelized_on_nk = false; // ogemm_loop.is_parallel(2);
   ogemm_loop(
       [&](int* ind) {
         int nc = ind[0], s1 = ind[1], nk = ind[2];
-        // auto bias = GetVLAPtr<T>(t_bias, {Hk});
-        // auto dout = GetVLAPtr<T>(t_dout, {Nk, S2 * Hk});
-        // auto in = GetVLAPtr<T>(t_in, {Nc, S2 * Hc});
-        // auto in2 = GetVLAPtr<T>(t_in2, {Nk, S2 * Hk});
-        // auto wt_V = GetVLAPtr<T>(t_wt_V, {Nc, Hc * Hk});
-        // auto dp_mask = GetVLAPtr<short>(t_dp_mask, {Nk, (S2 * Hk + 15) /
-        // 16}); auto gamma = GetVLAPtr<LT>(t_gamma, {Hk}); auto beta =
-        // GetVLAPtr<LT>(t_beta, {Hk}); auto mean = GetVLAPtr<float>(t_mean,
-        // {S2}); auto var = GetVLAPtr<float>(t_var, {S2}); auto out =
-        // GetVLAPtr<T>(t_out, {Nk, S2 * Hk});
         if (nc == 0) {
           copy_bias_tpp(bias[nk], dout[s1][nk]);
         }
         brgemm_tpp(in[s1][nc], wt_V[nk][nc], dout[s1][nk], Ncb, true);
         if (!(nc + Ncb < Nc)) { // last nc iter
-          // if (nc == Nc - Ncb) { // last nc iter
           if (p > 0) {
             dropout_fwd_tpp(
                 dout[s1][nk],
