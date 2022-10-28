@@ -57,26 +57,26 @@ t_start_all = getTime();
   auto bn4_scratch   = inputs[37];
 
 #ifndef BWD_W_ONLY
-  const long h1_block = tuning_params_d[0];
-  const long w1_block = tuning_params_d[1];
-  const long h2_block = tuning_params_d[2];
-  const long w2_block = tuning_params_d[3];
-  const long h3_block = tuning_params_d[4];
-  const long w3_block = tuning_params_d[5];
-  const long h4_block = tuning_params_d[6];
-  const long w4_block = tuning_params_d[7];
-  const long c1_block = tuning_params_d[8];
-  const long k1_block = tuning_params_d[9];
-  const long c2_block = tuning_params_d[10];
-  const long k2_block = tuning_params_d[11];
-  const long c3_block = tuning_params_d[12];
-  const long k3_block = tuning_params_d[13];
-  const long c4_block = tuning_params_d[14];
-  const long k4_block = tuning_params_d[15];
-  const long h1_in_gemm = tuning_params_d[16];
-  const long h2_in_gemm = tuning_params_d[17];
-  const long h3_in_gemm = tuning_params_d[18];
-  const long h4_in_gemm = tuning_params_d[19];
+  const long c1_hblock = tuning_params_d[0];
+  const long c1_wblock = tuning_params_d[1];
+  const long c2_hblock = tuning_params_d[2];
+  const long c2_wblock = tuning_params_d[3];
+  const long c3_hblock = tuning_params_d[4];
+  const long c3_wblock = tuning_params_d[5];
+  const long c4_hblock = tuning_params_d[6];
+  const long c4_wblock = tuning_params_d[7];
+  const long c1_cblock = tuning_params_d[8];
+  const long c1_kblock = tuning_params_d[9];
+  const long c2_cblock = tuning_params_d[10];
+  const long c2_kblock = tuning_params_d[11];
+  const long c3_cblock = tuning_params_d[12];
+  const long c3_kblock = tuning_params_d[13];
+  const long c4_cblock = tuning_params_d[14];
+  const long c4_kblock = tuning_params_d[15];
+  const long c1_h_in_gemm = tuning_params_d[16];
+  const long c2_h_in_gemm = tuning_params_d[17];
+  const long c3_h_in_gemm = tuning_params_d[18];
+  const long c4_h_in_gemm = tuning_params_d[19];
 
   const std::string cd1_string = tuning_strings_d[0];
   const std::string cd2_string = tuning_strings_d[1];
@@ -85,26 +85,57 @@ t_start_all = getTime();
 #endif
 
 #ifndef BWD_D_ONLY
-  const long p1_block = tuning_params_w[0];
-  const long p2_block = tuning_params_w[1];
-  const long p3_block = tuning_params_w[2];
-  const long p4_block = tuning_params_w[3];
+  const long c1_use_nchw_format                            = tuning_params_w[0];
+  const long c1_fuse_upd_transposes                        = tuning_params_w[1];
+  const long c1_bf16_acc_nw                                = tuning_params_w[2];
+  const long c1_par_over_h_pixels                          = tuning_params_w[3];
+  const long c1_pack_input_upfront                         = tuning_params_w[4];
+  const long c1_use_intermediate_f32_wt_tensor             = tuning_params_w[5];
+  const long c1_use_hybrid_imgfm_parallelization           = tuning_params_w[6];
+  const long c1_n_img_teams                                = tuning_params_w[7];
+  const long c1_n_ofm_teams                                = tuning_params_w[8];
+  const long c1_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9];
+  const long c1_compute_full_wt_output_block               = tuning_params_w[10];
+  const long c1_pblock                                     = tuning_params_w[11];
 
-  const long c1_use_nchw_format = tuning_params_w[4];
-  const long c2_use_nchw_format = tuning_params_w[5];
-  const long c3_use_nchw_format = tuning_params_w[6];
-  const long c4_use_nchw_format = tuning_params_w[7];
+  const long c2_use_nchw_format                            = tuning_params_w[0 + 12*1];
+  const long c2_fuse_upd_transposes                        = tuning_params_w[1 + 12*1];
+  const long c2_bf16_acc_nw                                = tuning_params_w[2 + 12*1];
+  const long c2_par_over_h_pixels                          = tuning_params_w[3 + 12*1];
+  const long c2_pack_input_upfront                         = tuning_params_w[4 + 12*1];
+  const long c2_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*1];
+  const long c2_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*1];
+  const long c2_n_img_teams                                = tuning_params_w[7 + 12*1];
+  const long c2_n_ofm_teams                                = tuning_params_w[8 + 12*1];
+  const long c2_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*1];
+  const long c2_compute_full_wt_output_block               = tuning_params_w[10 + 12*1];
+  const long c2_pblock                                     = tuning_params_w[11 + 12*1];
 
-  const long pack_input_upfront                         = tuning_params_w[8];
-  const long fuse_upd_transposes                        = tuning_params_w[9];
-  const long use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[10];
-  const long bf16_acc_nw                                = tuning_params_w[11];
-  const long par_over_h_pixels                          = tuning_params_w[12];
-  const long compute_full_wt_output_block               = tuning_params_w[13];
+  const long c3_use_nchw_format                            = tuning_params_w[0 + 12*2];
+  const long c3_fuse_upd_transposes                        = tuning_params_w[1 + 12*2];
+  const long c3_bf16_acc_nw                                = tuning_params_w[2 + 12*2];
+  const long c3_par_over_h_pixels                          = tuning_params_w[3 + 12*2];
+  const long c3_pack_input_upfront                         = tuning_params_w[4 + 12*2];
+  const long c3_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*2];
+  const long c3_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*2];
+  const long c3_n_img_teams                                = tuning_params_w[7 + 12*2];
+  const long c3_n_ofm_teams                                = tuning_params_w[8 + 12*2];
+  const long c3_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*2];
+  const long c3_compute_full_wt_output_block               = tuning_params_w[10 + 12*2];
+  const long c3_pblock                                     = tuning_params_w[11 + 12*2];
 
-  const long use_hybrid_imgfm_parallelization           = tuning_params_w[14];
-  const long n_img_teams                                = tuning_params_w[15];
-  const long n_ofm_teams                                = tuning_params_w[16];
+  const long c4_use_nchw_format                            = tuning_params_w[0 + 12*3];
+  const long c4_fuse_upd_transposes                        = tuning_params_w[1 + 12*3];
+  const long c4_bf16_acc_nw                                = tuning_params_w[2 + 12*3];
+  const long c4_par_over_h_pixels                          = tuning_params_w[3 + 12*3];
+  const long c4_pack_input_upfront                         = tuning_params_w[4 + 12*3];
+  const long c4_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*3];
+  const long c4_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*3];
+  const long c4_n_img_teams                                = tuning_params_w[7 + 12*3];
+  const long c4_n_ofm_teams                                = tuning_params_w[8 + 12*3];
+  const long c4_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*3];
+  const long c4_compute_full_wt_output_block               = tuning_params_w[10 + 12*3];
+  const long c4_pblock                                     = tuning_params_w[11 + 12*3];
 
   const std::string cw1_string = tuning_strings_w[0];
   const std::string cw2_string = tuning_strings_w[1];
@@ -193,21 +224,21 @@ t_start_all = getTime();
 
   bn2_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv3_grad_input = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, cd3_string, tuning_timings_d3);
+  auto conv3_grad_input = conv_bwd_d_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight}, {c3_hblock, c3_wblock, c3_cblock, c3_kblock, c3_h_in_gemm}, cd3_string, tuning_timings_d3);
   conv3_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
   auto conv3_grad_input = at::empty(bn2_out.sizes(), torch::TensorOptions().dtype(bn2_out.dtype()));//dummy_return;
   conv3_grad_weight = conv_bwd_w_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
-                                      {p3_block, c3_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                      {c3_pblock, c3_use_nchw_format, c3_pack_input_upfront, c3_fuse_upd_transposes, c3_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c3_bf16_acc_nw, c3_par_over_h_pixels, c3_compute_full_wt_output_block,
+                                            c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams},
                                       cw3_string, tuning_timings_w3);
 #else
   auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
-                                       {h3_block, w3_block, c3_block, k3_block, h3_in_gemm}, cd3_string, tuning_timings_d3,
-                                       {p3_block, c3_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                       {c3_hblock, c3_wblock, c3_cblock, c3_kblock, c3_h_in_gemm}, cd3_string, tuning_timings_d3,
+                                       {c3_pblock, c3_use_nchw_format, c3_pack_input_upfront, c3_fuse_upd_transposes, c3_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c3_bf16_acc_nw, c3_par_over_h_pixels, c3_compute_full_wt_output_block,
+                                            c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams},
                                        cw3_string, tuning_timings_w3);
   //conv_backward_new(cfg.conv3, bn3_grad_input /*grad_output*/, bn2_out, conv3_weight);
   auto conv3_grad_input = conv3_grad_ret[0];
@@ -263,21 +294,21 @@ t_start_all = getTime();
 
   bn1_out.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  auto conv2_grad_input = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, cd2_string, tuning_timings_d2);
+  auto conv2_grad_input = conv_bwd_d_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight}, {c2_hblock, c2_wblock, c2_cblock, c2_kblock, c2_h_in_gemm}, cd2_string, tuning_timings_d2);
   conv2_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
   auto conv2_grad_input = at::empty(bn1_out.sizes(), torch::TensorOptions().dtype(bn1_out.dtype()));//dummy_return;
   conv2_grad_weight = conv_bwd_w_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
-                                     {p2_block, c2_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                     {c2_pblock, c2_use_nchw_format, c2_pack_input_upfront, c2_fuse_upd_transposes, c2_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c2_bf16_acc_nw, c2_par_over_h_pixels, c2_compute_full_wt_output_block,
+                                            c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams},
                                      cw2_string, tuning_timings_w2);
 #else
   auto conv2_grad_ret   = conv_bwd_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
-                                       {h2_block, w2_block, c2_block, k2_block, h2_in_gemm}, cd2_string, tuning_timings_d2,
-                                       {p2_block, c2_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                       {c2_hblock, c2_wblock, c2_cblock, c2_kblock, c2_h_in_gemm}, cd2_string, tuning_timings_d2,
+                                       {c2_pblock, c2_use_nchw_format, c2_pack_input_upfront, c2_fuse_upd_transposes, c2_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c2_bf16_acc_nw, c2_par_over_h_pixels, c2_compute_full_wt_output_block,
+                                            c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams},
                                        cw2_string, tuning_timings_w2);
   //conv_backward_new(cfg.conv2, bn2_grad_input /*grad_output*/, bn1_out, conv2_weight);
   auto conv2_grad_input = conv2_grad_ret[0];
@@ -320,21 +351,21 @@ t_start_all = getTime();
 
   conv1_input.requires_grad_(true);
 #ifdef BWD_D_ONLY
-  conv1_grad_input = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, cd1_string, tuning_timings_d1);
+  conv1_grad_input = conv_bwd_d_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight}, {c1_hblock, c1_wblock, c1_cblock, c1_kblock, c1_h_in_gemm}, cd1_string, tuning_timings_d1);
   conv1_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
   conv1_grad_input = at::empty(conv1_input.sizes(), torch::TensorOptions().dtype(conv1_input.dtype()));//dummy_return;
   conv1_grad_weight = conv_bwd_w_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
-                                     {p1_block, c1_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                     {c1_pblock, c1_use_nchw_format, c1_pack_input_upfront, c1_fuse_upd_transposes, c1_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c1_bf16_acc_nw, c1_par_over_h_pixels, c1_compute_full_wt_output_block,
+                                            c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams},
                                      cw1_string, tuning_timings_w1);
 #else
   auto conv1_grad_ret = conv_bwd_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
-                                     {h1_block, w1_block, c1_block, k1_block, h1_in_gemm}, cd1_string, tuning_timings_d1,
-                                     {p1_block, c1_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                     {c1_hblock, c1_wblock, c1_cblock, c1_kblock, c1_h_in_gemm}, cd1_string, tuning_timings_d1,
+                                     {c1_pblock, c1_use_nchw_format, c1_pack_input_upfront, c1_fuse_upd_transposes, c1_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c1_bf16_acc_nw, c1_par_over_h_pixels, c1_compute_full_wt_output_block,
+                                            c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams},
                                      cw1_string, tuning_timings_w1);
   //conv_backward_new(cfg.conv1, bn1_grad_input /*grad_output*/, conv1_input, conv1_weight);
   conv1_grad_input    = conv1_grad_ret[0];
@@ -379,21 +410,21 @@ t_start_all = getTime();
 
     conv1_input.requires_grad_(true);
 #ifdef BWD_D_ONLY
-    auto conv4_grad_input = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4);
+    auto conv4_grad_input = conv_bwd_d_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight}, {c4_hblock, c4_wblock, c4_cblock, c4_kblock, c4_h_in_gemm}, cd4_string, tuning_timings_d4);
     conv4_grad_weight = dummy_return;
 #elif defined(BWD_W_ONLY)
     auto conv4_grad_input = at::empty(conv1_input.sizes(), torch::TensorOptions().dtype(conv1_input.dtype()));//dummy_return;
     conv4_grad_weight = conv_bwd_w_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
-                                       {p4_block, c4_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                            use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                       {c4_pblock, c4_use_nchw_format, c4_pack_input_upfront, c4_fuse_upd_transposes, c4_use_f32_wt_reduction_and_external_wt_vnni,
+                                          c4_bf16_acc_nw, c4_par_over_h_pixels, c4_compute_full_wt_output_block,
+                                            c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams},
                                         cw4_string, tuning_timings_w4);
 #else
     auto conv4_grad_ret = conv_bwd_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
-                                         {h4_block, w4_block, c4_block, k4_block, h4_in_gemm}, cd4_string, tuning_timings_d4,
-                                         {p4_block, c4_use_nchw_format, pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                            bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                              use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams},
+                                         {c4_hblock, c4_wblock, c4_cblock, c4_kblock, c4_h_in_gemm}, cd4_string, tuning_timings_d4,
+                                         {c4_pblock, c4_use_nchw_format, c4_pack_input_upfront, c4_fuse_upd_transposes, c4_use_f32_wt_reduction_and_external_wt_vnni,
+                                            c4_bf16_acc_nw, c4_par_over_h_pixels, c4_compute_full_wt_output_block,
+                                              c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams},
                                          cw4_string, tuning_timings_w4);
     //conv_backward_new(cfg.conv4, bn4_grad_input /*grad_output*/, conv1_input, conv4_weight);
     conv4_grad_input    = conv4_grad_ret[0];

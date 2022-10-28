@@ -385,22 +385,57 @@ std::vector<at::Tensor> bottleneck_bn_bwd_defaultw_ext(
     std::vector<int> tuning_params_d,
     std::vector<std::string> tuning_strings_d,
     pybind11::array_t<float>& tuning_timings) {
-  int p1_block = 1, p2_block = 1, p3_block = 1, p4_block = 1;
+  int c1_pblock = 1, c2_pblock = 1, c3_pblock = 1, c4_pblock = 1;
   int c1_use_nchw_format = -1, c2_use_nchw_format = -1, c3_use_nchw_format = -1, c4_use_nchw_format = -1;
-  int pack_input_upfront                        = -1;
-  int fuse_upd_transposes                       = -1;
-  int par_over_h_pixels                         = -1;
-  int use_f32_wt_reduction_and_external_wt_vnni = -1;
-  int bf16_acc_nw                               = -1;
-  int compute_full_wt_output_block              = -1;
-  int use_hybrid_imgfm_parallelization          = -1;
-  int n_img_teams                               = -1;
-  int n_ofm_teams                               = -1;
-  std::vector<int> default_tuning_params_w{p1_block, p2_block, p3_block, p4_block,
-                                           c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format,
-                                           pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                           use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
+  int c1_pack_input_upfront                        = -1;
+  int c1_fuse_upd_transposes                       = -1;
+  int c1_par_over_h_pixels                         = -1;
+  int c1_use_intermediate_f32_wt_tensor            = -1;
+  int c1_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c1_bf16_acc_nw                               = -1;
+  int c1_compute_full_wt_output_block              = -1;
+  int c1_use_hybrid_imgfm_parallelization          = -1;
+  int c1_n_img_teams                               = -1;
+  int c1_n_ofm_teams                               = -1;
+  int c2_pack_input_upfront                        = -1;
+  int c2_fuse_upd_transposes                       = -1;
+  int c2_par_over_h_pixels                         = -1;
+  int c2_use_intermediate_f32_wt_tensor            = -1;
+  int c2_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c2_bf16_acc_nw                               = -1;
+  int c2_compute_full_wt_output_block              = -1;
+  int c2_use_hybrid_imgfm_parallelization          = -1;
+  int c2_n_img_teams                               = -1;
+  int c2_n_ofm_teams                               = -1;
+  int c3_pack_input_upfront                        = -1;
+  int c3_fuse_upd_transposes                       = -1;
+  int c3_par_over_h_pixels                         = -1;
+  int c3_use_intermediate_f32_wt_tensor            = -1;
+  int c3_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c3_bf16_acc_nw                               = -1;
+  int c3_compute_full_wt_output_block              = -1;
+  int c3_use_hybrid_imgfm_parallelization          = -1;
+  int c3_n_img_teams                               = -1;
+  int c3_n_ofm_teams                               = -1;
+  int c4_pack_input_upfront                        = -1;
+  int c4_fuse_upd_transposes                       = -1;
+  int c4_par_over_h_pixels                         = -1;
+  int c4_use_intermediate_f32_wt_tensor            = -1;
+  int c4_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c4_bf16_acc_nw                               = -1;
+  int c4_compute_full_wt_output_block              = -1;
+  int c4_use_hybrid_imgfm_parallelization          = -1;
+  int c4_n_img_teams                               = -1;
+  int c4_n_ofm_teams                               = -1;
+  std::vector<int> default_tuning_params_w{c1_use_nchw_format, c1_fuse_upd_transposes, c1_bf16_acc_nw, c1_par_over_h_pixels, c1_pack_input_upfront, c1_use_intermediate_f32_wt_tensor,
+                                           c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams, c1_use_f32_wt_reduction_and_external_wt_vnni, c1_compute_full_wt_output_block, c1_pblock,
+                                           c2_use_nchw_format, c2_fuse_upd_transposes, c2_bf16_acc_nw, c2_par_over_h_pixels, c2_pack_input_upfront, c2_use_intermediate_f32_wt_tensor,
+                                           c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams, c2_use_f32_wt_reduction_and_external_wt_vnni, c2_compute_full_wt_output_block, c2_pblock,
+                                           c3_use_nchw_format, c3_fuse_upd_transposes, c3_bf16_acc_nw, c3_par_over_h_pixels, c3_pack_input_upfront, c3_use_intermediate_f32_wt_tensor,
+                                           c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams, c3_use_f32_wt_reduction_and_external_wt_vnni, c3_compute_full_wt_output_block, c3_pblock,
+                                           c4_use_nchw_format, c4_fuse_upd_transposes, c4_bf16_acc_nw, c4_par_over_h_pixels, c4_pack_input_upfront, c4_use_intermediate_f32_wt_tensor,
+                                           c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams, c4_use_f32_wt_reduction_and_external_wt_vnni, c4_compute_full_wt_output_block, c4_pblock};
+
   std::vector<std::string> default_tuning_strings_w{"Abcdef", "Abcdef", "Abcdef", "Abcdef"};
 
   return bottleneck_bn_bwd_ext(cfg, inputs, tuning_params_d, tuning_strings_d, default_tuning_params_w, default_tuning_strings_w, tuning_timings);
@@ -418,22 +453,56 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
   //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::vector<std::string> default_tuning_strings_d{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
 
-  int p1_block = 1, p2_block = 1, p3_block = 1, p4_block = 1;
+  int c1_pblock = 1, c2_pblock = 1, c3_pblock = 1, c4_pblock = 1;
   int c1_use_nchw_format = -1, c2_use_nchw_format = -1, c3_use_nchw_format = -1, c4_use_nchw_format = -1;
-  int pack_input_upfront                        = -1;
-  int fuse_upd_transposes                       = -1;
-  int par_over_h_pixels                         = -1;
-  int use_f32_wt_reduction_and_external_wt_vnni = -1;
-  int bf16_acc_nw                               = -1;
-  int compute_full_wt_output_block              = -1;
-  int use_hybrid_imgfm_parallelization          = -1;
-  int n_img_teams                               = -1;
-  int n_ofm_teams                               = -1;
-  std::vector<int> default_tuning_params_w{p1_block, p2_block, p3_block, p4_block,
-                                           c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format,
-                                           pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                           bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                           use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams};
+  int c1_pack_input_upfront                        = -1;
+  int c1_fuse_upd_transposes                       = -1;
+  int c1_par_over_h_pixels                         = -1;
+  int c1_use_intermediate_f32_wt_tensor            = -1;
+  int c1_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c1_bf16_acc_nw                               = -1;
+  int c1_compute_full_wt_output_block              = -1;
+  int c1_use_hybrid_imgfm_parallelization          = -1;
+  int c1_n_img_teams                               = -1;
+  int c1_n_ofm_teams                               = -1;
+  int c2_pack_input_upfront                        = -1;
+  int c2_fuse_upd_transposes                       = -1;
+  int c2_par_over_h_pixels                         = -1;
+  int c2_use_intermediate_f32_wt_tensor            = -1;
+  int c2_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c2_bf16_acc_nw                               = -1;
+  int c2_compute_full_wt_output_block              = -1;
+  int c2_use_hybrid_imgfm_parallelization          = -1;
+  int c2_n_img_teams                               = -1;
+  int c2_n_ofm_teams                               = -1;
+  int c3_pack_input_upfront                        = -1;
+  int c3_fuse_upd_transposes                       = -1;
+  int c3_par_over_h_pixels                         = -1;
+  int c3_use_intermediate_f32_wt_tensor            = -1;
+  int c3_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c3_bf16_acc_nw                               = -1;
+  int c3_compute_full_wt_output_block              = -1;
+  int c3_use_hybrid_imgfm_parallelization          = -1;
+  int c3_n_img_teams                               = -1;
+  int c3_n_ofm_teams                               = -1;
+  int c4_pack_input_upfront                        = -1;
+  int c4_fuse_upd_transposes                       = -1;
+  int c4_par_over_h_pixels                         = -1;
+  int c4_use_intermediate_f32_wt_tensor            = -1;
+  int c4_use_f32_wt_reduction_and_external_wt_vnni = -1;
+  int c4_bf16_acc_nw                               = -1;
+  int c4_compute_full_wt_output_block              = -1;
+  int c4_use_hybrid_imgfm_parallelization          = -1;
+  int c4_n_img_teams                               = -1;
+  int c4_n_ofm_teams                               = -1;
+  std::vector<int> default_tuning_params_w{c1_use_nchw_format, c1_fuse_upd_transposes, c1_bf16_acc_nw, c1_par_over_h_pixels, c1_pack_input_upfront, c1_use_intermediate_f32_wt_tensor,
+                                           c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams, c1_use_f32_wt_reduction_and_external_wt_vnni, c1_compute_full_wt_output_block, c1_pblock,
+                                           c2_use_nchw_format, c2_fuse_upd_transposes, c2_bf16_acc_nw, c2_par_over_h_pixels, c2_pack_input_upfront, c2_use_intermediate_f32_wt_tensor,
+                                           c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams, c2_use_f32_wt_reduction_and_external_wt_vnni, c2_compute_full_wt_output_block, c2_pblock,
+                                           c3_use_nchw_format, c3_fuse_upd_transposes, c3_bf16_acc_nw, c3_par_over_h_pixels, c3_pack_input_upfront, c3_use_intermediate_f32_wt_tensor,
+                                           c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams, c3_use_f32_wt_reduction_and_external_wt_vnni, c3_compute_full_wt_output_block, c3_pblock,
+                                           c4_use_nchw_format, c4_fuse_upd_transposes, c4_bf16_acc_nw, c4_par_over_h_pixels, c4_pack_input_upfront, c4_use_intermediate_f32_wt_tensor,
+                                           c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams, c4_use_f32_wt_reduction_and_external_wt_vnni, c4_compute_full_wt_output_block, c4_pblock};
   std::vector<std::string> default_tuning_strings_w{"Aefbcd", "Aefbcd", "Aefbcd", "Aefbcd"};
 
   pybind11::array_t<float> default_tuning_timings(16);
