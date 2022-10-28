@@ -10,7 +10,7 @@ double t_start_all = 0.0, t_all = 0.0;
 t_start_all = getTime();
 #endif
 
-#define VERBOSE
+//#define VERBOSE
 
 //#define CHECK_FOR_NANS
 

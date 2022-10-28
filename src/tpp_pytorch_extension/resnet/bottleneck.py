@@ -785,12 +785,12 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             1, 1, 1, 1] # h_in_gemms
                     #self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                     self.tuning_strings_d = ['Afgcbded', 'Afgcbded', 'Afgcbded', 'Afgcbded']
-                    self.tuning_params_w = [1, 0, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1,
-                                            1, 0, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1,
-                                            1, 0, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1,
-                                            1, 0, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1]
+                    self.tuning_params_w = [1, 0, 0, 0, 0, 0,  0, 1, 1,   1, 0, 1,
+                                            1, 0, 0, 0, 0, 1,  1, 56, 1,  0, 0, 1,
+                                            1, 0, 0, 0, 0, 0,  0, 1, 1,   1, 0, 1,
+                                            1, 0, 0, 0, 0, 0,  0, 1, 1,   1, 0, 1]
                     #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
-                    self.tuning_strings_w = ['Aefcbd', 'Acdbef', 'Aefcbd', 'Aefcbd']
+                    self.tuning_strings_w = ['Aefcbd', 'A{R:56}C{C:1}dbef', 'Aefcbd', 'Aefcbd']
                 elif self.inplanes == 256 and self.planes == 64:  # Bottleneck type #1
                     self.tuning_params_fwd = [4, 1, 4, 1, 4, 1, 4, 1 , # h,w blocks
                                               1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -900,12 +900,12 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                     #                        0, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
                     #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
                     #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_params_w = [1, 1, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1,
-                                            1, 1, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1,
-                                            1, 1, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1,
-                                            1, 1, 0, 0, 0, 0,  0, 1, 1,  1, 0, 1]  # last row is a dummy (no c4)
+                    self.tuning_params_w = [1, 1, 0, 0, 0, 0,  0, 1, 1,   1, 0, 1,
+                                            1, 0, 0, 0, 0, 1,  1, 56, 1,  0, 0, 1,
+                                            1, 1, 0, 0, 0, 0,  0, 1, 1,   1, 0, 1,
+                                            1, 1, 0, 0, 0, 0,  0, 1, 1,   1, 0, 1]  # last row is a dummy (no c4)
                     #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
-                    self.tuning_strings_w = ['Aefdcb', 'Abcdef', 'Aefdcb', 'Aefdcb']
+                    self.tuning_strings_w = ['Aefdcb', 'A{R:56}C{C:1}dbef', 'Aefdcb', 'Aefdcb']
                 elif self.inplanes == 1024 and self.planes == 512:  # Bottleneck type #6
                     self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                               1, 8, 1, 4, 1, 8, 1, 4 , # c,k blocks
