@@ -1219,8 +1219,7 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
             unsigned long long brcount = _n_step;
 
             if (compute_full_wt_output_block == 0) {
-              //printf("Case compute_full_wt_output_block == 0 for hybrid is not tested \n"); exit(-1);
-              my_col_id = ind[9];
+              my_col_id = conv_loop_bf16_nchw.get_tid_in_parallel_dim('a', ind);
               if (use_f32_wt_reduction_and_external_wt_vnni > 0) {
                 if (pix == 0) {
                   zero_float_tpp(scratch_float[my_col_id][i_k][i_c][i_r][i_s][0]);
