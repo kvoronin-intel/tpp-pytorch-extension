@@ -164,7 +164,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   if (!is_fixed_n_ofm_teams)
     n_ofm_teams = 4;
   long weight_copies = 0;
-  long multiple_target = 2;
+  long multiple_target = 32;
   long max_compute_offset_input = 0;
   if (!is_fixed_use_f32_wt_reduction_and_external_wt_vnni)
     use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
@@ -912,6 +912,7 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
   std::cout << "bn bk bc = " << bn << " " << bk << " " << bc << std::endl;
   std::cout << "use_private_trans = " << use_private_trans << std::endl;
   std::cout << "use_mb_par_f32 = " << use_mb_par_f32 << std::endl;
+  std::cout << "multiple_target = " << multiple_target << std::endl;
 #endif
 
 #ifdef TIMING
@@ -1076,7 +1077,7 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
 
                 vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
                 if (upd_remaining_pixels > 0) {
-                  printf("Case upd_remaining_pixels > 0 is untested so far!\n"); exit(-1);
+                  //printf("Case upd_remaining_pixels > 0 is untested so far!\n"); exit(-1);
                   vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+1)/2)*2]);
                 }
               },
@@ -1106,8 +1107,7 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
               //printf("Case bf16_fuse_upd_transposes == 1 + bunch of conditions is untested so far!\n"); exit(-1);
               vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
               if (upd_remaining_pixels > 0) {
-                printf("Case upd_remaining_pixels > 0 is untested so far!\n");
-                exit(-1);
+                //printf("Case upd_remaining_pixels > 0 is untested so far!\n"); exit(-1);
                 vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+1)/2)*2]);
               }
             }
