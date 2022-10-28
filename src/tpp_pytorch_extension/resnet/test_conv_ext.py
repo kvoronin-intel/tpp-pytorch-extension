@@ -531,7 +531,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
         inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
 
-        warmup_niter = 5
+        warmup_niter = niters_warmup
         #logging.info("warmup_niter = ", warmup_niter)
         print("warmup_niter = ", warmup_niter)
 
@@ -585,7 +585,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     if perf_bwd_w:
         inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
 
-        warmup_niter = 5
+        warmup_niter = niters_warmup
         #logging.info("warmup_niter = ", warmup_niter)
         print("warmup_niter = ", warmup_niter)
 
