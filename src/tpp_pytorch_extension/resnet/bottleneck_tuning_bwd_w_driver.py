@@ -46,10 +46,8 @@ parser.add_argument('--use-physical-3x3-padding', action="store_true", default=T
 parser.add_argument('--use-groupnorm', action="store_true", default=False, dest='use_groupnorm')
 
 parser.add_argument('--block-sizes', nargs="+", type=int, help='block sizes: bc_conv1, bc_conv2, bc_conv3, bk_conv3')
-parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help='p1_block, ... p4_block(4 numbers); use_nchw_1, ... (4 numbers);' +
-                    ' pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni (3 numbers)' +
-                    ' acc_nw, par_over_h_pixels, compute_full_wt_output_block (3 numbers)' +
-                    ' hybrid, n_img_teams, n_ofm_teams (3 numbers)')
+
+parser.add_argument('--tuning-params', nargs="+", default=None, type=int, help=' (use_nchw_format, fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor, use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pblock) x4 (for each conv) = 48 numbers')
 parser.add_argument('--tuning-strings', nargs="+", default=None, type=str, help='conv1_string, conv2_string, conv3_string, conv4_string')
 
 parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_28thr.data', type=str,
@@ -76,9 +74,13 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_conv3, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, with_validation, test_module, ref_module, niters)
     channel_block_sizes = [bc_conv1, bc_conv2, bc_conv3, bk_conv3]
 
-    tuning_params_count = 17
+    tuning_params_count = 48
     if tuning_params is not None and len(tuning_params) != tuning_params_count:
         print("Wrong length of the tuning params (must be " + str(tuning_params_count) + " if present) = " + str(tuning_params) + " " + str(len(tuning_params)))
+        exit()
+
+    if with_perf and test_module != 'ext_bottleneck':
+        print("Flag with_perf only works with the PCL PT extension bottleneck implementation (check by disabling this early error exit)")
         exit()
 
     if tuning_params is not None:
@@ -86,6 +88,7 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
             print("Custom tuning params can only be used for ext_bottleneck test_module")
             exit()
 
+        """
         [p1_block, p2_block, p3_block, p4_block,
           c1_use_nchw_format, c2_use_nchw_format, c3_use_nchw_format, c4_use_nchw_format,
           pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
@@ -97,6 +100,25 @@ def run_test_bottleneck(N, H, W, inc, outc, bc_conv1, bc_conv2, bc_conv3, bk_con
         print("info: tuning params: pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni = ", pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni)
         print("info: tuning params: acc_nw, par_over_h_pixels, compute_full_wt_output_block = ", acc_nw, par_over_h_pixels, compute_full_wt_output_block)
         print("info: tuning params: hybrid, n_img_teams, n_ofm_teams = ", hybrid, n_img_teams, n_ofm_teams)
+        """
+
+        [c1_use_nchw_format, c1_fuse_upd_transposes, c1_bf16_acc_nw, c1_par_over_h_pixels, c1_pack_input_upfront, c1_use_intermediate_f32_wt_tensor,
+          c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams, c1_use_f32_wt_reduction_and_external_wt_vnni, c1_compute_full_wt_output_block, c1_pblock,
+          c2_use_nchw_format, c2_fuse_upd_transposes, c2_bf16_acc_nw, c2_par_over_h_pixels, c2_pack_input_upfront, c2_use_intermediate_f32_wt_tensor,
+          c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams, c2_use_f32_wt_reduction_and_external_wt_vnni, c2_compute_full_wt_output_block, c2_pblock,
+          c3_use_nchw_format, c3_fuse_upd_transposes, c3_bf16_acc_nw, c3_par_over_h_pixels, c3_pack_input_upfront, c3_use_intermediate_f32_wt_tensor,
+          c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams, c3_use_f32_wt_reduction_and_external_wt_vnni, c3_compute_full_wt_output_block, c3_pblock,
+          c4_use_nchw_format, c4_fuse_upd_transposes, c4_bf16_acc_nw, c4_par_over_h_pixels, c4_pack_input_upfront, c4_use_intermediate_f32_wt_tensor,
+          c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams, c4_use_f32_wt_reduction_and_external_wt_vnni, c4_compute_full_wt_output_block, c4_pblock
+         ] = tuning_params
+        print("info: tuning params  (c1 part 1): use_nchw_format, fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor = ", c1_use_nchw_format, c1_fuse_upd_transposes, c1_bf16_acc_nw, c1_par_over_h_pixels, c1_pack_input_upfront, c1_use_intermediate_f32_wt_tensor)
+        print("info: tuning params: (c1 part 2): use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pblock = ", c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams, c1_use_f32_wt_reduction_and_external_wt_vnni, c1_compute_full_wt_output_block, c1_pblock)
+        print("info: tuning params  (c2 part 1): use_nchw_format, fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor = ", c2_use_nchw_format, c2_fuse_upd_transposes, c2_bf16_acc_nw, c2_par_over_h_pixels, c2_pack_input_upfront, c2_use_intermediate_f32_wt_tensor)
+        print("info: tuning params: (c2 part 2): use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pblock = ", c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams, c2_use_f32_wt_reduction_and_external_wt_vnni, c2_compute_full_wt_output_block, c2_pblock)
+        print("info: tuning params  (c3 part 1): use_nchw_format, fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor = ", c3_use_nchw_format, c3_fuse_upd_transposes, c3_bf16_acc_nw, c3_par_over_h_pixels, c3_pack_input_upfront, c3_use_intermediate_f32_wt_tensor)
+        print("info: tuning params: (c3 part 2): use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pblock = ", c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams, c3_use_f32_wt_reduction_and_external_wt_vnni, c3_compute_full_wt_output_block, c3_pblock)
+        print("info: tuning params  (c4 part 1): use_nchw_format, fuse_upd_transposes, bf16_acc_nw, par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor = ", c4_use_nchw_format, c4_fuse_upd_transposes, c4_bf16_acc_nw, c4_par_over_h_pixels, c4_pack_input_upfront, c4_use_intermediate_f32_wt_tensor)
+        print("info: tuning params: (c4 part 2): use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams, use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pblock = ", c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams, c4_use_f32_wt_reduction_and_external_wt_vnni, c4_compute_full_wt_output_block, c4_pblock)
     else:
         tuning_params = None
         print("info: tuning params are empty")
