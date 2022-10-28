@@ -311,6 +311,9 @@ if (sizeof(T) == 2) {
 
       if (!do_not_reset_use_intermediate_f32_wt_tensor)
         use_intermediate_f32_wt_tensor = (pixel_blocking == n_used_pixels) ? 0 : 1;
+#ifdef VERBOSE
+      printf("dbg: pixel_blocking = %d, n_used_pixels = %d use_intermediate_f32_wt_tensor = %d \n", pixel_blocking, n_used_pixels, use_intermediate_f32_wt_tensor);
+#endif
       float beta = (use_intermediate_f32_wt_tensor) ? (float)1.0 : (float)0.0;
       if (use_hybrid_imgfm_parallelization == 0) {
         ;
@@ -318,6 +321,10 @@ if (sizeof(T) == 2) {
         ;
       }
       upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
+
+#ifdef VERBOSE
+      printf("dbg: extra computed parameters: upd_remaining_pixels: %d\n", upd_remaining_pixels);
+#endif
     }
   //input_linearized_pixels  = (DType*)libxsmm_aligned_malloc( N*input_pixels*C*sizeof(DType), 2097152);
   input_mylinearized_pixels_offset = running_scratch_size_in_bytes;
@@ -782,16 +789,6 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
 #endif
 
 
-#ifdef VERBOSE
-  std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
-
-  std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "
-                                                                                                << Kb << " " << k_step << " " << ofh << " " << h_step << " "
-                                                                                                << ofw << " " << w_step << " " << R << " " << r_step << " "
-                                                                                                << S << " " << s_step << " " << std::endl;
-  std::cout << "bf16_conv_spec_string = " << bf16_conv_spec_string << std::endl;
-  std::cout << "fp32_conv_spec_string = " << fp32_conv_spec_string << std::endl;
-#endif
 
   auto zero_wt_loop = ThreadedLoop<5>({
       LoopSpecs{0, nThreads, 1, false},// true},
@@ -873,6 +870,7 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
     }
   }
 
+
   auto conv_loop_bf16_nchw = ThreadedLoop<6>({
       LoopSpecs{0, N, _n_step, true},
       LoopSpecs{0, Cb, _c_step, true},
@@ -882,6 +880,19 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
       LoopSpecs{0, S, _s_step, true}},
       bf16_conv_spec_string);
 
+
+#ifdef VERBOSE
+  std::cout << "debug: fm_blocking reduce_work reduce_work_tripcount chunk0 chunk1 = " << fm_blocking << " " <<  reduce_work << " " << reduce_work_tripcount << " " << chunk0 << " " << chunk1 << std::endl;
+
+  std::cout << "debug: N = nThreads? n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " = " << nThreads << " " << n_step << " " << Cb << " " << c_step << " "
+                                                                                                << Kb << " " << k_step << " " << ofh << " " << h_step << " "
+                                                                                                << ofw << " " << w_step << " " << R << " " << r_step << " "
+                                                                                                << S << " " << s_step << " " << std::endl;
+  std::cout << "debug: N _n_step Cb _c_step Kb _k_step n_used_pixels pixel_blocking R _r_step S _s_step = " << N << " " << _n_step << " " << Cb << " " << _c_step << " " << Kb << " " << _k_step << " "
+                                                                                                << n_used_pixels << " " << pixel_blocking << " " << R << " " << _r_step << " " << S << " " << _s_step << std::endl;
+  std::cout << "bf16_conv_spec_string = " << bf16_conv_spec_string << std::endl;
+  std::cout << "fp32_conv_spec_string = " << fp32_conv_spec_string << std::endl;
+#endif
 
   /* Extra restrictions introduced when auto-tuning */
   if (R == 3 && S == 3 && stride_h != 1 && stride_w != 1 && bf16_use_nchw_format == 0)
