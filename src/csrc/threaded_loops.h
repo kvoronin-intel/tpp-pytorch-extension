@@ -10,17 +10,15 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
-
 #include "jit_compile.h"
+//#include "par_loop_cost_estimator.h"
+#include "par_loop_generator.h"
 
 /* to drop printing the generated schemes/code */
 #define NO_PRINT
 
 /* allows searching in the pre-defined loops */
 #define USE_PRE_DEFINED_LOOPS
-
-//#include "par_loop_cost_estimator.h"
-#include "par_loop_generator.h"
 
 typedef std::function<void()> init_func;
 typedef std::function<void()> fini_func;
@@ -29,6 +27,15 @@ typedef std::function<void(int*)> loop_func;
 constexpr int MAX_BLOCKING_LEVELS = 5;
 constexpr int MAX_LOGICAL_LOOPS = 10;
 constexpr int MAX_LOOPS = MAX_LOGICAL_LOOPS * MAX_BLOCKING_LEVELS;
+
+typedef enum threaded_loop_par_type {
+  THREADED_LOOP_NO_PARALLEL             =  0,
+  THREADED_LOOP_PARALLEL_COLLAPSE       =  1,
+  THREADED_LOOP_PARALLEL_THREAD_ROWS    =  2,
+  THREADED_LOOP_PARALLEL_THREAD_COLS    =  3,
+  THREADED_LOOP_PARALLEL_THREAD_LAYERS  =  4
+} threaded_loop_par_type;
+
 
 static std::string code_str = R"(
 #include <stdio.h>
@@ -152,6 +159,7 @@ class LoopingScheme {
     int curLoop = 0;
     for (int i = 0; i < (int)scheme.length() - 1; i++) {
       char c = scheme[i];
+      if (c == '@') break;
       if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
         int l;
         assert(curLoop < MAX_LOOPS);
@@ -284,6 +292,36 @@ class ThreadedLoop {
         scheme.append(std::to_string('a' + i));
     }
     return scheme;
+  }
+
+  threaded_loop_par_type get_loop_par_type(char loop_name, int *idx) {
+    threaded_loop_par_type result;
+    result = (threaded_loop_par_type) idx[(tolower(loop_name)-'a') + N];
+    return result; 
+  }
+
+  int get_loop_parallel_degree(char loop_name, int *idx) {
+    int result = (threaded_loop_par_type) idx[(tolower(loop_name)-'a') + 2*N];
+    return result; 
+  }
+
+  int get_tid_in_parallel_dim(char loop_name, int *idx) {
+    threaded_loop_par_type partype = (threaded_loop_par_type) idx[(tolower(loop_name)-'a') + N];
+    if (partype == THREADED_LOOP_PARALLEL_THREAD_ROWS) {
+      return idx[1 + 3*N];
+    } else if (partype == THREADED_LOOP_PARALLEL_THREAD_COLS) {
+      return idx[2 + 3*N]; 
+    } else if (partype == THREADED_LOOP_PARALLEL_THREAD_LAYERS) {
+      return idx[3 + 3*N];
+    } else if (partype == THREADED_LOOP_PARALLEL_COLLAPSE) {
+      return idx[0 + 3*N];
+    } else {
+      return -1;
+    }
+  }
+
+  int get_tid(int *idx) {
+    return idx[3*N];
   }
 
  private:
