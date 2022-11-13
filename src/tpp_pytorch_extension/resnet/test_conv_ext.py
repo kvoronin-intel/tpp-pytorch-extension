@@ -32,6 +32,8 @@ parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bot
 
 parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride R for the conv')
 
+parser.add_argument("--logical-padding", action="store_true", default=False, help='if true, runs with logical padding', dest='logical_padding')
+
 parser.add_argument('--niters', type=int, default=100, help='number of timed iterations')
 parser.add_argument('--niters-warmup', type=int, default=10, help='number of warmup iterations')
 
@@ -50,10 +52,13 @@ global_counter = 0
 #torch.autograd.set_detect_anomaly(True)
 
 def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
-                  with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters, niters_warmup, preallocated_output):
+                  with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters, niters_warmup, preallocated_output, logical_padding):
     time_start = time.time()
-    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output",
-            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype, with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters, niters_warmup, preallocated_output)
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output logical_padding",
+            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode,
+            opt_dtype, ref_dtype,
+            with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters, niters_warmup,
+            preallocated_output, logical_padding)
 
     global global_counter
 
@@ -133,8 +138,8 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (pcl_pytorch_extension)")
         print("caution: TPP module from extensions only works with physical padding")
-        opt_conv = conv_py.DummyConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk)
-        opt_has_physical_padding = True
+        opt_conv = conv_py.DummyConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk, logical_padding=logical_padding)
+        opt_has_physical_padding = (not logical_padding) and (padding != 0)
     elif test_module == 'handlebased':
         print("info: testing handle-based module")
         if opt_dtype != torch.float:
@@ -157,6 +162,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("input_hw_padding = ",  input_hw_padding)
         print("output_hw_padding = ", output_hw_padding)
     else:
+        print("running with logical padding")
         input_hw_padding  = [0, 0, 0, 0]
         output_hw_padding = [0, 0, 0, 0]
 
@@ -669,7 +675,7 @@ def main():
         padding_mode='zeros'
         run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
                       args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
-                      args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output)
+                      args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding)
     else:
         with open(args.test_data_file) as f:
             contents = f.readlines()
@@ -683,7 +689,7 @@ def main():
                 [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
                 run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
                               args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
-                              args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output)
+                              args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding)
     exit()
 
     # Just a single size run
