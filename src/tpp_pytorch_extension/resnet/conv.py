@@ -137,7 +137,7 @@ class DummyConvTPP(Function):
 class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
     r"""PCL Conv2d module for using libxsmm Conv TPP"""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', dtype=torch.float, bc=None, bk=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', dtype=torch.float, bc=None, bk=None, logical_padding=False):
 
         self.C            = in_channels
         self.C_pad        = in_channels
@@ -173,6 +173,13 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         self.strides      = stride
         self.pads         = padding
         #self.dilation     = _pair(dilation)
+
+        self.logical_padding = logical_padding
+        self.pad_h_in = 0 if logical_padding else self.pad_h
+        self.pad_w_in = 0 if logical_padding else self.pad_w
+        self.pad_h_out = 0 if logical_padding else self.pad_h
+        self.pad_w_out = 0 if logical_padding else self.pad_w
+
         self.config       = None
 
         self.weight = BlockedParameter(self.weight.data)
@@ -226,14 +233,14 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         self.maybe_block_params()
 
         N = input.size(0)
-        self.H = input.size(2) - 2 * self.pad_h
-        self.W = input.size(3) - 2 * self.pad_w
+        self.H = input.size(2) - 2 * self.pad_h_in
+        self.W = input.size(3) - 2 * self.pad_w_in
 
         #input = input.to(global_dtype).contiguous()
         #weight = self.weight.to(global_dtype) #switched to self.weight below
 
         #if self.C != self.C_pad:
-        if input.shape[1] != self.C_pad:
+        if input.shape[1] != self.C_pad: # NCHW format for the input assumed (C is the second dim at least)
           pad_shape = list(input.shape)
           #pad_shape[-1] = 1
           #pad_shape[1] = 1
@@ -253,12 +260,12 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
             # only physical padding is supported for now
             if self.preset_blocksizes:
                 self.config = conv_cpp.conv_setup_preset(self.N, self.C, self.H, self.W, self.K, self.R, self.S,
-                                                         self.pad_h, self.pad_w, self.pad_h, self.pad_w, self.pad_h, self.pad_w,
+                                                         self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
                                                          self.stride, 0 if self.dtype == torch.float else 1,
                                                          self.bc, self.bk) #, self.avoid_fmas_in_rim)
             else:
                 self.config = conv_cpp.conv_setup(self.N, self.C, self.H, self.W, self.K, self.R, self.S,
-                                                  self.pad_h, self.pad_w, self.pad_h, self.pad_w, self.pad_h, self.pad_w,
+                                                  self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
                                                   self.stride, 0 if self.dtype == torch.float else 1)
 
         blocked_input = self.get_blocked_tensor(
