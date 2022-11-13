@@ -13,7 +13,7 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-//#define VERBOSE
+#define VERBOSE
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
@@ -36,10 +36,17 @@ int stride_w = cfg.v;
 int Cb = cfg.blocksifm;
 int Kb = cfg.blocksofm;
 
-int pad_h_out = cfg.pad_h_out;
-int pad_w_out = cfg.pad_w_out;
-int conv_pad_h = cfg.pad_h;
-int conv_pad_w = cfg.pad_w;
+const int pad_h_in = cfg.pad_h_in;
+const int pad_w_in = cfg.pad_w_in;
+const int pad_h_out = cfg.pad_h_out;
+const int pad_w_out = cfg.pad_w_out;
+const int conv_pad_h = cfg.pad_h;
+const int conv_pad_w = cfg.pad_w;
+
+const int ifh = ifhp - 2 * pad_h_in;
+const int ifw = ifwp - 2 * pad_w_in;
+
+const int logical_padding = (pad_h_in == 0 && pad_w_in == 0 && pad_h_out == 0 && pad_w_out == 0 ? 1 : 0);
 
 const long N  = sizes[0];
 
@@ -93,6 +100,26 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     cfg.avoid_fmas_in_rim = 1; //??? FIXME
   }
 
+  if (logical_padding && (conv_pad_h != 0 || conv_pad_w != 0)) {
+    avoid_fmas_in_rim = 1;
+    cfg.avoid_fmas_in_rim = 1;
+  }
+
+  if (cfg.avoid_fmas_in_rim == 1 && (R == 1 || S == 1)) {
+    printf("Error: cfg.avoid_fmas_in_rim does not work (and does not make sense) for 1x1 filters\n");
+    exit(-1);
+  }
+
+  if (cfg.avoid_fmas_in_rim == 1 && ((R%2) == 0 || (S%2) == 0)) {
+    printf("Error: cfg.avoid_fmas_in_rim does not work for even-sized filters\n");
+    exit(-1);
+  }
+
+  if (cfg.avoid_fmas_in_rim == 1 && w_block != 1) {
+    printf("Warning: w_block != 1 is not thoroughly tested with cfg.avoid_fmas_in_rim\n");
+    //return -1;
+  }
+
   if (cfg.avoid_fmas_in_rim == 1) {
     r_step = 1;
     s_step = 1;
@@ -104,7 +131,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
-  SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
+  SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm_1less_tpp, brgemm_2less_tpp; // 2less is added to enable 7x7 filters
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
 
@@ -139,7 +166,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
       brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     }
 
-    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    brgemm_1less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    brgemm_2less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-2, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   } else {
@@ -172,17 +200,23 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     exit(-1);
   }
 
+  if (logical_padding && h_in_gemm > 1 ) {
+    printf("Error: logical padding in conv fwd is only supported for h_in_gemm = 1\n");
+    exit(-1);
+  }
+
 #ifdef VERBOSE
   std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
                                                                                                 << Kb << " " << k_step << " " << ofh << " " << h_step << " "
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
 
-  std::cout << "pad_h_out pad_w_out = " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "pad_h_in pad_w_in pad_h_out pad_w_out = " << pad_h_in << " " << pad_w_in << " " << pad_h_out << " " << pad_w_out << std::endl;
   std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
   std::cout << "cfg.avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
   std::cout << "unused but internal avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
+  std::cout << "logical_padding = " << logical_padding << std::endl;
   std::cout << "pack_input = " << pack_input << std::endl;
 #endif
 
@@ -201,7 +235,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
 #ifdef VERBOSE
   printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
-                                        N, ifhp - 2 * pad_h_out, ifwp - 2 * pad_w_out, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim);
+                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim);
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
@@ -263,36 +297,80 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                          Cb_step * r_step * s_step,
                          true);
             }
-          } else { /* for if cfg.avoid_fmas_in_rim == 0 */
+          } else { /* else for if cfg.avoid_fmas_in_rim == 0 */
             if (Cb_step != Cb || r_step != R || s_step != S) {
               if (i_c == 0 && i_r == 0 && i_s == 0) {
                 zero_tpp(output_off[i_n][i_k][i_h][i_w]);
               }
             }
 
-            if (i_r == 0 && i_h == 0) {
-              /* Do no FLOPS  */
-            } else if (i_r == R-1 && i_h == ofh-1 ) {
-              /* Do no FLOPS  */
-            } else if ( i_w == 0 && i_s == 0 ) {
-              brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s + 1],
-                          weight    [i_k][i_c][i_r][i_s][0],
-                          output_off[i_n][i_k][i_h]                 [i_w + 1],
-                          Cb_step,
-                          true);
-            } else if ( i_w + w_step == ofw  && i_s == S-1) {
-              brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                          weight    [i_k][i_c][i_r][i_s][0],
-                          output_off[i_n][i_k][i_h]                 [i_w],
-                          Cb_step,
-                          true);
-            } else {
-              brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                         weight    [i_k][i_c][i_r][i_s][0],
-                         output_off[i_n][i_k][i_h]                 [i_w],
-                         Cb_step,
-                         true);
-            }
+            if (R == 7 && S == 7) {
+              if (i_h * stride_h + i_r - R/2 < 0) {
+                /* Do no FLOPS  */
+              } else if (i_h *stride_h + i_r - R/2 >= ifh ) {
+                /* Do no FLOPS  */
+              } else if ( i_s < R/2 && i_w * stride_w + (i_s - R/2) < 0 && (i_w + 1) * stride_w + (i_s - R/2) >= 0  ) {
+                /* the case when left i_s is out of input image for the first pitch only */
+                brgemm_1less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + (i_w + 1) * stride_w + (i_s - S/2)],
+                                 weight    [i_k][i_c][i_r][i_s][0],
+                                 output_off[i_n][i_k][i_h]                 [i_w + 1],
+                                 Cb_step,
+                                 true);
+              } else if ( i_s < R/2 && i_w * stride_w + (i_s - R/2) < 0 && (i_w + 1) * stride_w + (i_s - R/2) < 0 && (i_w + 2) * stride_w + (i_s - R/2) >= 0  ) {
+                /* the case when left i_s is out of input image for the first two pitches */
+                brgemm_2less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + (i_w + 2) * stride_w + (i_s - S/2)],
+                                 weight    [i_k][i_c][i_r][i_s][0],
+                                 output_off[i_n][i_k][i_h]                 [i_w + 2],
+                                 Cb_step,
+                                 true);
+              } else if ( i_s > R/2 && (i_w + w_step - 1)*stride_w + (i_s - R/2) >= ifw && (i_w + w_step - 2)*stride_w + (i_s - R/2) < ifw ) {
+                /* the case when right i_s is out of input image for the last pitch only */
+                brgemm_1less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
+                                 weight    [i_k][i_c][i_r][i_s][0],
+                                 output_off[i_n][i_k][i_h]                 [i_w],
+                                 Cb_step,
+                                 true);
+              } else if ( i_s > R/2 && (i_w + w_step - 1)*stride_w + (i_s - R/2) >= ifw && (i_w + w_step - 2)*stride_w + (i_s - R/2) >= ifw && (i_w + w_step - 3)*stride_w + (i_s - R/2) < ifw ) {
+                /* for the case when right i_s is out of input image for the last 2 pitches */
+                brgemm_2less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
+                                 weight    [i_k][i_c][i_r][i_s][0],
+                                 output_off[i_n][i_k][i_h]                 [i_w],
+                                 Cb_step,
+                                 true);
+              } else {
+                brgemm_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
+                           weight    [i_k][i_c][i_r][i_s][0],
+                           output_off[i_n][i_k][i_h]                 [i_w],
+                           Cb_step,
+                           true);
+              }
+            } else if (R == 3 && S == 3) {
+              if (i_r == 0 && i_h == 0) {
+                /* Do no FLOPS  */
+              //} else if (i_r == R-1 && i_h == ofh-1 ) {
+              } else if (i_r == R-1 && (i_h + h_step - 1)*stride_h + i_r == ifh + 1 ) {
+                /* Do no FLOPS  */
+              } else if ( i_w == 0 && i_s == 0 ) {
+                brgemm_1less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + (i_w + 1) * stride_w + (i_s - S/2)],
+                                 weight    [i_k][i_c][i_r][i_s][0],
+                                 output_off[i_n][i_k][i_h]                 [i_w + 1],
+                                 Cb_step,
+                                 true);
+              //} else if ( i_w + w_step == ofw  && i_s == S-1) {
+              } else if ( (i_w + w_step - 1)*stride_w + i_s == ifw + 1 && i_s == S-1) {
+                brgemm_1less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
+                                 weight    [i_k][i_c][i_r][i_s][0],
+                                 output_off[i_n][i_k][i_h]                 [i_w],
+                                 Cb_step,
+                                 true);
+              } else {
+                brgemm_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
+                           weight    [i_k][i_c][i_r][i_s][0],
+                           output_off[i_n][i_k][i_h]                 [i_w],
+                           Cb_step,
+                           true);
+              }
+            } /* if-else if for the filter size (7x7 and 3x3) */
           } /* for if-else cfg.avoid_fmas_in_rim == 0 */
         },
         [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
