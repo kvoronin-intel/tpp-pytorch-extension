@@ -101,7 +101,7 @@ const long N  = sizes[0];
 
 std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
 
-std::vector<long> weight_tr_size{Cb, Kb, R, S, bk, bc};
+std::vector<long> weight_tr_size{Cb, Kb, R, S, bc, bk};
 
 #ifdef VERBOSE
 std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
@@ -109,7 +109,7 @@ std::cout << "output_size = " << output_size << std::endl;
 std::cout << "R = " << R << " S = " << S << std::endl;
 std::cout << "stride_h = " << stride_h << " stride_w = " << stride_w << std::endl;
 std::cout << "pad_h_in = " << pad_h_in << " pad_w_in = " << pad_w_in << std::endl;
-std::cout << "Cb Kb bc Kb bk = " << Cb << " " << Kb << " " << bc << " " << Kb << " " << bk << std::endl;
+std::cout << "Cb bc Kb bk = " << Cb << " " << " " << bc << " " << Kb << " " << bk << std::endl;
 std::cout << "tuning_string = " << tuning_string << std::endl;
 //std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
 #endif
@@ -538,7 +538,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     //l_unary_shape = libxsmm_create_meltw_unary_shape(bk, bc, bk, bk, dtype, dtype, dtype);
     //wt_vnni_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     //std::cout << "wt_vnni_xform_tpp " << std::endl;
-    wt_vnni_xform_tpp = SCOPEIT(XformExtTPP<T>(bc, bk, bk, bk, XformTPP::XFORM_N2V_TPP, false), XPOSE); /* assuming row-major-ness */
+    wt_vnni_xform_tpp = SCOPEIT(XformExtTPP<T>(bc, bk, bc, bk, XformTPP::XFORM_N2V_TPP, false), XPOSE); /* assuming row-major-ness */
 
 #ifndef LESS_KERNELS
     //l_unary_shape = libxsmm_create_meltw_unary_shape(chunk0, nThreads, K * C *R * S, chunk0, LIBXSMM_DATATYPE_F32, dtype, LIBXSMM_DATATYPE_F32);
