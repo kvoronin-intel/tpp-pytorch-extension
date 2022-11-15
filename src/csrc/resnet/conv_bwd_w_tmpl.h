@@ -85,10 +85,20 @@ int stride_w = cfg.v;
 int Cb = cfg.blocksifm;
 int Kb = cfg.blocksofm;
 
+int pad_h = cfg.pad_h;
+int pad_w = cfg.pad_w;
 int pad_h_in = cfg.pad_h_in;
 int pad_w_in = cfg.pad_w_in;
 int pad_h_out = cfg.pad_h_out;
 int pad_w_out = cfg.pad_w_out;
+
+/* Used for tr_input and tr_output as they always need to be physically padded */
+int ifhp_physically_padded = ifh + 2 * pad_h;
+int ifwp_physically_padded = ifw + 2 * pad_w;
+int ofhp_physically_padded = ofh + 2 * pad_h;
+int ofwp_physically_padded = ofw + 2 * pad_w;
+
+const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 || pad_h_out == 0 || pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
 
 int nThreads = cfg.threads;
 
@@ -106,7 +116,8 @@ std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 std::cout << "R = " << R << " S = " << S << std::endl;
 std::cout << "stride_h = " << stride_h << " stride_w = " << stride_w << std::endl;
-std::cout << "pad_h_in = " << pad_h_in << " pad_w_in = " << pad_w_in << std::endl;
+std::cout << "pad_h_in = " << pad_h_in << " pad_w_in = " << pad_w_in << " pad_h_out = " << pad_h_out << " pad_w_out = " << pad_w_out << std::endl;
+std::cout << "ifh, ifw, ifhp, ifwp, ofh, ofhp, ofw, ofwp = " << ifh << " " << ifw << " " << ifhp << " " << ifwp << " " << ofh << " " << ofw << " " << ofhp << " " << ofwp << std::endl;
 std::cout << "Cb bc Kb bk = " << Cb << " " << " " << bc << " " << Kb << " " << bk << std::endl;
 std::cout << "tuning_string = " << tuning_string << std::endl;
 //std::cout << "weight_tr_size = " << weight_tr_size << std::endl;
@@ -116,9 +127,6 @@ auto t_grad_weight = at::empty(t_W.sizes(), torch::TensorOptions().dtype(t_W.dty
 auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.dtype()));
 
 //------------------------------------
-
-  long  pad_h = pad_h_out;
-  long  pad_w = pad_w_out;
 
   /* Some algorithmic knobs  */
   /* Uses parallelism in the MB dimension for f32 precision */
@@ -190,6 +198,11 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   bf16_use_chwn_format = (bf16_use_nchw_format > 0) ? 0 : 1;
   use_private_trans = bf16_fuse_upd_transposes;
 
+  if (logical_padding && ((sizeof(T) != 2) || (bf16_use_chwn_format == 0) || (use_private_trans != 0)) ) {
+    printf("Error: logical padding is only supported for bf16 and chwn format and use_private_trans == 0 \n");
+    exit(-1);
+  }
+
 long long int running_scratch_size_in_bytes = 0;
 
 std::vector<long> scratch_size{nThreads, C, K, R, S};
@@ -216,9 +229,9 @@ if (sizeof(T) == 2) {
   //t_tr_input  = at::empty({N, ifhp, ifwp, C}, torch::TensorOptions().dtype(at::kBFloat16));
   //t_tr_output = at::empty({N, ofhp, ofwp, K}, torch::TensorOptions().dtype(at::kBFloat16));
   tr_input_offset = running_scratch_size_in_bytes;
-  running_scratch_size_in_bytes += N * ifhp * ifwp * C * sizeof(T);
+  running_scratch_size_in_bytes += N * ifhp_physically_padded * ifwp_physically_padded * C * sizeof(T);
   tr_output_offset = running_scratch_size_in_bytes;
-  running_scratch_size_in_bytes += N * ofhp * ofwp * K * sizeof(T);
+  running_scratch_size_in_bytes += N * ofhp_physically_padded * ofwp_physically_padded * K * sizeof(T);
 }
 
 if (sizeof(T) == 2) {
@@ -424,6 +437,8 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   SCOPEIT_DECL(SetZeroTPP<T>)               zero_bf16_tpp;
   SCOPEIT_DECL(SetZeroTPP<float>)           zero_float_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>)               zero_pad_bf16_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)               zero_chwn_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>)               zero_khwn_tpp;
   SCOPEIT_DECL(ConvertTPP<float, T>)        fp32bf16_cvt_tpp;
   SCOPEIT_DECL(XformExtTPP<T>)              trans_xform_tpp, vnni_xform_tpp, wt_vnni_xform_tpp;
   SCOPEIT_DECL(ReduceAddColExtTPP<float,T>) wt_reduce0_float_tpp, wt_reduce1_float_tpp;
@@ -648,6 +663,8 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
       vnni_output_zero_remaining_pixels_bf16_tpp = SCOPEIT(SetZeroTPP<T>(bk*upd_remaining_pixels), EW_ZERO);
 
     } else { /* for  bf16_use_nchw_format > 0 */
+      zero_chwn_tpp = SCOPEIT(SetZeroTPP<T>(bc*bn), EW_ZERO);
+      zero_khwn_tpp = SCOPEIT(SetZeroTPP<T>(bk*bn), EW_ZERO);
     } /* else-if for bf16_use_nchw_format > 0 */
 
   } /* if-else over T */
@@ -703,14 +720,14 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
   auto tr_input_loop = ThreadedLoop<3>({
       LoopSpecs{0, Cb, tr_step},
-      LoopSpecs{0, ifhp, tr_step},
-      LoopSpecs{0, ifwp, tr_step}},
+      LoopSpecs{0, ifhp_physically_padded, tr_step},
+      LoopSpecs{0, ifwp_physically_padded, tr_step}},
       "ABC"); // FIXME back to ABC
 
   auto tr_output_loop  = ThreadedLoop<3>({
       LoopSpecs{0, Kb, tr_step},
-      LoopSpecs{0, ofhp, tr_step},
-      LoopSpecs{0, ofwp, tr_step}},
+      LoopSpecs{0, ofhp_physically_padded, tr_step},
+      LoopSpecs{0, ofwp_physically_padded, tr_step}},
       "ABC"); // FIXME back to ABC
 
   if (sizeof(T) == 2) {
@@ -1182,30 +1199,77 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 #ifndef LESS_KERNELS
           //printf("Case bf16_use_chwn_format > 0 is untested so far!\n"); exit(-1);
           if (use_private_trans == 0) {
-            //printf("Case use_private_trans == 0 is untested so far!\n"); exit(-1);
-            tr_input_loop(
-              [&](int* ind) {
-                int i_c = ind[0], i_h = ind[1], i_w = ind[2];
+//            if (1 || logical_padding) {
+              tr_input_loop(
+                [&](int* ind) {
+                  int i_c = ind[0], i_h = ind[1], i_w = ind[2];
 
-                DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
-                DECL_VLA_PTR_PT_EXT_CAST(T,  unsigned char,  tr_input,       [ifhp][ifwp][bc]  [bn],   t_scratch_experimental, tr_input_offset);
+                  DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
+                  DECL_VLA_PTR_PT_EXT_CAST(T,  unsigned char,  tr_input,       [ifhp_physically_padded][ifwp_physically_padded][bc]  [bn],   t_scratch_experimental, tr_input_offset);
 
-                trans_xform_tpp(input[0][i_c][i_h][i_w], tr_input[i_c][i_h][i_w][0]);
-              },
-              [&]() {},
-              [&]() {});
+                  if (logical_padding)
+                    zero_chwn_tpp(tr_input[i_c][i_h][i_w][0]);
 
-            tr_output_loop(
-              [&](int* ind) {
-                int i_k = ind[0], i_h = ind[1], i_w = ind[2];
+                  if (logical_padding && (i_h >= pad_h && i_h < ifhp_physically_padded - pad_h && i_w >= pad_w && i_w < ifwp_physically_padded - pad_w))
+                    trans_xform_tpp(input[0][i_c][i_h - pad_w][i_w - pad_w], tr_input[i_c][i_h][i_w][0]);
+                  else if (!logical_padding)
+                    trans_xform_tpp(input[0][i_c][i_h][i_w], tr_input[i_c][i_h][i_w][0]);
+                },
+                [&]() {},
+                [&]() {});
+//            }
+/*
+            else {
+              //printf("Case use_private_trans == 0 is untested so far!\n"); exit(-1);
+              tr_input_loop(
+                [&](int* ind) {
+                  int i_c = ind[0], i_h = ind[1], i_w = ind[2];
 
-                DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
-                DECL_VLA_PTR_PT_EXT_CAST (T, unsigned char,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_scratch_experimental, tr_output_offset);
+                  DECL_VLA_PTR_PT    (T,    input,          [Cb]  [ifhp][ifwp][bc],   t_I);
+                  DECL_VLA_PTR_PT_EXT_CAST(T,  unsigned char,  tr_input,       [ifhp][ifwp][bc]  [bn],   t_scratch_experimental, tr_input_offset);
 
-                vnni_xform_tpp(output[0][i_k][i_h][i_w], tr_output[i_k][i_h][i_w][0]);
-              },
-              [&]() {},
-              [&]() {});
+                  trans_xform_tpp(input[0][i_c][i_h][i_w], tr_input[i_c][i_h][i_w][0]);
+                },
+                [&]() {},
+                [&]() {});
+            }
+*/
+
+//            if (1 || logical_padding) {
+              //printf("BLABLABLA \n"); exit(-1);
+              tr_output_loop(
+                [&](int* ind) {
+                  int i_k = ind[0], i_h = ind[1], i_w = ind[2];
+
+                  DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
+                  DECL_VLA_PTR_PT_EXT_CAST (T, unsigned char,    tr_output,      [ofhp_physically_padded][ofwp_physically_padded][bn]  [bk],   t_scratch_experimental, tr_output_offset);
+
+                  if (logical_padding)
+                    zero_khwn_tpp(tr_output[i_k][i_h][i_w][0]);
+
+                  if (logical_padding && i_h >= pad_h && i_h < ofhp_physically_padded - pad_h && i_w >= pad_w && i_w < ofwp_physically_padded - pad_w)
+                    vnni_xform_tpp(output[0][i_k][i_h - pad_h][i_w - pad_w], tr_output[i_k][i_h][i_w][0]);
+                  else if (!logical_padding)
+                    vnni_xform_tpp(output[0][i_k][i_h][i_w], tr_output[i_k][i_h][i_w][0]);
+                },
+                [&]() {},
+                [&]() {});
+//            }
+/*
+              else {
+              tr_output_loop(
+                [&](int* ind) {
+                  int i_k = ind[0], i_h = ind[1], i_w = ind[2];
+
+                  DECL_VLA_PTR_PT    (T,    output,         [Kb]  [ofhp][ofwp][bk],   t_GO);
+                  DECL_VLA_PTR_PT_EXT_CAST (T, unsigned char,    tr_output,      [ofhp][ofwp][bn]  [bk],   t_scratch_experimental, tr_output_offset);
+
+                  vnni_xform_tpp(output[0][i_k][i_h][i_w], tr_output[i_k][i_h][i_w][0]);
+                },
+                [&]() {},
+                [&]() {});
+            }
+*/
           } else { /* dummy else for if use_private_trans == 0 */
           }
 
@@ -1243,8 +1307,8 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
               DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,     private_tr_input,  [ifhp][ifwp][bc][bn],   t_scratch_experimental, private_tr_input_offset  + tid*(N*ifhp*ifwp*C) * sizeof(T));
               DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,     private_tr_output, [ofhp][ofwp][bn][bk],   t_scratch_experimental, private_tr_output_offset + tid*(N*ofhp*ofwp*K) * sizeof(T));
 
-              DECL_VLA_PTR_PT_EXT_CAST    (T, unsigned char,     tr_input,      [ifhp][ifwp][bc]  [bn],   t_scratch_experimental, tr_input_offset);
-              DECL_VLA_PTR_PT_EXT_CAST    (T, unsigned char,     tr_output,     [ofhp][ofwp][bn]  [bk],   t_scratch_experimental, tr_output_offset);
+              DECL_VLA_PTR_PT_EXT_CAST    (T, unsigned char,     tr_input,      [ifhp_physically_padded][ifwp_physically_padded][bc]  [bn],   t_scratch_experimental, tr_input_offset);
+              DECL_VLA_PTR_PT_EXT_CAST    (T, unsigned char,     tr_output,     [ofhp_physically_padded][ofwp_physically_padded][bn]  [bk],   t_scratch_experimental, tr_output_offset);
 
               T *inp1 = NULL, *inp2 = NULL;
               if (use_private_trans > 0) {
@@ -1277,21 +1341,17 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                 inp2 = private_tr_output [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0];
               } else { /* for if use_private_trans > 0 */
                 inp1 = tr_input     [i_c][i_h * stride_h + i_r][i_w * stride_w + i_s][0];
-                inp2 = tr_output    [i_k][i_h + pad_h_out]     [i_w + pad_w_out]     [0];
+                inp2 = tr_output    [i_k][i_h + pad_h]     [i_w + pad_w]     [0];
               } /* for if-else use_private_trans > 0 */
 
               if (compute_full_wt_output_block == 0) {
-                //printf("Case compute_full_wt_output_block == 0 in chwn is untested so far!\n"); exit(-1);
-                brgemm_acc_pixel_tpp(inp1, inp2,scratch_float[tid][i_k][i_c][i_r][i_s][0],
+                brgemm_acc_pixel_tpp(inp1,inp2,scratch_float[tid][i_k][i_c][i_r][i_s][0],
                                      w_step * h_step /* brcount */, true);
                 if ((i_h == ofh - h_step) && (i_w == ofw - w_step) && (par_over_h_pixels == 0)) {
                   fp32bf16_cvt_tpp(scratch_float[tid][i_k][i_c][i_r][i_s][0], (T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]));
-                    wt_vnni_xform_tpp((T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]), filter[i_k][i_c][i_r][i_s][0] );
+                  wt_vnni_xform_tpp((T*)(scratch_float[tid][i_k][i_c][i_r][i_s][0]), filter[i_k][i_c][i_r][i_s][0] );
                 }
               } else { /* for if compute_full_wt_output_block == 0 */
-                //printf("Case else compute_full_wt_output_block == 0 in chwn is untested so far!\n"); exit(-1);
-                //gemm_param.c.primary = LIBXSMM_ACCESS_RAW(6, sizeof(DType), filter_libxsmm, i_k, i_c, i_r, i_s, 0, 0, Cb, R, S, bc, bk);
-                //brgemm_kernel_acc_pixel_zerobeta_cvnni.gemm( &gemm_param );
                 brgemm_acc_pixel_zerobeta_cvnni_tpp(inp1, inp2, filter[i_k][i_c][i_r][i_s][0],
                                                     w_step * h_step /* brcount */, true);
               } /* if-else for compute_full_wt_output_block == 0 */
