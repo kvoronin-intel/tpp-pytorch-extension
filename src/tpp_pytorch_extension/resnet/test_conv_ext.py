@@ -72,6 +72,11 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("Error: only one of perf-fwd, perf-bwd-w and perf-bwd-d can be active")
         exit()
 
+    disabled_bwd_d = not with_bwd
+    if logical_padding and test_module == 'ext_tpp':
+        print("For logical padding backward over data is not implemented in ext_tpp module")
+        disabled_bwd_d = True
+
     if perf_fwd:
         tuning_params_count = 6
     elif perf_bwd_d:
@@ -189,7 +194,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         #    bias      = bias_bf16.to(torch.float)
     #print("Weight: ", weight)
     #print("Bias: ", bias)
-    x = torch.randn(N, inc, H, W, requires_grad=True)
+    x = torch.randn(N, inc, H, W, requires_grad=not disabled_bwd_d)
     #x = torch.ones_like(x, requires_grad=True)
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         x_bf16 = x.to(torch.bfloat16)
@@ -217,9 +222,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     if has_bias:
         ref_bias_init = bias
 
-    x1 = opt_x_init.clone().detach().requires_grad_()
-    x1.retain_grad()
-    x2 = ref_x_init.clone().detach().requires_grad_()
+    x1 = opt_x_init.clone().detach().requires_grad_(requires_grad=not disabled_bwd_d)
+    if not disabled_bwd_d:
+        x1.retain_grad()
+    x2 = ref_x_init.clone().detach().requires_grad_(requires_grad=not disabled_bwd_d)
 
     if preallocated_output:
         allocated_y = torch.randn(N, outc, H//stride + 2 * output_hw_padding[0], W//stride + 2*output_hw_padding[2], requires_grad=False)
@@ -374,13 +380,15 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
             print("range = ", 'full', ' ', 'full', output_hw_padding[0], outH + output_hw_padding[0], output_hw_padding[2], outW + output_hw_padding[2])
             y1_grad_zeroed_rim[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]] = y1.grad[:,:,output_hw_padding[0]:outH + output_hw_padding[0],output_hw_padding[2]:outW + output_hw_padding[2]]
             # now doing the main backward()
-            x1.requires_grad              = True
+            x1.requires_grad              = True and not disabled_bwd_d
             opt_conv.weight.requires_grad = True
             if has_bias:
                 opt_conv.bias.requires_grad   = True
             y1._t.backward(gradient=y1_grad_zeroed_rim)
         else:
+            y1._t.retain_grad()
             z1.backward(retain_graph=True)
+            y1_grad_zeroed_rim = y1.grad
         #z1.backward(retain_graph=True)
 
         z2.backward(retain_graph=True)
@@ -390,7 +398,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         time_start = time.time()
 
         # X gradient
-        validation_check_bwd_d_failed = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, zero_rim_for_opt = True, rtol=rtol, atol=atol)
+        if not disabled_bwd_d:
+            validation_check_bwd_d_failed = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, zero_rim_for_opt = True, rtol=rtol, atol=atol)
+        else:
+            validation_check_bwd_d_failed = False
 
         # Bias gradient
         if has_bias:
@@ -404,7 +415,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         validation_checks_failed = validation_check_fwd_failed or validation_check_bwd_d_failed or validation_check_bwd_bias_failed or validation_check_bwd_w_failed
         print("validation_check_fwd_failed      = ", validation_check_fwd_failed)
         print("validation_check_bwd_d_failed    = ", validation_check_bwd_d_failed)
-        print("validation_check_bwd_bias_failed = ", validation_check_bwd_bias_failed)
+        print("validation_check_bwd_bias_failed = ", validation_check_bwd_bias_failed, " and disabled_bwd_d = ", disabled_bwd_d)
         print("validation_check_bwd_w_failed    = ", validation_check_bwd_w_failed)
 
         time_end = time.time()
