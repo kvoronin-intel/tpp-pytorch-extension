@@ -234,8 +234,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
-                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim);
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000 %d\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim, logical_padding);
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
