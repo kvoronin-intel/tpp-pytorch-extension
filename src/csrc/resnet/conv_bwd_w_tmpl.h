@@ -1196,7 +1196,6 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
           } /* if-else for use_hybrid_imgfm_parallelization */
         } else if (bf16_use_chwn_format > 0) { /* for if bf16_use_nchw_format > 0 */
-#ifndef LESS_KERNELS
           //printf("Case bf16_use_chwn_format > 0 is untested so far!\n"); exit(-1);
           if (use_private_trans == 0) {
 //            if (1 || logical_padding) {
