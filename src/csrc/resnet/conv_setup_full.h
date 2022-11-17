@@ -1105,6 +1105,7 @@ LIBXSMM_API_INLINE void libxsmm_dnn_conv_setup_upd_scratch( conv_config* cfg ) {
     cfg->upd_lp_filter_full_scratch_size;
 }
 
+/* Note: a caveat here is that arguments bc and bk are only used if main cases in libxsmm_dnn_conv_get_feature_map_blocks() are not used so in the majority of cases bc and bk will be ignored */
 LIBXSMM_API conv_config setup_conv_config( libxsmm_datatype cnn_dtype_in, libxsmm_datatype cnn_dtype_out, libxsmm_blasint N, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint C, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
     libxsmm_blasint stride_h, libxsmm_blasint stride_w,
     libxsmm_blasint pad_h, libxsmm_blasint pad_w,

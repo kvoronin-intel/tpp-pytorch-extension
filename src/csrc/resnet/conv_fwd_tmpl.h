@@ -15,6 +15,8 @@ t_start = getTime();
 
 #define VERBOSE
 
+#define NTIMES_CONV 1
+
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
 
@@ -116,7 +118,9 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   }
 
   if (cfg.avoid_fmas_in_rim == 1 && w_block != 1) {
+#ifdef VERBOSE
     printf("Warning: w_block != 1 is not thoroughly tested with cfg.avoid_fmas_in_rim\n");
+#endif
     //return -1;
   }
 
@@ -211,7 +215,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
 
-  std::cout << "pad_h_in pad_w_in pad_h_out pad_w_out = " << pad_h_in << " " << pad_w_in << " " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "pad_h pad_w pad_h_in pad_w_in pad_h_out pad_w_out = " << conv_pad_h << " " << conv_pad_w << " " << pad_h_in << " " << pad_w_in << " " << pad_h_out << " " << pad_w_out << std::endl;
   std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
   std::cout << "cfg.avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
@@ -234,8 +238,9 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000 %d\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
-                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h_out, pad_w_out, bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, cfg.avoid_fmas_in_rim, logical_padding);
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d   %d %d   %d %d %d %d %d %d 1000 %d\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, conv_pad_h, conv_pad_w,
+                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input, logical_padding);
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
@@ -252,6 +257,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   t_conv_start = getTime();
 #endif
 
+  for (int i = 0; i < NTIMES_CONV; i++)
   {
     RECORD_SCOPE(conv_fwd, {});
     {
@@ -395,6 +401,11 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
 #ifdef VERBOSE
   #undef VERBOSE
+#endif
+
+#ifdef TIMING
+  printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_start, 1.0);
+  //printf("PERFDUMP,FP,resnetconv_pureconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_conv_start, 1.0);
 #endif
 
 #ifdef TIMING

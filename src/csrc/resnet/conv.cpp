@@ -344,9 +344,9 @@ std::vector<at::Tensor> conv_bwd(
                       default_tuning_params_w, default_tuning_string_w, default_tuning_timings_w);
 }
 
-#define C_BLOCK_SIZE (64) /* hardcoded for now, used in conv_setup() */
+#define C_BLOCK_SIZE (32) /* hardcoded for now, used in conv_setup() */
 
-#define K_BLOCK_SIZE (64) /* hardcoded for now, used in conv_setup() */
+#define K_BLOCK_SIZE (32) /* hardcoded for now, used in conv_setup() */
 
 conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
                               libxsmm_blasint pad_h, libxsmm_blasint pad_w, libxsmm_blasint pad_h_in, libxsmm_blasint pad_w_in, libxsmm_blasint pad_h_out, libxsmm_blasint pad_w_out,
@@ -355,15 +355,14 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
   conv_config res;
 
   libxsmm_blasint bc, bk;
-//  if (C % 64 == 0)
-    bc = C_BLOCK_SIZE; /* hardcoded for now */
-//  else
-//    bc = C;
-//  if (K % 64 == 0)
-    bk = K_BLOCK_SIZE;
-//  else
-//    bk = K;
-  //libxsmm_blasint bk      = K_BLOCK_SIZE;       /* hardcoded for now */
+  if (C % C_BLOCK_SIZE == 0)
+    bc = C_BLOCK_SIZE; /* hardcoded for now, if not good, call conv_setup_preset instead */
+  else
+    bc = C;
+  if (K % K_BLOCK_SIZE == 0)
+    bk = K_BLOCK_SIZE; /* hardcoded for now, if not good, call conv_setup_preset instead */
+  else
+    bk = K;
   libxsmm_blasint threads = (libxsmm_blasint)omp_get_max_threads();
 
   /* printf("debug: calling conv_setup_new with tensor N H W C K R S padding stride bc bk: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
@@ -381,8 +380,7 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
   libxsmm_blasint avoid_bwd_wt_trans  = 0; /* hardcoded for now */
   libxsmm_blasint zero_fwd_output_rim = 0; /* hardcoded for now */
 
-  /* memset( &res,  0, sizeof(res)); */
-
+  /* Note: a caveat here is that arguments bc and bk are only used if main cases in libxsmm_dnn_conv_get_feature_map_blocks() are not used so in the majority of cases bc and bk will be ignored */
   res = setup_conv_config(cnn_dtype_in, cnn_dtype_out, N, H, W, C, K, R, S, stride, stride, pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, bc, bk, threads,
                           fuse_type, overwrite_output, avoid_bwd_wt_trans, zero_fwd_output_rim);
 

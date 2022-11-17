@@ -440,7 +440,7 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 #define MB (1024.0*1024.0)
 #define GB (1024.0*1024.0*1024.0)
 
-#if 1
+#ifdef TIMING
         printf("perfdebug: checking for bottleneck in fwd with cfg C K H W stride: %d %d %d %d %d\n", cfg.inplanes, cfg.planes, cfg.H, cfg.W, cfg.stride);
         printf("activation size (in Mb, per core): (inp = c4_in -> c1 out = c2_in (stride) -> c2_out = c3_in -> c3_out = c4_out %f %f %f %f \n",
                                                                    (cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) / MB,

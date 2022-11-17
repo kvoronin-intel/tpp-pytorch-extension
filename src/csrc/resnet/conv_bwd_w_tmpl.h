@@ -1417,6 +1417,10 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 #endif
 
 #ifdef TIMING
+  printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_start, 1.0);
+#endif
+
+#ifdef TIMING
   #undef TIMING
 #endif
 

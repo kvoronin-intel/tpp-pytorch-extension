@@ -434,6 +434,10 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 #endif
 
 #ifdef TIMING
+  printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_start, 1.0);
+#endif
+
+#ifdef TIMING
   #undef TIMING
 #endif
 
