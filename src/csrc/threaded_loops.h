@@ -164,11 +164,13 @@ class LoopingScheme {
         int l;
         assert(curLoop < MAX_LOOPS);
         if ((i >= 1) && (scheme[i - 1] == '{')) {
+#if 0
           printf(
               "LoopingScheme: '%s': Ignoring unknown scheme character: '%c' at position %d\n",
               scheme.c_str(),
               scheme[i],
               i);
+#endif
         } else {
           if (c >= 'a' && c <= 'z') {
             isParallel[curLoop] = false;
@@ -187,11 +189,13 @@ class LoopingScheme {
       } else if (c == '|') {
         barrierAfter = curLoop;
       } else {
+#if 0
         printf(
             "LoopingScheme: '%s': Ignoring unknown scheme character: '%c' at position %d\n",
             scheme.c_str(),
             scheme[i],
             i);
+#endif
       }
     }
     nLoops = curLoop;
