@@ -23,6 +23,7 @@ from contextlib import contextmanager
 
 #for debugging
 import os
+
 import numpy as np
 
 import pcl_cgbp

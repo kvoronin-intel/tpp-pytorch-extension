@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn import init
+from torch.nn import Conv2d as pytorch_conv2d
 from torch.autograd import Function
 from pcl_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
@@ -14,11 +15,21 @@ from pcl_pytorch_extension._C import _conv as conv_cpp
 import time
 from contextlib import contextmanager
 
+import numpy as np
+
 class DummyConvTPP(Function):
     @staticmethod
-    def forward(ctx, param_struct, tuning_params, tuning_string, tuning_timings_fwd, tuning_params_d, tuning_string_d, tuning_timings_d, tuning_params_w, tuning_string_w, tuning_timings_w, *inputs):
+    def forward(ctx, param_struct, tuning_params_fwd, tuning_string_fwd, tuning_timings_fwd, tuning_params_d, tuning_string_d, tuning_timings_d, tuning_params_w, tuning_string_w, tuning_timings_w, *inputs):
 
-        output = conv_cpp.conv_fwd(param_struct, inputs)
+
+        if tuning_params_fwd is None or tuning_string_fwd is None or len(tuning_params_fwd) == 0:
+            output = conv_cpp.conv_fwd(param_struct, inputs)
+        else:
+            if tuning_timings_fwd is None:
+                tuning_timings_fwd = np.zeros(16, dtype=np.float32)
+            output = conv_cpp.conv_fwd_ext(param_struct, inputs, tuning_params_fwd, tuning_string_fwd, tuning_timings_fwd)
+
+        #output = conv_cpp.conv_fwd(param_struct, inputs)
 
         ( input, weight) = inputs
 
@@ -75,17 +86,27 @@ class DummyConvTPP(Function):
         """
 
         if input.requires_grad:
-            if (tuning_params_d is None or tuning_string_d is None or len(tuning_params_d) == 0 or len(tuning_string_d) == 0 or tuning_timings_d is None):
-                grad_input = conv_cpp.conv_bwd_d(param_struct, inputs) #handle.handle, grad_output, input, weight)
+            if (tuning_params_d is None or tuning_string_d is None or len(tuning_params_d) == 0 or len(tuning_string_d) == 0):
+                if tuning_timings_d is None:
+                    grad_input = conv_cpp.conv_bwd_d(param_struct, inputs)
+                else:
+                    print("Unsupported mode with tuning params_d empty but non-empty tuning_timings_d")
             else:
-                grad_input = conv_cpp.conv_bwd_d_ext(param_struct, inputs, tuning_params_d, tuning_string_d, tuning_timings_d) #handle.handle, grad_output, input, weight)
+                if tuning_timings_d is None:
+                    tuning_timings_d = np.zeros(16, dtype=np.float32)
+                grad_input = conv_cpp.conv_bwd_d_ext(param_struct, inputs, tuning_params_d, tuning_string_d, tuning_timings_d)
         else:
             grad_input    = None
 
-        if (tuning_params_w is None or tuning_string_w is None or len(tuning_params_w) == 0 or len(tuning_string_w) == 0 or tuning_timings_w is None):
-            grad_weight = conv_cpp.conv_bwd_w(param_struct, inputs) #handle.handle, grad_output, input, weight)
+        if (tuning_params_w is None or tuning_string_w is None or len(tuning_params_w) == 0 or len(tuning_string_w) == 0):
+            if tuning_timings_w is None:
+                grad_weight = conv_cpp.conv_bwd_w(param_struct, inputs)
+            else:
+                print("Unsupported mode with tuning params_w empty but non-empty tuning_timings_w")
         else:
-            grad_weight = conv_cpp.conv_bwd_w_ext(param_struct, inputs, tuning_params_w, tuning_string_w, tuning_timings_w) #handle.handle, grad_output, input, weight)
+            if tuning_timings_w is None:
+                tuning_timings_w = np.zeros(16, dtype=np.float32)
+            grad_weight = conv_cpp.conv_bwd_w_ext(param_struct, inputs, tuning_params_w, tuning_string_w, tuning_timings_w)
 
         """
         if input.requires_grad:
@@ -134,10 +155,11 @@ class DummyConvTPP(Function):
                 None, None, None, # for tuning_params_w, tuning_string_w and tuning_timings_w
                 grad_input, grad_weight)
 
-class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
+class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
     r"""PCL Conv2d module for using libxsmm Conv TPP"""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', dtype=torch.float, bc=None, bk=None, logical_padding=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', dtype=torch.float,
+                 bc=None, bk=None, logical_padding=None, use_hardcoded_tunings=None):
 
         self.C            = in_channels
         self.C_pad        = in_channels
@@ -156,7 +178,7 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         #    print("type of arg, arg = ", type(arg), arg)
         #torch.nn.Conv2d.__init__(self, self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
         #torch.nn.Conv2d.__init__(self, in_channels=self.C_pad, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode, device=None, dtype=dtype)
-        torch.nn.Conv2d.__init__(self, self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, dtype=dtype)
+        pytorch_conv2d.__init__(self, self.C_pad, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, dtype=dtype)
 
         self.N            = 0
         self.K            = out_channels
@@ -174,11 +196,23 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         self.pads         = padding
         #self.dilation     = _pair(dilation)
 
-        self.logical_padding = logical_padding
-        self.pad_h_in = 0 if logical_padding else self.pad_h
-        self.pad_w_in = 0 if logical_padding else self.pad_w
-        self.pad_h_out = 0 if logical_padding else self.pad_h
-        self.pad_w_out = 0 if logical_padding else self.pad_w
+        self.logical_padding = logical_padding if logical_padding is not None else False
+        self.use_hardcoded_tunings = use_hardcoded_tunings
+
+        """
+        # extra hack for the first convolution in resnet-50 which requires a logical padding and hardcoded block sizes
+        if self.R == 7 and self.S == 7 and self.stride == 2 and (self.in_channels == 3 or self.in_channels == 4) and self.out_channels == 64:
+            self.logical_padding = True
+            bc = 4
+            bk = 32
+        """
+
+        #print("dbg: for R = ", self.R, " S = ", self.S, " in the constructor of DummyConv2dTPP logical padding is set to ", self.logical_padding)
+
+        self.pad_h_in = 0 if self.logical_padding else self.pad_h
+        self.pad_w_in = 0 if self.logical_padding else self.pad_w
+        self.pad_h_out = 0 if self.logical_padding else self.pad_h
+        self.pad_w_out = 0 if self.logical_padding else self.pad_w
 
         self.config       = None
 
@@ -203,6 +237,7 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
             self.preset_blocksizes = False
             [self.Cblock, self.Kblock, self.lp_block] = conv_cpp.conv_get_feature_map_blocks(self.C_pad, self.K, 0 if self.dtype == torch.float else 1)
 
+        #print("debug: preset_blocksizes = ", self.preset_blocksizes)
         #print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
 
         if self.use_bf16:
@@ -221,14 +256,48 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
                 )
             )
 
+        self.tuning_params_fwd = None
+        self.tuning_string_fwd = None
+        self.tuning_params_d   = None
+        self.tuning_string_d   = None
+        self.tuning_params_w   = None
+        self.tuning_string_w   = None
+
+        # hardcoded for 56 threads on SPR
+        if self.use_hardcoded_tunings:
+            self.hybrid_cols = 14
+            self.hybrid_rows = 4
+            if self.use_bf16 == True:
+                # bwd_d tunings are based on results in bottleneck_*_tuning_bwd_d_not1_0721.txt
+                # bwd_w tunings are based on results in bottleneck_*_tuning_bwd_w_nohybrid_not1_0721.txt
+                if self.R == 7 and self.S == 7 and (self.in_channels == 3 or self.in_channels == 4) and self.out_channels == 64: # First Resnet-50 v1.5 convolution (applied to 224x224 images)
+                    self.tuning_params_fwd = [1, 2, 1, 1, # h,w,c,k block
+                                              1, # h_in_gemm
+                                              0 ] # pack_input
+                    self.tuning_string_fwd = 'Afgbdced'
+                    self.tuning_params_w = [1, # p_block
+                                            0, # bf16_use_nchw_format
+                                            1, 0, 0, # pack_input_upfront, fuse_upd_transposes, #use_f32_wt_reduction_and_external_wt_vnni
+                                            1, 1, 0, # bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                                            0, 1, 56 ] # use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams
+                    self.tuning_string_w = 'C{C:56}A{R:1}bdef'
+
     def maybe_block_params(self):
         self.weight.block()
         #self.bias.block()
 
     def forward(self, input,
-                      tuning_params=None, tuning_string=None, tuning_timings_fwd=None,
+                      tuning_params_fwd=None, tuning_string_fwd=None, tuning_timings_fwd=None,
                       tuning_params_d=None, tuning_string_d=None, tuning_timings_d=None,
                       tuning_params_w=None, tuning_string_w=None, tuning_timings_w=None):
+
+        l_tuning_params_fwd  = tuning_params_fwd if tuning_params_fwd is not None else self.tuning_params_fwd
+        l_tuning_string_fwd  = tuning_string_fwd if tuning_string_fwd is not None else self.tuning_string_fwd
+        l_tuning_params_d    = tuning_params_d if tuning_params_d is not None else self.tuning_params_d
+        l_tuning_string_d    = tuning_string_d if tuning_string_d is not None else self.tuning_string_d
+        l_tuning_params_w    = tuning_params_w if tuning_params_w is not None else self.tuning_params_w
+        l_tuning_string_w    = tuning_string_w if tuning_string_w is not None else self.tuning_string_w
+
         #print('Conv Input {} Padding:{} Stride:{}'.format(input.shape, self.padding, self.stride))
         self.maybe_block_params()
 
@@ -259,12 +328,12 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
         if self.config == None:
             # only physical padding is supported for now
             if self.preset_blocksizes:
-                self.config = conv_cpp.conv_setup_preset(self.N, self.C, self.H, self.W, self.K, self.R, self.S,
+                self.config = conv_cpp.conv_setup_preset(self.N, self.C_pad, self.H, self.W, self.K, self.R, self.S,
                                                          self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
                                                          self.stride, 0 if self.dtype == torch.float else 1,
                                                          self.bc, self.bk) #, self.avoid_fmas_in_rim)
             else:
-                self.config = conv_cpp.conv_setup(self.N, self.C, self.H, self.W, self.K, self.R, self.S,
+                self.config = conv_cpp.conv_setup(self.N, self.C_pad, self.H, self.W, self.K, self.R, self.S,
                                                   self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
                                                   self.stride, 0 if self.dtype == torch.float else 1)
 
@@ -278,9 +347,9 @@ class DummyConv2dTPP(BlockedModule, torch.nn.Conv2d):
 
         inputs = [blocked_input, self.weight]
 
-        output = DummyConvTPP.apply(self.config, tuning_params, tuning_string, tuning_timings_fwd,
-                                                tuning_params_d, tuning_string_d, tuning_timings_d,
-                                                tuning_params_w, tuning_string_w, tuning_timings_w, *inputs ) #blocked_input, self.weight, self.xsmm_handle, output_size)
+        output = DummyConvTPP.apply(self.config, l_tuning_params_fwd, l_tuning_string_fwd, tuning_timings_fwd,
+                                                 l_tuning_params_d, l_tuning_string_d, tuning_timings_d,
+                                                 l_tuning_params_w, l_tuning_string_w, tuning_timings_w, *inputs ) #blocked_input, self.weight, self.xsmm_handle, output_size)
 
         blocked_output = BlockedTensor(output, self.blocked_output_signature)
 
