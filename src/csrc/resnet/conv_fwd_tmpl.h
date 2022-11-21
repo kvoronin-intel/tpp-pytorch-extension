@@ -313,6 +313,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
               }
             }
 
+            bool no_tile_cfg = false;
+
             if (R == 7 && S == 7) {
               if (i_h * stride_h + i_r - R/2 < 0) {
                 /* Do no FLOPS  */
@@ -324,34 +326,34 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                                  weight    [i_k][i_c][i_r][i_s][0],
                                  output_off[i_n][i_k][i_h]                 [i_w + 1],
                                  Cb_step,
-                                 true);
+                                 no_tile_cfg);
               } else if ( i_s < R/2 && i_w * stride_w + (i_s - R/2) < 0 && (i_w + 1) * stride_w + (i_s - R/2) < 0 && (i_w + 2) * stride_w + (i_s - R/2) >= 0  ) {
                 /* the case when left i_s is out of input image for the first two pitches */
                 brgemm_2less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + (i_w + 2) * stride_w + (i_s - S/2)],
                                  weight    [i_k][i_c][i_r][i_s][0],
                                  output_off[i_n][i_k][i_h]                 [i_w + 2],
                                  Cb_step,
-                                 true);
+                                 no_tile_cfg);
               } else if ( i_s > R/2 && (i_w + w_step - 1)*stride_w + (i_s - R/2) >= ifw && (i_w + w_step - 2)*stride_w + (i_s - R/2) < ifw ) {
                 /* the case when right i_s is out of input image for the last pitch only */
                 brgemm_1less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
                                  weight    [i_k][i_c][i_r][i_s][0],
                                  output_off[i_n][i_k][i_h]                 [i_w],
-                                 Cb_step,
-                                 true);
+                                 Cb_step, //0.0f,
+                                 no_tile_cfg);
               } else if ( i_s > R/2 && (i_w + w_step - 1)*stride_w + (i_s - R/2) >= ifw && (i_w + w_step - 2)*stride_w + (i_s - R/2) >= ifw && (i_w + w_step - 3)*stride_w + (i_s - R/2) < ifw ) {
                 /* for the case when right i_s is out of input image for the last 2 pitches */
                 brgemm_2less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
                                  weight    [i_k][i_c][i_r][i_s][0],
                                  output_off[i_n][i_k][i_h]                 [i_w],
                                  Cb_step,
-                                 true);
+                                 no_tile_cfg);
               } else {
                 brgemm_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
                            weight    [i_k][i_c][i_r][i_s][0],
                            output_off[i_n][i_k][i_h]                 [i_w],
                            Cb_step,
-                           true);
+                           no_tile_cfg);
               }
             } else if (R == 3 && S == 3) {
               if (i_r == 0 && i_h == 0) {
@@ -364,26 +366,26 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                                  weight    [i_k][i_c][i_r][i_s][0],
                                  output_off[i_n][i_k][i_h]                 [i_w + 1],
                                  Cb_step,
-                                 true);
+                                 no_tile_cfg);
               //} else if ( i_w + w_step == ofw  && i_s == S-1) {
               } else if ( (i_w + w_step - 1)*stride_w + i_s == ifw + 1 && i_s == S-1) {
                 brgemm_1less_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
                                  weight    [i_k][i_c][i_r][i_s][0],
                                  output_off[i_n][i_k][i_h]                 [i_w],
                                  Cb_step,
-                                 true);
+                                 no_tile_cfg);
               } else {
                 brgemm_tpp(inp       [i_n][i_c][pad_h_in + i_h * stride_h + (i_r - R/2)][pad_w_in + i_w * stride_w + (i_s - S/2)],
                            weight    [i_k][i_c][i_r][i_s][0],
                            output_off[i_n][i_k][i_h]                 [i_w],
                            Cb_step,
-                           true);
+                           no_tile_cfg);
               }
             } /* if-else if for the filter size (7x7 and 3x3) */
           } /* for if-else cfg.avoid_fmas_in_rim == 0 */
         },
-        [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
-        [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
+        [&]() {if (sizeof(T) == 2) if (cfg.avoid_fmas_in_rim == 0 && sizeof(T) == 2) brgemm_tpp.config();},
+        [&]() {if (sizeof(T) == 2) if (cfg.avoid_fmas_in_rim == 0 && sizeof(T) == 2) brgemm_tpp.release();});
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_fwd_scale scope */
 
