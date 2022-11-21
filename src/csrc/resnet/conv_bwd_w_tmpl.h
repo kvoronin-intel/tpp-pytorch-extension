@@ -6,6 +6,8 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 
 //#define VERBOSE
 
+#define NTIMES_CONV 1
+
 #ifdef TIMING
   double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0;
 #endif
@@ -841,6 +843,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   t_conv_start = getTime();
 #endif
 
+  for (int i = 0; i < NTIMES_CONV; i++)
   {
     RECORD_SCOPE(conv_bwd_upd, {});
     {
@@ -1418,10 +1421,15 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
 #ifdef TIMING
   printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_start, 1.0);
+//  printf("PERFDUMP,BP,resnetconv_w_pureconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_conv_start, 1.0);
 #endif
 
 #ifdef TIMING
   #undef TIMING
+#endif
+
+#ifdef NTIMES_CONV
+  #undef NTIMES_CONV
 #endif
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));

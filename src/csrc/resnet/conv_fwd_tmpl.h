@@ -13,7 +13,7 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-#define VERBOSE
+//#define VERBOSE
 
 #define NTIMES_CONV 1
 
@@ -136,6 +136,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm_1less_tpp, brgemm_2less_tpp; // 2less is added to enable 7x7 filters
+  //SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm_2less_tpp; // 2less is added to enable 7x7 filters
+  //SCOPEITGEMM_DECL_REF(BrgemmTPP<T, T>) brgemm_1less_tpp; // 2less is added to enable 7x7 filters
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
 
@@ -171,6 +173,7 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     }
 
     brgemm_1less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    //brgemm_1less_tpp = SCOPEITGEMM_REF((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     brgemm_2less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-2, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
@@ -410,6 +413,10 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 
 #ifdef TIMING
   #undef TIMING
+#endif
+
+#ifdef NTIMES_CONV
+  #undef NTIMES_CONV
 #endif
 
 return t_O;
