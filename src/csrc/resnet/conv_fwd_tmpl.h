@@ -42,13 +42,18 @@ const int pad_h_in = cfg.pad_h_in;
 const int pad_w_in = cfg.pad_w_in;
 const int pad_h_out = cfg.pad_h_out;
 const int pad_w_out = cfg.pad_w_out;
-const int conv_pad_h = cfg.pad_h;
-const int conv_pad_w = cfg.pad_w;
+const int pad_h = cfg.pad_h;
+const int pad_w = cfg.pad_w;
 
 const int ifh = ifhp - 2 * pad_h_in;
 const int ifw = ifwp - 2 * pad_w_in;
 
+/* used for always-physically-padded input copy when input_padding_copy != 0 */
+long ifhp_physically_padded = ifh + 2 * pad_h;
+long ifwp_physically_padded = ifw + 2 * pad_w;
+
 const int logical_padding = (pad_h_in == 0 && pad_w_in == 0 && pad_h_out == 0 && pad_w_out == 0 ? 1 : 0);
+const int input_padding_copy = (logical_padding ? 1 : 0);
 
 const long N  = sizes[0];
 
@@ -64,47 +69,21 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 /* hardcoded here unlike the fused bottleneck where it is an external parameter */
 //long pack_input = 0;
 
-/* in T */
-const long conv_fwd_scratch_size = (pack_input == 0 ? 0 : N*ofh*ofw*cfg.C);
-auto t_scratch_conv = at::empty(conv_fwd_scratch_size, torch::TensorOptions().dtype(t_I.dtype()));
-
-#ifdef VERBOSE
-std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
-std::cout << "size of T = " << sizeof(T) << std::endl;
-std::cout << "output_size = " << output_size << std::endl;
-std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
-std::cout << "stride_h stride_w = " << cfg.u << " " << cfg.v << std::endl;
-std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
-#endif
-
-{
-
-  //auto gemm_n = ofw;
-  auto w_gemm_pixels = ofw / w_block;
-  auto gemm_n = (w_gemm_pixels +  2 * conv_pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + conv_pad_w);
-  auto gemm_m = bk;
-  auto gemm_k = bc;
-
-  long Cb_step = Cb / c_block;
-
-  long n_step = 1;
-  long c_step = Cb_step;
-  long k_step = 1;
-  long h_step = h_in_gemm;
-  long w_step = ofw / w_block;
-  long r_step = R;
-  long s_step = S;
-
   //cfg.avoid_fmas_in_rim = 1;
   long avoid_fmas_in_rim = 0;
-  if (ofh <= 7 && ofw <=7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
+  if (ofh <= 7 && ofw <= 7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
     avoid_fmas_in_rim = 1;
     cfg.avoid_fmas_in_rim = 1; //??? FIXME
   }
 
-  if (logical_padding && (conv_pad_h != 0 || conv_pad_w != 0)) {
+  if (logical_padding && !input_padding_copy && (pad_h != 0 || pad_w != 0)) {
     avoid_fmas_in_rim = 1;
     cfg.avoid_fmas_in_rim = 1;
+  }
+
+  if (!logical_padding && input_padding_copy != 0) {
+    printf("Error: input_padding_copy only makes sense for logical_padding enabled\n");
+    exit(-1);
   }
 
   if (cfg.avoid_fmas_in_rim == 1 && (R == 1 || S == 1)) {
@@ -124,6 +103,51 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     //return -1;
   }
 
+  if (R != 1 || S != 1) {
+#ifdef VERBOSE
+    std::cout << "Setting pack_input to zero for non 1x1 convs" << std::endl;
+#endif
+    pack_input = 0;
+  }
+
+  if (pack_input != 0 && input_padding_copy != 0) {
+    printf("Error: input_padding_copy does not work with pack_input enabled\n");
+    exit(-1);
+  }
+
+/* in T */
+const long conv_fwd_pack_input_size         = (pack_input == 0 ? 0 : N*ofh*ofw*cfg.C);
+const long conv_fwd_input_padding_copy_size = (input_padding_copy == 0 ? 0 : N*ifhp_physically_padded*ifwp_physically_padded*cfg.C);
+const long conv_fwd_scratch_size = std::max(conv_fwd_pack_input_size, conv_fwd_input_padding_copy_size);
+auto t_scratch_conv = at::empty(conv_fwd_scratch_size, torch::TensorOptions().dtype(t_I.dtype()));
+
+#ifdef VERBOSE
+std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+std::cout << "size of T = " << sizeof(T) << std::endl;
+std::cout << "output_size = " << output_size << std::endl;
+std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
+std::cout << "stride_h stride_w = " << cfg.u << " " << cfg.v << std::endl;
+std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
+#endif
+
+{
+
+  //auto gemm_n = ofw;
+  auto w_gemm_pixels = ofw / w_block;
+  auto gemm_n = (w_gemm_pixels +  2 * pad_w) * (h_in_gemm - 2) + 2 * (w_gemm_pixels + pad_w);
+  auto gemm_m = bk;
+  auto gemm_k = bc;
+
+  long Cb_step = Cb / c_block;
+
+  long n_step = 1;
+  long c_step = Cb_step;
+  long k_step = 1;
+  long h_step = h_in_gemm;
+  long w_step = ofw / w_block;
+  long r_step = R;
+  long s_step = S;
+
   if (cfg.avoid_fmas_in_rim == 1) {
     r_step = 1;
     s_step = 1;
@@ -140,13 +164,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   //SCOPEITGEMM_DECL_REF(BrgemmTPP<T, T>) brgemm_1less_tpp; // 2less is added to enable 7x7 filters
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
-
-  if (R != 1 || S != 1) {
-#ifdef VERBOSE
-    std::cout << "Setting pack_input to zero for non 1x1 convs" << std::endl;
-#endif
-    pack_input = 0;
-  }
+  SCOPEIT_DECL(SetZeroTPP<T>) zero_padded_hwbc_tpp;
+  SCOPEIT_DECL(CpyTPP<T>)     copy_wbc_tpp;
 
   /* n,m,k, stride_b, stride_a, ldb, lda, ldc, beta, a_trans, unroll_hint because of the row-major */
   float beta;
@@ -154,6 +173,10 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     beta = 0.0;
   else
     beta = 1.0;
+
+  zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
+  zero_padded_hwbc_tpp = SCOPEIT(SetZeroTPP<T>(ifhp_physically_padded*ifwp_physically_padded*bc), EW_ZERO);
+  copy_wbc_tpp = SCOPEIT(CpyTPP<T>(1, ifw*bc, ifwp*bc, ifwp_physically_padded*bc), EW_COPY);
 
   if ((R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1)) {
     if (pack_input == 0) {
@@ -176,11 +199,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     //brgemm_1less_tpp = SCOPEITGEMM_REF((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     brgemm_2less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-2, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
-    zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   } else {
     brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-
-    zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
     B_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -190,12 +210,19 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
     for (long ifm = 0; ifm < Cb_step; ifm++) {
       for (long kj = 0; kj < R; kj++) {
         for (long ki = 0; ki < S; ki++) {
+
           A_offsets[i] = (ifm * R * S * bc * bk +
               kj * S * bc * bk +
               ki * bc * bk) * sizeof(T);
-          B_offsets[i] = (ifm * ifhp * ifwp * bc +
-              kj * ifwp * bc +
-              ki * bc) * sizeof(T);
+
+          if (input_padding_copy)
+            B_offsets[i] = (ifm * ifhp_physically_padded * ifwp_physically_padded * bc +
+                kj * ifwp_physically_padded * bc +
+                ki * bc) * sizeof(T);
+          else
+            B_offsets[i] = (ifm * ifhp * ifwp * bc +
+                kj * ifwp * bc +
+                ki * bc) * sizeof(T);
           i++;
         }
       }
@@ -218,13 +245,14 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
                                                                                                 << ofw << " " << w_step << " " << R << " " << r_step << " "
                                                                                                 << S << " " << s_step << " " << std::endl;
 
-  std::cout << "pad_h pad_w pad_h_in pad_w_in pad_h_out pad_w_out = " << conv_pad_h << " " << conv_pad_w << " " << pad_h_in << " " << pad_w_in << " " << pad_h_out << " " << pad_w_out << std::endl;
+  std::cout << "pad_h pad_w pad_h_in pad_w_in pad_h_out pad_w_out = " << pad_h << " " << pad_w << " " << pad_h_in << " " << pad_w_in << " " << pad_h_out << " " << pad_w_out << std::endl;
   std::cout << "h_block w_block c_block k_block = " << h_block << " " << w_block << " " << c_block << " " << k_block << std::endl;
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
+  std::cout << "pack_input = " << pack_input << std::endl;
   std::cout << "cfg.avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
   std::cout << "unused but internal avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "logical_padding = " << logical_padding << std::endl;
-  std::cout << "pack_input = " << pack_input << std::endl;
+  std::cout << "input_padding_copy = " << input_padding_copy << std::endl;
 #endif
 
   /* FIXME: Fix this! */
@@ -241,10 +269,16 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d   %d %d   %d %d %d %d %d %d 1000 %d\n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
-                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, conv_pad_h, conv_pad_w,
-                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input, logical_padding);
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d   %d %d   %d %d %d %d %d %d  1000 %d %d \n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h, pad_w,
+                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
+                                        logical_padding, input_padding_copy);
 #endif
+
+  auto input_pad_loop = ThreadedLoop<2>({
+      LoopSpecs{0, N, n_step, true},
+      LoopSpecs{0, Cb, c_step}},
+      "Ab");
 
   auto conv_loop = ThreadedLoop<7>({
       LoopSpecs{0, N, n_step, false},//, true},
@@ -264,6 +298,24 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   {
     RECORD_SCOPE(conv_fwd, {});
     {
+      if (input_padding_copy) {
+        input_pad_loop(
+          [&](int* ind) {
+            int i_n = ind[0], i_c = ind[1];
+
+            DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_I);
+            DECL_VLA_PTR_PT    (T,     padded_inp, [Cb][ifhp_physically_padded][ifwp_physically_padded][bc],   t_scratch_conv);
+
+            zero_padded_hwbc_tpp( padded_inp[i_n][i_c][0][0] );
+
+            for (int _i_h = pad_h; _i_h < ifhp_physically_padded - pad_h; _i_h++) {
+              copy_wbc_tpp( inp[i_n][i_c][_i_h - pad_h][0], padded_inp[i_n][i_c][_i_h][pad_w] );
+            }
+          },
+          [&]() {},
+          [&]() {});
+      }
+
       conv_loop(
         [&](int* ind) {
           int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
@@ -271,6 +323,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
           DECL_VLA_PTR_PT_EXT(T,     output_off, [Kb][ofhp][ofwp][bk],   t_O, (pad_h_out * ofwp * bk + pad_w_out * bk));
           DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_I);
           DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_W);
+
+          DECL_VLA_PTR_PT    (T,     padded_inp, [Cb][ifhp_physically_padded][ifwp_physically_padded][bc],   t_scratch_conv);
 
 
           if (cfg.avoid_fmas_in_rim == 0) {
@@ -291,12 +345,20 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
             }
 
             if (pack_input == 0) {
-              brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                         weight    [i_k][i_c][i_r][i_s][0],
-                         output_off[i_n][i_k][i_h]                 [i_w],
-                         B_offsets.get(), A_offsets.get(),
-                         Cb_step * r_step * s_step,
-                         true);
+              if (input_padding_copy)
+                brgemm_tpp(padded_inp[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                           weight    [i_k][i_c][i_r][i_s][0],
+                           output_off[i_n][i_k][i_h]                 [i_w],
+                           B_offsets.get(), A_offsets.get(),
+                           Cb_step * r_step * s_step,
+                           true);
+              else
+                brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                           weight    [i_k][i_c][i_r][i_s][0],
+                           output_off[i_n][i_k][i_h]                 [i_w],
+                           B_offsets.get(), A_offsets.get(),
+                           Cb_step * r_step * s_step,
+                           true);
             } else {
               DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
               brgemm_tpp(packed_inp[i_n][i_c][i_h][i_w],
@@ -401,7 +463,6 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
   float* ptr = (float*)buf.ptr;
   ptr[0] += t_end - t_conv_start;
   ptr[1] += t_end - t_start;
-//  printf("updating timings here in conv fwd\n");
 #endif
 
 #ifdef VERBOSE
@@ -409,8 +470,8 @@ std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
 #endif
 
 #ifdef TIMING
-  printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_start, 1.0);
-  //printf("PERFDUMP,FP,resnetconv_pureconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_conv_start, 1.0);
+  printf("PERFDUMP,FP,resnetconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_start, 1.0);
+  //printf("PERFDUMP,FP,resnetconv_pureconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_conv_start, 1.0);
 #endif
 
 #ifdef TIMING
