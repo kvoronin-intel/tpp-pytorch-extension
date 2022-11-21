@@ -137,7 +137,7 @@ class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
       Tin* A,
       Tin* B,
       Tout* C,
-      long count,
+      long long unsigned int count,
       bool no_tile_cfg = false) {
     ScopedTimer _t(BRGEMM, func.flops() * count);
     if (impl == 0) {
@@ -149,14 +149,13 @@ class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
       exit(1);
     }
   }
-
   void operator()(
       Tin* A,
       Tin* B,
       Tout* C,
       unsigned long long *A_offsets,
       unsigned long long *B_offsets,
-      long count,
+      long long unsigned int count,
       bool no_tile_cfg = false) {
     ScopedTimer _t(BRGEMM, func.flops() * count);
     if (impl == 0) {

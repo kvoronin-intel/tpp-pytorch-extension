@@ -183,11 +183,13 @@ class ScopedTPP {
 // Keeping below two definitions for backward compatibility for now
 #   define SCOPEITGEMM SCOPEIT
 #   define SCOPEITGEMM2 SCOPEIT
+#   define SCOPEITGEMM_REF SCOPEIT_REF
 
 #   define SCOPEIT(f, ...) ScopedTPP<decltype(f), 0>(f, ##__VA_ARGS__)
 #   define SCOPEIT_REF(f, ...) ScopedTPP<decltype(f), 1>(f, ##__VA_ARGS__)
 
 #   define SCOPEITGEMM_DECL(ftpptype, ...) SCOPEIT_DECL(ftpptype, ##__VA_ARGS__)
+#   define SCOPEITGEMM_DECL_REF(ftpptype, ...) SCOPEIT_DECL_REF(ftpptype, ##__VA_ARGS__)
 #   define SCOPEIT_DECL(ftpptype, ...)    ScopedTPP<ftpptype, ##__VA_ARGS__ , 0>
 #   define SCOPEIT_DECL_REF(ftpptype,...) ScopedTPP<ftpptype, ##__VA_ARGS__ , 1>
 
