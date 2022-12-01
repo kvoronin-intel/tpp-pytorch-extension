@@ -569,6 +569,44 @@ class ConvertTPP {
   bool init_done = false;
 };
 
+class ConvertSplitTPP {
+ public:
+  ConvertSplitTPP() {}
+  ConvertSplitTPP(int N)
+      : N(N),
+        init_done(true) {}
+  void operator()(bfloat16* hi, bfloat16* lo, float* out) {
+    printf("Error: non-reference implementation for ConvertSplitTPP has not been implemented\n");
+    exit(-1);
+  }
+
+  void ref(bfloat16* in_hi, bfloat16* in_lo, float* out) {
+    auto in_hi_cast = (libxsmm_bfloat16*)in_hi;
+    auto in_lo_cast = (libxsmm_bfloat16*)in_lo;
+    for (int i = 0; i < N; i++) {
+      union libxsmm_bfloat16_f32 bf16_hp;
+      bf16_hp.i[0] = in_lo_cast[i];
+      bf16_hp.i[1] = in_hi_cast[i];
+      //std::cout << "i = " << i << " in_hi[i] = " << in_hi[i] << " in_lo[i] = " << in_lo[i] << std::endl;
+      //union libxsmm_bfloat16_f32 bf16_dbg;
+      //bf16_dbg.i[0] = 0;
+      //bf16_dbg.i[1] = in_hi_cast[i];
+      //printf("in_lo_cast[%d] = %hu, in_hi_cast[%d] = %hu combined = %6.6f dbg = %6.6f\n", i, in_lo_cast[i], i, in_hi_cast[i], bf16_hp.f, bf16_dbg.f);
+      out[i] = bf16_hp.f;
+    }
+  }
+
+  bool initialized() {
+    return init_done;
+  }
+
+ private:
+  int N = 0;
+  UnaryTPP kernel;
+  bool init_done = false;
+};
+
+
 template <typename T>
 class CpyTPP {
  public:

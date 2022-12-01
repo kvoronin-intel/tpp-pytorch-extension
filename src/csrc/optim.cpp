@@ -807,11 +807,12 @@ void fused_lamb_v2(
   }
 }
 
-
+/* Stores momentum as T (bf16) */
 template <typename T>
-void fused_sgd_v2_impl(
+void fused_sgd_v0_impl(
     at::Tensor& t_data,
     at::Tensor& t_grad,
+    at::Tensor& t_moment,
     at::Tensor& t_data_low,
     at::Tensor& t_offsets,
     at::Tensor& t_block_sizes,
@@ -828,94 +829,427 @@ void fused_sgd_v2_impl(
   auto num_blocks = t_data.numel() / block_size;
   DECL_VLA_PTR_PT(T, d, [BS], t_data);
   DECL_VLA_PTR_PT(T, g, [BS], t_grad);
+  DECL_VLA_PTR_PT(T, m, [BS], t_moment);
   DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
 
-#if 0
-  // auto sz = t_block_sizes.data_ptr<int>();
-  auto b2p = t_block2param.data_ptr<int>();
-  auto wnorm = t_weight_norms.data_ptr<TN>();
-  auto unorm = t_update_norms.data_ptr<TN>();
-
-  auto adam_step_nwd_tpp =
-      SCOPEIT(FusedAdamStepTPP<T>(BS, beta1, beta2, eps, false, true), OPTIM);
-  auto adam_step_wwd_tpp =
-      SCOPEIT(FusedAdamStepTPP<T>(BS, beta1, beta2, eps, true, true), OPTIM);
-  auto norm_tpp = SCOPEIT((Norm2TPP<T, TN>(BS)), OPTIM);
   auto scale_add_tpp = SCOPEIT((ScaleAddTPP<T, T>(BS)), OPTIM);
+
+  auto copy_tpp = SCOPEIT(CpyTPP<T>(BS), OPTIM);
+
+  auto scale_tpp = SCOPEIT((ScaleTPP<T,T>(BS)), OPTIM);
+
   auto scale_add_split_bf16_tpp = SCOPEIT((SplitSGDTPP(BS)), OPTIM);
 
-  long i;
-  float b1_scale = 1.0 / (1.0 - pow(beta1, step));
-  float b2_scale = 1.0 / (1.0 - pow(beta2, step));
-  if (!fused_param_norm) {
-    t_weight_norms.zero_();
-    t_update_norms.zero_();
-  }
-  TN fused_adam_norm = 0.0;
-  TN fused_weight_norm = 0.0;
-#pragma omp parallel for reduction(+ : fused_adam_norm, fused_weight_norm)
-  for (i = 0; i < num_blocks; i++) {
-    TN adam_norm = 0.0f;
-    TN wt_norm = 0.0f;
-    int p_i = b2p[i] + 1;
-    float wd = weight_decay;
-    bool use_wd = (wd > 0.0);
-    if (use_wd) {
-      adam_step_wwd_tpp(d[i], g[i], m[i], v[i], u[i], wd, b1_scale, b2_scale);
-      norm_tpp(d[i], &wt_norm);
-      norm_tpp(u[i], &adam_norm);
-      if (!fused_param_norm) {
-        atomic_add_float(&wnorm[p_i], wt_norm);
-        atomic_add_float(&unorm[p_i], adam_norm);
-      }
-      fused_adam_norm += adam_norm;
-      fused_weight_norm += wt_norm;
-    } else {
-      adam_step_nwd_tpp(d[i], g[i], m[i], v[i], u[i], wd, b1_scale, b2_scale);
-    }
-  }
-  if (weight_decay > 0.0) {
-    wnorm[0] = fused_weight_norm;
-    unorm[0] = fused_adam_norm;
-  }
+  printf("dbg: fused_sgd_v0_impl\n");
+  printf("dbg: step = %d \n", step);
 
 #pragma omp parallel for
-  for (i = 0; i < num_blocks; i++) {
-    auto trust_ratio = 1.0;
-    int p_i = b2p[i] + 1;
-    float wd = weight_decay;
-    bool use_wd = (wd > 0.0);
-    if (use_wd) {
-      float weight_norm = fused_weight_norm;
-      float adam_norm = fused_adam_norm;
-      if (!fused_param_norm) {
-        weight_norm = wnorm[p_i];
-        adam_norm = unorm[p_i];
-      }
-      adam_norm = sqrtf(adam_norm);
-      weight_norm = sqrtf(weight_norm);
-      if (weight_norm != 0 && adam_norm != 0) {
-        trust_ratio = weight_norm / adam_norm;
+  for (long i = 0; i < num_blocks; i++) {
+    // correct operations but missing conversion to f32 for all except last computes
+    // 1. weight decay
+    if (weight_decay != 0)
+      scale_add_tpp(d[i], g[i], weight_decay);
+    // 2. momentum computation
+    if (momentum != 0) {
+        if (step == 1) {
+          copy_tpp(g[i], m[i]);
+        } else {
+          scale_tpp(m[i], m[i], momentum);
+          scale_add_tpp(g[i], m[i], 1.0f - dampening);
+        }
+
+      // nesterov
+      if (nesterov != 0) {
+        printf("nesterov support has not been implemented for fused_sgd_v2_impl\n");
+        exit(-1);
+      } else {
+        copy_tpp(m[i], g[i]);
       }
     }
-    float final_lr = -lr * trust_ratio;
+    // 3. lr term
     if (std::is_same<T, float>::value) {
-      scale_add_tpp(u[i], d[i], final_lr);
+      scale_add_tpp(g[i], d[i], -lr);
     } else {
       scale_add_split_bf16_tpp(
           (at::BFloat16*)d[i],
           (at::BFloat16*)dl[i],
-          (at::BFloat16*)u[i],
-          final_lr);
+          (at::BFloat16*)g[i],
+          -lr);
     }
   }
-#endif // for #if 0
 }
 
+
+/* Stores momentum as T (bf16) */
+template <typename T>
+void fused_sgd_v1_impl(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_moment,
+    at::Tensor& t_data_low,
+    at::Tensor& t_offsets,
+    at::Tensor& t_block_sizes,
+    at::Tensor& t_block2param,
+    float weight_decay,
+    float momentum,
+    float dampening,
+    float nesterov,
+    float lr,
+    int block_size,
+    int step,
+    bool fused_param_norm) {
+  const int BS = block_size;
+  auto num_blocks = t_data.numel() / block_size;
+  DECL_VLA_PTR_PT(T, d, [BS], t_data);
+  DECL_VLA_PTR_PT(T, g, [BS], t_grad);
+  DECL_VLA_PTR_PT(T, m, [BS], t_moment);
+  DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
+
+  auto scale_add_split_bf16_tpp = SCOPEIT((SplitSGDTPP(BS)), OPTIM);
+
+  auto scale_add_f32_tpp = SCOPEIT((ScaleAddTPP<float, float>(BS)), OPTIM);
+  auto copy_f32_tpp = SCOPEIT(CpyTPP<float>(BS), OPTIM);
+  auto scale_f32_tpp = SCOPEIT((ScaleTPP<float,float>(BS)), OPTIM);
+
+  auto upconvert_tpp = SCOPEIT((ConvertTPP<T, float>(BS)), OPTIM);
+  auto upconvert_split_tpp = SCOPEIT_REF(ConvertSplitTPP(BS), OPTIM);
+  auto downconvert_tpp = SCOPEIT((ConvertTPP<float, T>(BS)), OPTIM);
+
+  printf("dbg: fused_sgd_v1_impl\n");
+  printf("dbg: step = %d \n", step);
+
+#pragma omp parallel for
+  for (long i = 0; i < num_blocks; i++) {
+    LIBXSMM_ALIGNED(float g_f32[BS], 64);
+    LIBXSMM_ALIGNED(float d_f32[BS], 64);
+    LIBXSMM_ALIGNED(float m_f32[BS], 64);
+    LIBXSMM_ALIGNED(bfloat16 g_downconvert_bf16[BS], 64);
+
+    if (std::is_same<T, float>::value) {
+      copy_f32_tpp((float*)g[i], &g_f32[0]);
+      copy_f32_tpp((float*)d[i], &d_f32[0]);
+      copy_f32_tpp((float*)m[i], &m_f32[0]);
+    } else {
+      upconvert_tpp(g[i], &g_f32[0]);
+      upconvert_tpp(m[i], &m_f32[0]);
+      upconvert_split_tpp((bfloat16*)d[i], (bfloat16*)dl[i], &d_f32[0]);
+    }
+
+    // 1. weight decay
+    if (weight_decay != 0)
+      scale_add_f32_tpp(&d_f32[0], &g_f32[0], weight_decay);
+    // 2. momentum computation
+    if (momentum != 0) {
+        if (step == 1) {
+          copy_f32_tpp(&g_f32[0], &m_f32[0]);
+        } else {
+          scale_f32_tpp(&m_f32[0], &m_f32[0], momentum);
+          scale_add_f32_tpp(&g_f32[0], &m_f32[0], 1.0f - dampening);
+        }
+
+      // nesterov
+      if (nesterov != 0) {
+        printf("nesterov support has not been implemented for fused_sgd_v2_impl\n");
+        exit(-1);
+      } else {
+        copy_f32_tpp(&m_f32[0], &g_f32[0]);
+      }
+    }
+
+    // 3. lr term
+    if (std::is_same<T, float>::value) {
+      //scale_add_tpp(g[i], d[i], -lr);
+      scale_add_f32_tpp(&g_f32[0], (float*)d[i], -lr);
+    } else {
+      downconvert_tpp(&m_f32[0], m[i]);
+      downconvert_tpp(&g_f32[0], (T*)&g_downconvert_bf16[0]);
+      scale_add_split_bf16_tpp(
+          (at::BFloat16*)d[i],
+          (at::BFloat16*)dl[i],
+          (at::BFloat16*)&g_downconvert_bf16[0],//g[i],
+          -lr);
+    }
+  }
+}
+
+/* Stores momentum as fp32 */
+template <typename T>
+void fused_sgd_v2_impl(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_moment,
+    at::Tensor& t_data_low,
+    at::Tensor& t_offsets,
+    at::Tensor& t_block_sizes,
+    at::Tensor& t_block2param,
+    float weight_decay,
+    float momentum,
+    float dampening,
+    float nesterov,
+    float lr,
+    int block_size,
+    int step,
+    bool fused_param_norm) {
+  const int BS = block_size;
+  auto num_blocks = t_data.numel() / block_size;
+  DECL_VLA_PTR_PT(T, d, [BS], t_data);
+  DECL_VLA_PTR_PT(T, g, [BS], t_grad);
+  DECL_VLA_PTR_PT(float, m, [BS], t_moment);
+  DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
+
+  auto scale_add_tpp = SCOPEIT((ScaleAddTPP<T, T>(BS)), OPTIM);
+
+  auto copy_tpp = SCOPEIT(CpyTPP<T>(BS), OPTIM);
+
+  auto scale_tpp = SCOPEIT((ScaleTPP<T,T>(BS)), OPTIM);
+
+  auto scale_add_split_bf16_tpp = SCOPEIT((SplitSGDTPP(BS)), OPTIM);
+
+  auto scale_add_f32_tpp = SCOPEIT((ScaleAddTPP<float, float>(BS)), OPTIM);
+  auto copy_f32_tpp = SCOPEIT(CpyTPP<float>(BS), OPTIM);
+  auto scale_f32_tpp = SCOPEIT((ScaleTPP<float,float>(BS)), OPTIM);
+
+  auto upconvert_tpp = SCOPEIT((ConvertTPP<T, float>(BS)), OPTIM);
+  auto upconvert_split_tpp = SCOPEIT_REF(ConvertSplitTPP(BS), OPTIM);
+  auto downconvert_tpp = SCOPEIT((ConvertTPP<float, T>(BS)), OPTIM);
+
+  printf("dbg: fused_sgd_v2_impl\n");
+  //printf("dbg: step = %d \n", step);
+
+#pragma omp parallel for
+  for (long i = 0; i < num_blocks; i++) {
+    LIBXSMM_ALIGNED(float g_f32[BS], 64);
+    LIBXSMM_ALIGNED(float d_f32[BS], 64);
+    //LIBXSMM_ALIGNED(float m_f32[BS], 64);
+    LIBXSMM_ALIGNED(bfloat16 g_downconvert_bf16[BS], 64);
+
+    if (std::is_same<T, float>::value) {
+      copy_f32_tpp((float*)g[i], &g_f32[0]);
+      copy_f32_tpp((float*)d[i], &d_f32[0]);
+      //copy_f32_tpp((float*)m[i], &m_f32[0]);
+    } else {
+      upconvert_tpp(g[i], &g_f32[0]);
+      //upconvert_tpp(m[i], &m_f32[0]);
+      upconvert_split_tpp((bfloat16*)d[i], (bfloat16*)dl[i], &d_f32[0]);
+    }
+    //printf("dbg: before g_f32 = %6.6f d_f32 = %6.6f \n", g_f32[0], d_f32[0]);
+
+    // 1. weight decay
+    if (weight_decay != 0)
+      scale_add_f32_tpp(&d_f32[0], &g_f32[0], weight_decay);
+    //printf("dbg: after decay g_f32 = %6.6f \n", g_f32[0]);
+    // 2. momentum computation
+    if (momentum != 0) {
+        //printf("dbg: before momentum m_f32 = %6.6f \n", m[i][0]);
+        if (step == 1) {
+          copy_f32_tpp(&g_f32[0], m[i]);//&m_f32[0]);
+        } else {
+          scale_f32_tpp(m[i], m[i], momentum);//(&m_f32[0], &m_f32[0], momentum);
+          scale_add_f32_tpp(&g_f32[0], m[i], 1.0f - dampening);//&m_f32[0], 1.0f - dampening);
+        }
+        //printf("dbg: after momentum m_f32 = %6.6f \n", m[i][0]);
+
+      // nesterov
+      if (nesterov != 0) {
+        printf("nesterov support has not been implemented for fused_sgd_v2_impl\n");
+        exit(-1);
+      } else {
+        copy_f32_tpp(m[i], &g_f32[0]);//&m_f32[0], &g_f32[0]);
+      }
+      //printf("dbg: after momentum g_f32 = %6.6f \n", g_f32[0]);
+    }
+
+    // 3. lr term
+    if (std::is_same<T, float>::value) {
+      //scale_add_tpp(g[i], d[i], -lr);
+      scale_add_f32_tpp(&g_f32[0], (float*)d[i], -lr);
+    } else {
+      //downconvert_tpp(&m_f32[0], m[i]);
+
+      auto in_hi_cast = (libxsmm_bfloat16*)d[i];
+      auto in_lo_cast = (libxsmm_bfloat16*)dl[i];
+      for (int j = 0; j < BS; j++) {
+        union libxsmm_bfloat16_f32 bf16_w;
+        bf16_w.i[0] = in_lo_cast[j];
+        bf16_w.i[1] = in_hi_cast[j];
+        //printf("bf16_w combined as float before lr = %6.6f \n", bf16_w.f);
+        union libxsmm_bfloat16_f32 bf16_hp;
+        bf16_hp.f = bf16_w.f - (float)lr * g_f32[j];
+        in_lo_cast[j] = bf16_hp.i[0];
+        in_hi_cast[j] = bf16_hp.i[1];
+        //printf("bf16_w combined as float after lr = %6.6f \n", bf16_hp.f);
+      }
+#if 0
+does the wrong thing
+      downconvert_tpp(&g_f32[0], (T*)&g_downconvert_bf16[0]);
+      scale_add_split_bf16_tpp(
+          (at::BFloat16*)d[i],
+          (at::BFloat16*)dl[i],
+          (at::BFloat16*)&g_downconvert_bf16[0],//g[i],
+          -lr);
+#endif
+      LIBXSMM_ALIGNED(float d_dbg_f32[BS], 64);
+      upconvert_split_tpp((bfloat16*)d[i], (bfloat16*)dl[i], &d_dbg_f32[0]);
+      //printf("dbg: after lr d_dbg_f32 = %6.6f \n", d_dbg_f32[0]);
+    }
+
+    // correct operations but missing conversion to f32 for all except last computes
+#if 0
+    // 1. weight decay
+    if (weight_decay != 0)
+      scale_add_tpp(d[i], g[i], weight_decay);
+    // 2. momentum computation
+    if (momentum != 0) {
+        if (step == 1) {
+          copy_tpp(g[i], m[i]);
+        } else {
+          scale_tpp(m[i], m[i], momentum);
+          scale_add_tpp(g[i], m[i], 1.0f - dampening);
+        }
+
+      // nesterov
+      if (nesterov != 0) {
+        printf("nesterov support has not been implemented for fused_sgd_v2_impl\n");
+        exit(-1);
+      } else {
+        copy_tpp(m[i], g[i]);
+      }
+    }
+    // 3. lr term
+    if (std::is_same<T, float>::value) {
+      scale_add_tpp(g[i], d[i], -lr);
+    } else {
+      scale_add_split_bf16_tpp(
+          (at::BFloat16*)d[i],
+          (at::BFloat16*)dl[i],
+          (at::BFloat16*)g[i],
+          -lr);
+    }
+#endif
+  }
+
+}
+
+void fused_sgd_v0(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_moment,
+    at::Tensor& t_data_low,
+    at::Tensor& t_offsets,
+    at::Tensor& t_block_sizes,
+    at::Tensor& t_block2param,
+    float weight_decay,
+    float momentum,
+    float dampening,
+    float nesterov,
+    float lr,
+    int block_size,
+    int step,
+    bool fused_param_norm) {
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(fused_sgd, {t_data});
+
+    if (t_data.dtype() == at::kFloat) {
+      fused_sgd_v0_impl<float>(
+          t_data,
+          t_grad,
+          t_moment,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          weight_decay,
+          momentum,
+          dampening,
+          nesterov,
+          lr,
+          block_size,
+          step,
+          fused_param_norm);
+    } else if (t_data.dtype() == at::kBFloat16) {
+      fused_sgd_v0_impl<bfloat16>(
+          t_data,
+          t_grad,
+          t_moment,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          weight_decay,
+          momentum,
+          dampening,
+          nesterov,
+          lr,
+          block_size,
+          step,
+          fused_param_norm);
+    } else {
+      PCL_ASSERT(0, "Should not come here\n");
+    }
+}
+
+void fused_sgd_v1(
+    at::Tensor& t_data,
+    at::Tensor& t_grad,
+    at::Tensor& t_moment,
+    at::Tensor& t_data_low,
+    at::Tensor& t_offsets,
+    at::Tensor& t_block_sizes,
+    at::Tensor& t_block2param,
+    float weight_decay,
+    float momentum,
+    float dampening,
+    float nesterov,
+    float lr,
+    int block_size,
+    int step,
+    bool fused_param_norm) {
+  GlobalPass _gp(UPD);
+  RECORD_SCOPE(fused_sgd, {t_data});
+
+    if (t_data.dtype() == at::kFloat) {
+      fused_sgd_v1_impl<float>(
+          t_data,
+          t_grad,
+          t_moment,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          weight_decay,
+          momentum,
+          dampening,
+          nesterov,
+          lr,
+          block_size,
+          step,
+          fused_param_norm);
+    } else if (t_data.dtype() == at::kBFloat16) {
+      fused_sgd_v1_impl<bfloat16>(
+          t_data,
+          t_grad,
+          t_moment,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          weight_decay,
+          momentum,
+          dampening,
+          nesterov,
+          lr,
+          block_size,
+          step,
+          fused_param_norm);
+    } else {
+      PCL_ASSERT(0, "Should not come here\n");
+    }
+}
 
 void fused_sgd_v2(
     at::Tensor& t_data,
     at::Tensor& t_grad,
+    at::Tensor& t_moment,
     at::Tensor& t_data_low,
     at::Tensor& t_offsets,
     at::Tensor& t_block_sizes,
@@ -935,6 +1269,7 @@ void fused_sgd_v2(
       fused_sgd_v2_impl<float>(
           t_data,
           t_grad,
+          t_moment,
           t_data_low,
           t_offsets,
           t_block_sizes,
@@ -951,6 +1286,7 @@ void fused_sgd_v2(
       fused_sgd_v2_impl<bfloat16>(
           t_data,
           t_grad,
+          t_moment,
           t_data_low,
           t_offsets,
           t_block_sizes,
@@ -966,10 +1302,7 @@ void fused_sgd_v2(
     } else {
       PCL_ASSERT(0, "Should not come here\n");
     }
-
 }
-
-
 
 REGISTER_SUBMODULE(_optim, m) {
   m.def("dense_sparse_add_", &dense_sparse_add_, "Tpp tpp_dense_sparse_add");
@@ -982,5 +1315,7 @@ REGISTER_SUBMODULE(_optim, m) {
   m.def("clip_grad_norm", &clip_grad_norm, "Tpp BERT clip_grad_norm");
   m.def("fused_lamb", &fused_lamb, "Fused LAMB optimizer");
   m.def("fused_lamb_v2", &fused_lamb_v2, "Fused LAMB optimizer version 2");
+  m.def("fused_sgd_v0",  &fused_sgd_v0,  "Fused SGD  optimizer version 0 (no TPP for intemediate updates, no fp32 conversion for intermediate, bf16 momentum");
+  m.def("fused_sgd_v1",  &fused_sgd_v1,  "Fused SGD  optimizer version 1 (TPP for intermediate updates, temporary fp32 copies for intermediates, bf16 momentum");
   m.def("fused_sgd_v2",  &fused_sgd_v2,  "Fused SGD  optimizer version 2");
 }
