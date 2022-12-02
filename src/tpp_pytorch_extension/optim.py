@@ -1656,8 +1656,9 @@ class SGD_bf16fb_enhanced(torch.optim.SGD):
         if self._one_time_setup_done == True:
             return
         from collections import defaultdict
-        self.flat_params = defaultdict(dict) #[]
+        self.flat_params = [] #defaultdict(list) #[]
         for i, group in enumerate(self.param_groups):
+            #print("debug: i ~ group index = ", i)
             #print("debug: group = ", group)
             model_params = defaultdict(list)
             weight_decay = group['weight_decay']
@@ -1669,13 +1670,18 @@ class SGD_bf16fb_enhanced(torch.optim.SGD):
                     continue
                 dt = p.dtype
                 model_params[dt].append(p)
-                #print("debug: appended to model_params (p, dt) = ", p, dt)
+                #print("debug: appended to model_params (p.shape, dt) = ", p.shape, dt)
             for dt, param_list in model_params.items():
                 #print("debug: (dt, param_list) = ", dt, param_list)
+                #print("debug: dt in model_params = ", dt)
                 #flat_buf = self.FlatBuffer(param_list, group, dt, self.block_size)
                 flat_buf = FlatBufferSGD(param_list, group, dt, self.block_size, self.with_f32_weight_copy) #, True if momentum != 0 else False )
                 #print("dbg: type of group, group = ", type(group), group)
-                self.flat_params[i] = flat_buf
+                self.flat_params.append(flat_buf)
+
+            #value_list = self.flat_params #[0]
+            #print("debug: value_list, type = ", value_list, type(value_list))
+            #exit()
 
         #self._step = 0
         self._one_time_setup_done = True
@@ -1683,8 +1689,10 @@ class SGD_bf16fb_enhanced(torch.optim.SGD):
     
     def zero_grad(self):
         if hasattr(self, 'flat_params'):
-            for i, fp in self.flat_params.items():
+            for fp in self.flat_params:
                 fp._flat_g.zero_()
+            #for i, fp in self.flat_params.items():
+            #    fp._flat_g.zero_()
         else:
             super(SGD_bf16fb_enhanced, self).zero_grad()
     
@@ -1758,25 +1766,15 @@ class SGD_bf16fb_enhanced(torch.optim.SGD):
         #self.state[self.param_groups[0]['params'][0]]['step'] = self._step
         #self.merge_acc_grad()
 
-        for g, group in enumerate(self.param_groups):
-            #params_with_grad = []
-            #d_p_list = []
-            #momentum_buffer_list = []
+        for ii, fp in enumerate(self.flat_params):
+            group = fp.group
             weight_decay = group['weight_decay']
             momentum = group['momentum']
             dampening = group['dampening']
             nesterov = group['nesterov']
             lr = group['lr']
-            #params_with_grad_true = []
 
-            fp = self.flat_params[g] if hasattr(self, 'flat_params') else None
-            #print("dbg: before flat_w, dtype = ", fp._flat_w , fp._flat_w.dtype)
-            #print("dbg: before flat_g, dtype = ", fp._flat_g , fp._flat_g.dtype)
-            #print("dbg: before flat_m, dtype = ", fp._flat_m , fp._flat_m.dtype)
-            #print("dbg: before flat_f32_w, dtype = ", fp._flat_f32_w , fp._flat_f32_w.dtype)
-            i = 0
-
-            for p in group['params']:
+            for i, p in enumerate(fp.param_list):
 
                 state = self.state[p]
 
@@ -1882,16 +1880,14 @@ class SGD_bf16fb_enhanced(torch.optim.SGD):
                     #print("dbg: temp p, temp p tof32 p.grad after = ", temp_p_param, temp_p_param.to(p.dtype), temp_p_grad_param)
                     #print("dbg: p, p.grad after = ", p, p.grad)
 
-                    i = i + 1
-                    
+            # end of loop over p in param_list
             #print("dbg: after flat_w, dtype = ", fp._flat_w , fp._flat_w.dtype)
             #print("dbg: after flat_g, dtype = ", fp._flat_g , fp._flat_g.dtype)
             #print("dbg: after flat_m, dtype = ", fp._flat_m , fp._flat_m.dtype)
             #print("dbg: after flat_f32_w, dtype = ", fp._flat_f32_w , fp._flat_f32_w.dtype)
+        # end of loop over fp in self.flat_params
 
-        #self._step += 1
         return loss
-
 
 #"""""""""""""""""""""""""""""""
 #"""""""""""""""""""""""""""""""
@@ -1930,6 +1926,11 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
         self.with_split = True
         print("dbg: advanced split-sgd flags: with_f32_weight_copy, with_bf16_momentum, with_fp32_momentum, with_split = ",
                 self.with_f32_weight_copy, self.with_bf16_momentum, self.with_fp32_momentum, self.with_split)
+
+        if not self.with_split:
+            print("Error: with_split flag must be set to True for SplitSGD optimizer")
+            exit()
+
     
     # Not really well tested (affects saving/loading from checkpoints)
     def __setstate__(self, state):
@@ -1943,7 +1944,7 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
         if self._one_time_setup_done == True:
             return
         from collections import defaultdict
-        self.flat_params = defaultdict(dict) #[]
+        self.flat_params = [] #[]
         for i, group in enumerate(self.param_groups):
             #print("debug: group = ", group)
             model_params = defaultdict(list)
@@ -1962,7 +1963,11 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
                 #flat_buf = self.FlatBuffer(param_list, group, dt, self.block_size)
                 flat_buf = FlatBufferSGD(param_list, group, dt, self.block_size, self.with_f32_weight_copy, self.with_bf16_momentum, self.with_fp32_momentum, self.with_split) #, True if momentum != 0 else False )
                 #print("dbg: type of group, group = ", type(group), group)
-                self.flat_params[i] = flat_buf
+                self.flat_params.append(flat_buf)
+
+            #value_list = self.flat_params
+            #print("debug: value_list, type = ", value_list, type(value_list))
+            #exit()
 
         self._step = 0
         self._one_time_setup_done = True
@@ -1970,59 +1975,11 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
     
     def zero_grad(self):
         if hasattr(self, 'flat_params'):
-            for i, fp in self.flat_params.items():
+            for fp in self.flat_params:
                 fp._flat_g.zero_()
         else:
             super(SplitSGD_bf16fb_enhanced, self).zero_grad()
     
-
-    def sgd(self,
-            params: List[Tensor],
-            d_p_list: List[Tensor],
-            momentum_buffer_list: List[Optional[Tensor]],
-            *,
-            weight_decay: float,
-            momentum: float,
-            lr: float,
-            dampening: float,
-            nesterov: bool):
-        r"""Functional API that performs SGD algorithm computation.
-
-        See :class:`~torch.optim.SGD` for details.
-        """
-
-        for i, param in enumerate(params):
-
-            d_p = d_p_list[i]
-            #print("dbg: d_p before decaying-add, param = ", d_p, param)
-            if weight_decay != 0:
-                d_p = d_p.add(param, alpha=weight_decay)
-
-            #print("at the start param.shape, d_p shape = ", param.shape, d_p.shape)
-            if momentum != 0:
-                buf = momentum_buffer_list[i]
-
-                #print("dbg:  momentum , dampening, list before = ", momentum, dampening, momentum_buffer_list)
-                if buf is None:
-                    buf = torch.clone(d_p).detach()
-                    momentum_buffer_list[i] = buf
-                    #print("Error: this should not happen since momentum has been added to the flat buffers")
-                    #exit()
-                    #print("dbg: variant 1")
-                else:
-                    buf.mul_(momentum).add_(d_p, alpha=1 - dampening)
-                    #print("dbg: variant 2")
-
-                #print("buf shape = ", buf.shape)
-
-                if nesterov:
-                    d_p = d_p.add(buf, alpha=momentum)
-                else:
-                    d_p = buf
-            #print("before last add param.shape, d_p shape = ", param.shape, d_p.shape)
-            #print("dbg optimizer sgd_bf16: i, momentum, len(momentum_buffer_list) param shape, param dtype = ", i, momentum, len(momentum_buffer_list), param.shape, param.dtype)
-            param.add_(d_p, alpha=-lr)
-
     @torch.no_grad()
     def step(self, closure=None):
         """Performs a single optimization step.
@@ -2042,41 +1999,24 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
         # Therefore, the addition is done AFTER the actual computations of the step
         #self._step += 1
 
-        for g, group in enumerate(self.param_groups):
+        for ii, fp in enumerate(self.flat_params):
+            group = fp.group
             weight_decay = group['weight_decay']
             momentum = group['momentum']
             dampening = group['dampening']
             nesterov = group['nesterov']
-            lr = group['lr']
-            #params_with_grad_true = []
-
-            fp = self.flat_params[g] if hasattr(self, 'flat_params') else None
-            i = 0
-
-            #print("dbg: momentum, type of = ", momentum , type(momentum))
-            #print("dbg: before flat_w, dtype = ", fp._flat_w , fp._flat_w.dtype)
-            #print("dbg: before flat_g, dtype = ", fp._flat_g , fp._flat_g.dtype)
-            #print("dbg: before flat_m, dtype = ", fp._flat_m , fp._flat_m.dtype)
-            #print("dbg: before flat_f32_w, dtype = ", fp._flat_f32_w , fp._flat_f32_w.dtype)
-
-            if not self.with_split:
-                print("Error: with_split flag must be set to True for SplitSGD optimizer")
-                exit()
+            lr = group["lr"]
 
             if momentum != 0 and self.with_fp32_momentum:
                 #optim_cpp.fused_sgd_v2(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
-                #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None) #self.fused_param_norm)
+                #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None)
                 optim_cpp.fused_sgd_v3(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
-                                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None) #self.fused_param_norm)
+                                       weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step)
             elif momentum != 0 and self.with_bf16_momentum:
                 #optim_cpp.fused_sgd_v0(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
-                #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None) #self.fused_param_norm)
+                #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None)
                 optim_cpp.fused_sgd_v1(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
-                                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None) #self.fused_param_norm)
-            #print("dbg: after flat_w, dtype = ", fp._flat_w , fp._flat_w.dtype)
-            #print("dbg: after flat_g, dtype = ", fp._flat_g , fp._flat_g.dtype)
-            #print("dbg: after flat_m, dtype = ", fp._flat_m , fp._flat_m.dtype)
-            #print("dbg: after flat_f32_w, dtype = ", fp._flat_f32_w , fp._flat_f32_w.dtype)
-            # end of loop over p
+                                       weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step)
+        # end of loop over fp in self.flat_params
         self._step += 1
         return loss

@@ -4373,7 +4373,7 @@ class SplitSGDExtTPP {
         /* This is the scalar learning rate */
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 2;
-        arg_shape.m    = N;                                      /* - weight_decay (broadcast) */
+        arg_shape.m    = N;                                      /* weight_decay (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
@@ -4402,10 +4402,11 @@ class SplitSGDExtTPP {
           exit(-1);
         }
       } else if (eqn_no == 1) { /* momentum update step */
-        libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + m (pre-multiplied with momentum outside the eqn), all in fp32 */
+        //libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + m (pre-multiplied with momentum outside the eqn), all in fp32 */
+        libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + (momentum * m), all in fp32 */
 
-#ifdef OLD_BAD_NO_REUSE
-        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1;// | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_0_AS_OUT;
+#if 1
+        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
@@ -4563,7 +4564,9 @@ class SplitSGDExtTPP {
   int N = 0;
   Eqn eqn_decay, eqn_momentum, eqn_lr;
   UnaryTPP copy_kernel;
+#if 0
   ScaleTPP<float, float> scale_kernel;
+#endif
   friend class Eqn;
 
  public:
@@ -4578,8 +4581,10 @@ class SplitSGDExtTPP {
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_MELTW_FLAG_UNARY_NONE,
-            LIBXSMM_MELTW_TYPE_UNARY_IDENTITY),
-        scale_kernel(N)
+            LIBXSMM_MELTW_TYPE_UNARY_IDENTITY)
+#if 0
+            , scale_kernel(N)
+#endif
         { /*initialized = true;*/ }
 
   void operator()(bfloat16* d_lo, bfloat16* d_hi, bfloat16 *g_bf16, float* m, float *g_f32, float weight_decay, float dampening, float momentum, float lr, int step) {
@@ -4591,7 +4596,7 @@ class SplitSGDExtTPP {
 
     float alpha, beta;
 
-    alpha = - weight_decay;
+    alpha = weight_decay;
     arg_array[0].primary = (void*)d_lo;
     arg_array[1].primary = (void*)d_hi;
     arg_array[2].primary = (void*)&alpha;
@@ -4608,32 +4613,32 @@ class SplitSGDExtTPP {
       copy_kernel(g_f32, m);
       //printf("dbg: after copy (step == 0) m = %6.6f \n", m[0]);
     } else {
+
+      //printf("dbg: before momentum m = %6.6f %6.6f\n", m[0], m[1]);
+#if 0
       scale_kernel(m, m, momentum);
 
       alpha  = 1 - dampening;
       arg_array[0].primary = (void*)g_f32;
       arg_array[1].primary = (void*)&alpha;
       arg_array[2].primary = (void*)m;
+#endif
 
-/*
       // for the older version which attempted to have a single equation which includes ternary and scaling in-place but didn't work
-      alpha = momentum;
-      beta  = 1 - dampening;
-      arg_array[0].primary = (void*)m;
+      alpha = 1 - dampening;
+      beta  = momentum;
+      arg_array[0].primary = (void*)g_f32;
       arg_array[1].primary = (void*)&alpha;
       arg_array[2].primary = (void*)&beta;
-      arg_array[3].primary = (void*)g_f32;
-
-      printf("dbg: alpha = %3.3f beta = %3.3f m = %6.6f g_f32 = %6.6f \n", alpha, beta, m[0], g_f32[0]);
-*/
+      arg_array[3].primary = (void*)m;
+      //printf("dbg: alpha = %3.3f beta = %3.3f m = %6.6f g_f32 = %6.6f \n", alpha, beta, m[0], g_f32[0]);
 
       eqn_param.inputs           = arg_array;
       eqn_param.output.primary   = (void*)m;
 
       eqn_momentum(&eqn_param);
     }
-
-    //printf("dbg: after momentum m = %6.6f \n", m[0]);
+    //printf("dbg: after momentum m = %6.6f %6.6f\n", m[0], m[1]);
 
     alpha = - lr;
     arg_array[0].primary = (void*)m;
@@ -4653,6 +4658,292 @@ class SplitSGDExtTPP {
     exit(-1);
   }
 };
+
+template <typename T>
+class SGDExtTPP {
+  class Eqn : BaseTPP {
+   public:
+    Eqn() {}
+    Eqn(SGDExtTPP* p, int eqn_no) : p(p), eqn_no(eqn_no) {
+      kernel = (libxsmm_matrix_eqn_function)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_matrix_eqn_param* eqn_param) {
+      if (!initialized)
+        return;
+      kernel(eqn_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "sgdext_eqn%d_n%d_t%d",
+          eqn_no,
+          p->N,
+          XsmmDtype<T>());
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+
+      int N = p->N;
+      libxsmm_blasint ld = p->N;
+      libxsmm_matrix_eqn_function func;
+
+      libxsmm_datatype datatype_in   = XsmmDtype<T>();
+      libxsmm_datatype datatype_out  = datatype_in;
+      libxsmm_datatype datatype_comp = XsmmDtype<T>();
+
+      libxsmm_bitfield unary_flags;
+      libxsmm_bitfield binary_flags;
+      libxsmm_bitfield ternary_flags;
+
+      libxsmm_meqn_arg_shape        eqn_out_arg_shape;
+      libxsmm_meqn_arg_shape        arg_shape;
+      libxsmm_matrix_arg_attributes arg_singular_attr;
+
+      libxsmm_matrix_eqn_arg_metadata arg_metadata;
+      libxsmm_matrix_eqn_op_metadata  op_metadata;
+
+      arg_singular_attr.type = LIBXSMM_MATRIX_ARG_TYPE_SINGULAR;
+
+      if (eqn_no == 0) { /* weight decay step */
+        libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();   /* grad = (d * (-weight_decay) + grad), tensors in T, scalars fp32 */
+
+        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1;
+        op_metadata.eqn_idx      = my_eqn0;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+        arg_metadata.eqn_idx     = my_eqn0;
+        arg_metadata.in_arg_pos  = 0;
+        arg_shape.m    = N;                                      /* d */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_in;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn0;
+        arg_metadata.in_arg_pos  = 1;
+        arg_shape.m    = N;                                      /* weight_decay (broadcast) */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = LIBXSMM_DATATYPE_F32;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn0;
+        arg_metadata.in_arg_pos  = 2;
+        arg_shape.m    = N;                                      /* grad */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_in;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        eqn_out_arg_shape.m    = N;                              /* grad */
+        eqn_out_arg_shape.n    = 1;
+        eqn_out_arg_shape.ld   = ld;
+        eqn_out_arg_shape.type = datatype_out;
+
+        debug_print_eqn_tree(my_eqn0);
+        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn0, eqn_out_arg_shape );
+        if ( func == NULL) {
+          fprintf( stderr, "JIT for TPP sgd weight_decay equation (eqn0) failed. Bailing...!\n");
+          exit(-1);
+        }
+      } else if (eqn_no == 1) { /* momentum update step */
+        libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + (momentum * m), grad in T, m in fp32, scalars fp32 */
+
+        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+        op_metadata.eqn_idx      = my_eqn1;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+        arg_metadata.eqn_idx     = my_eqn1;
+        arg_metadata.in_arg_pos  = 0;
+        arg_shape.m    = N;                                      /* grad */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_in;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn1;
+        arg_metadata.in_arg_pos  = 1;
+        arg_shape.m    = N;                                      /* (1 - dampening) (broadcast) */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = LIBXSMM_DATATYPE_F32;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0;
+        op_metadata.eqn_idx      = my_eqn1;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, datatype_comp, binary_flags);
+
+        arg_metadata.eqn_idx     = my_eqn1;
+        arg_metadata.in_arg_pos  = 2;
+        arg_shape.m    = N;                                      /* momentum (broadcast) */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = LIBXSMM_DATATYPE_F32;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn1;
+        arg_metadata.in_arg_pos  = 3;
+        arg_shape.m    = N;                                      /* m */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = LIBXSMM_DATATYPE_F32;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        eqn_out_arg_shape.m    = N;                              /* m */
+        eqn_out_arg_shape.n    = 1;
+        eqn_out_arg_shape.ld   = ld;
+        eqn_out_arg_shape.type = LIBXSMM_DATATYPE_F32;
+
+        debug_print_eqn_tree(my_eqn1);
+        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn1, eqn_out_arg_shape );
+        if ( func == NULL) {
+          fprintf( stderr, "JIT for TPP sgd momentum equation (eqn1) failed. Bailing...!\n");
+          exit(-1);
+        }
+      } else if (eqn_no == 2) { /* lr update step */
+        libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();   /* d = m * (-lr) + d, d in T, m in fp32, scalars fp32 */
+
+        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
+        op_metadata.eqn_idx      = my_eqn2;
+        op_metadata.op_arg_pos   = -1;
+        libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+
+        arg_metadata.eqn_idx     = my_eqn2;
+        arg_metadata.in_arg_pos  = 0;
+        arg_shape.m    = N;                                      /* m */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = LIBXSMM_DATATYPE_F32;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn2;
+        arg_metadata.in_arg_pos  = 1;
+        arg_shape.m    = N;                                      /* (- lr) (broadcast) */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = LIBXSMM_DATATYPE_F32;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        arg_metadata.eqn_idx     = my_eqn2;
+        arg_metadata.in_arg_pos  = 2;
+        arg_shape.m    = N;                                      /* d */
+        arg_shape.n    = 1;
+        arg_shape.ld   = ld;
+        arg_shape.type = datatype_in;
+        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+
+        eqn_out_arg_shape.m    = N;                              /* d */
+        eqn_out_arg_shape.n    = 1;
+        eqn_out_arg_shape.ld   = ld;
+        eqn_out_arg_shape.type = datatype_out;
+
+        debug_print_eqn_tree(my_eqn2);
+        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn2, eqn_out_arg_shape );
+        if ( func == NULL) {
+          fprintf( stderr, "JIT for TPP sgd lr update equation (eqn2) failed. Bailing...!\n");
+          exit(-1);
+        }
+      }
+      return (void*)func;
+    }
+
+   private:
+    SGDExtTPP* p;
+    int eqn_no;
+    libxsmm_matrix_eqn_function kernel = NULL;
+  }; /* end of Eqn class */
+
+ private:
+  int N = 0;
+  Eqn eqn_decay, eqn_momentum, eqn_lr;
+  UnaryTPP copy_kernel;
+  friend class Eqn;
+
+ public:
+  SGDExtTPP(int N)
+      : N(N),
+        eqn_decay(this, 0),
+        eqn_momentum(this, 1),
+        eqn_lr(this, 2),
+        copy_kernel(
+            N, 1, N, N,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            XsmmDtype<T>(), // LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_IDENTITY)
+        { /*initialized = true;*/ }
+
+  void operator()(T* d, T *g, float* m, float weight_decay, float dampening, float momentum, float lr, int step) {
+    //if (!initialized)
+    //  return;
+
+    libxsmm_matrix_eqn_param eqn_param;
+    libxsmm_matrix_arg arg_array[8];
+
+    float alpha, beta;
+
+    alpha = weight_decay;
+    arg_array[0].primary = (void*)d;
+    arg_array[1].primary = (void*)&alpha;
+    arg_array[2].primary = (void*)g;
+
+    eqn_param.inputs         = arg_array;
+    eqn_param.output.primary = g;
+
+    eqn_decay(&eqn_param);
+
+    //printf("dbg: after decay g = %6.6f \n", g[0]);
+
+    if (step == 0) {
+      copy_kernel(g, m);
+      //printf("dbg: after copy (step == 0) m = %6.6f \n", m[0]);
+    } else {
+
+      //printf("dbg: before momentum m = %6.6f %6.6f\n", m[0], m[1]);
+
+      // for the older version which attempted to have a single equation which includes ternary and scaling in-place but didn't work
+      alpha = 1 - dampening;
+      beta  = momentum;
+      arg_array[0].primary = (void*)g;
+      arg_array[1].primary = (void*)&alpha;
+      arg_array[2].primary = (void*)&beta;
+      arg_array[3].primary = (void*)m;
+
+      //printf("dbg: alpha = %3.3f beta = %3.3f m = %6.6f g = %6.6f \n", alpha, beta, m[0], g[0]);
+
+      eqn_param.inputs           = arg_array;
+      eqn_param.output.primary   = (void*)m;
+
+      eqn_momentum(&eqn_param);
+    }
+
+    //printf("dbg: after momentum m = %6.6f %6.6f\n", m[0], m[1]);
+
+    alpha = - lr;
+    arg_array[0].primary = (void*)m;
+    arg_array[1].primary = (void*)&alpha;
+    arg_array[2].primary = (void*)d;
+
+    eqn_param.inputs           = arg_array;
+    eqn_param.output.primary   = (void*)d;
+
+    eqn_lr(&eqn_param);
+  }
+  void ref(T* d, T *g, float* m, float weight_decay, float dampening, float momentum, float lr, int step) {
+    printf("ref() not implemented for SGDExtTPP\n");
+    exit(-1);
+  }
+};
+
 
 #if 0
 template <typename Tin, typename Tout, typename Tind>

@@ -823,8 +823,7 @@ void fused_sgd_v0_impl(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   const int BS = block_size;
   auto num_blocks = t_data.numel() / block_size;
   DECL_VLA_PTR_PT(T, d, [BS], t_data);
@@ -840,8 +839,8 @@ void fused_sgd_v0_impl(
 
   auto scale_add_split_bf16_tpp = SCOPEIT((SplitSGDTPP(BS)), OPTIM);
 
-  printf("dbg: fused_sgd_v0_impl\n");
-  printf("dbg: step = %d \n", step);
+  //printf("dbg: fused_sgd_v0_impl\n");
+  //printf("dbg: step = %d \n", step);
 
 #pragma omp parallel for
   for (long i = 0; i < num_blocks; i++) {
@@ -896,8 +895,7 @@ void fused_sgd_v1_impl(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   const int BS = block_size;
   auto num_blocks = t_data.numel() / block_size;
   DECL_VLA_PTR_PT(T, d, [BS], t_data);
@@ -915,8 +913,8 @@ void fused_sgd_v1_impl(
   auto upconvert_split_tpp = SCOPEIT_REF(ConvertSplitTPP(BS), OPTIM);
   auto downconvert_tpp = SCOPEIT((ConvertTPP<float, T>(BS)), OPTIM);
 
-  printf("dbg: fused_sgd_v1_impl\n");
-  printf("dbg: step = %d \n", step);
+  //printf("dbg: fused_sgd_v1_impl\n");
+  //printf("dbg: step = %d \n", step);
 
 #pragma omp parallel for
   for (long i = 0; i < num_blocks; i++) {
@@ -988,8 +986,7 @@ void fused_sgd_v2_impl(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   const int BS = block_size;
   auto num_blocks = t_data.numel() / block_size;
   DECL_VLA_PTR_PT(T, d, [BS], t_data);
@@ -1013,7 +1010,7 @@ void fused_sgd_v2_impl(
   auto upconvert_split_tpp = SCOPEIT_REF(ConvertSplitTPP(BS), OPTIM);
   auto downconvert_tpp = SCOPEIT((ConvertTPP<float, T>(BS)), OPTIM);
 
-  printf("dbg: fused_sgd_v2_impl\n");
+  //printf("dbg: fused_sgd_v2_impl\n");
   //printf("dbg: step = %d \n", step);
 
 #pragma omp parallel for
@@ -1131,7 +1128,7 @@ does the wrong thing
 }
 
 
-/* Stores momentum as fp32 */
+/* Stores momentum as fp32, computes in fp32 but keeps fp32 version of gradient split into two bf16 parts (overlapped with bf16 gradient) */
 template <typename T>
 void fused_sgd_v3_impl(
     at::Tensor& t_data,
@@ -1147,8 +1144,7 @@ void fused_sgd_v3_impl(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   const int BS = block_size;
   auto num_blocks = t_data.numel() / block_size;
   DECL_VLA_PTR_PT(T, d, [BS], t_data);
@@ -1156,18 +1152,28 @@ void fused_sgd_v3_impl(
   DECL_VLA_PTR_PT(float, m, [BS], t_moment);
   DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
 
-  auto split_sgd_ext_tpp = SCOPEIT((SplitSGDExtTPP(BS)), OPTIM);
-
-  printf("dbg: fused_sgd_v3_impl\n");
+  //printf("dbg: fused_sgd_v3_impl\n");
   //printf("dbg: step = %d \n", step);
 
-  //exit(-1);
+  if (std::is_same<T, float>::value) {
+    //printf("Error: fused_sgd_v3_impl does not support T = float\n");
+    //exit(-1);
+    auto sgd_ext_tpp = SCOPEIT((SGDExtTPP<T>(BS)), OPTIM);
 
-#pragma omp parallel for
-  for (long i = 0; i < num_blocks; i++) {
-    LIBXSMM_ALIGNED(float g_f32[BS], 64);
-    //void operator()(bfloat16* d_lo, bfloat16* d_hi, bfloat16 *g_bf16, float* m, float *g_f32, float weight_decay, float dampening, float momentum, float lr, int step) {
-    split_sgd_ext_tpp((bfloat16*)dl[i], (bfloat16*)d[i], (bfloat16*)g[i], m[i], &g_f32[0], weight_decay, dampening, momentum, lr, step);
+#   pragma omp parallel for
+    for (long i = 0; i < num_blocks; i++) {
+      sgd_ext_tpp(d[i], g[i], m[i], weight_decay, dampening, momentum, lr, step);
+    }
+  } else { /* bf16 */
+
+    auto split_sgd_ext_tpp = SCOPEIT((SplitSGDExtTPP(BS)), OPTIM);
+
+#   pragma omp parallel for
+    for (long i = 0; i < num_blocks; i++) {
+      LIBXSMM_ALIGNED(float g_f32[BS], 64);
+      //void operator()(bfloat16* d_lo, bfloat16* d_hi, bfloat16 *g_bf16, float* m, float *g_f32, float weight_decay, float dampening, float momentum, float lr, int step) {
+      split_sgd_ext_tpp((bfloat16*)dl[i], (bfloat16*)d[i], (bfloat16*)g[i], m[i], &g_f32[0], weight_decay, dampening, momentum, lr, step);
+    }
   }
 }
 
@@ -1186,8 +1192,7 @@ void fused_sgd_v0(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   GlobalPass _gp(UPD);
   RECORD_SCOPE(fused_sgd, {t_data});
 
@@ -1206,8 +1211,7 @@ void fused_sgd_v0(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else if (t_data.dtype() == at::kBFloat16) {
       fused_sgd_v0_impl<bfloat16>(
           t_data,
@@ -1223,8 +1227,7 @@ void fused_sgd_v0(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else {
       PCL_ASSERT(0, "Should not come here\n");
     }
@@ -1244,8 +1247,7 @@ void fused_sgd_v1(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   GlobalPass _gp(UPD);
   RECORD_SCOPE(fused_sgd, {t_data});
 
@@ -1264,8 +1266,7 @@ void fused_sgd_v1(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else if (t_data.dtype() == at::kBFloat16) {
       fused_sgd_v1_impl<bfloat16>(
           t_data,
@@ -1281,8 +1282,7 @@ void fused_sgd_v1(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else {
       PCL_ASSERT(0, "Should not come here\n");
     }
@@ -1302,8 +1302,7 @@ void fused_sgd_v2(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   GlobalPass _gp(UPD);
   RECORD_SCOPE(fused_sgd, {t_data});
 
@@ -1322,8 +1321,7 @@ void fused_sgd_v2(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else if (t_data.dtype() == at::kBFloat16) {
       fused_sgd_v2_impl<bfloat16>(
           t_data,
@@ -1339,8 +1337,7 @@ void fused_sgd_v2(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else {
       PCL_ASSERT(0, "Should not come here\n");
     }
@@ -1360,14 +1357,26 @@ void fused_sgd_v3(
     float nesterov,
     float lr,
     int block_size,
-    int step,
-    bool fused_param_norm) {
+    int step) {
   GlobalPass _gp(UPD);
   RECORD_SCOPE(fused_sgd, {t_data});
 
     if (t_data.dtype() == at::kFloat) {
-      printf("Error: fused_sgd_v3_impl does not support T = float\n");
-      exit(-1);
+      fused_sgd_v3_impl<float>(
+          t_data,
+          t_grad,
+          t_moment,
+          t_data_low,
+          t_offsets,
+          t_block_sizes,
+          t_block2param,
+          weight_decay,
+          momentum,
+          dampening,
+          nesterov,
+          lr,
+          block_size,
+          step);
     } else if (t_data.dtype() == at::kBFloat16) {
       fused_sgd_v3_impl<bfloat16>(
           t_data,
@@ -1383,8 +1392,7 @@ void fused_sgd_v3(
           nesterov,
           lr,
           block_size,
-          step,
-          fused_param_norm);
+          step);
     } else {
       PCL_ASSERT(0, "Should not come here\n");
     }
@@ -1404,5 +1412,5 @@ REGISTER_SUBMODULE(_optim, m) {
   m.def("fused_sgd_v0",  &fused_sgd_v0,  "Fused SGD  optimizer version 0 (no TPP for intemediate updates, no fp32 conversion for intermediate, bf16 momentum");
   m.def("fused_sgd_v1",  &fused_sgd_v1,  "Fused SGD  optimizer version 1 (TPP for intermediate updates, temporary fp32 copies for intermediates, bf16 momentum");
   m.def("fused_sgd_v2",  &fused_sgd_v2,  "Fused SGD  optimizer version 2 (TPP/ad hoc for intermediate updates, temporary fp32 copies for intermediates, fp32 momentum");
-  m.def("fused_sgd_v3",  &fused_sgd_v3,  "Fused SGD  optimizer version 3");
+  m.def("fused_sgd_v3",  &fused_sgd_v3,  "Fused SGD  optimizer version 3 (TPP equations for intermediate updates, fp32/split (for bf16) weights, fp32 momentum");
 }
