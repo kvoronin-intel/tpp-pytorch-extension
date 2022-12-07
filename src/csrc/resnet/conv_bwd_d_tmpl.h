@@ -3,7 +3,7 @@ RECORD_FUNCTION("conv_bwd_d", std::vector<c10::IValue>());
 #define TIMING
 
 #ifdef TIMING
-  double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0, t_wt_trans_end = 0.0;
+  double t_start = 0.0, t_end = 0.0, t_jitting_start = 0.0, t_conv_start = 0.0, t_jitting_loops_start = 0.0, t_wt_trans_end = 0.0;
 #endif
 
 #ifdef TIMING
@@ -69,6 +69,10 @@ std::cout << "Cb Kb bc Kb bk = " << Cb << " " << Kb << " " << bc << " " << Kb <<
 
 auto t_grad_input  = at::empty(t_I.sizes(), torch::TensorOptions().dtype(t_I.dtype()));
 auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.dtype()));
+
+#ifdef TIMING
+  t_jitting_start = getTime();
+#endif
 
 { /* main dummy scope */
 
@@ -201,6 +205,10 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
       }
     } /* outer loop for filling the offsets */
   } /* if-else over the datatype T */
+
+#ifdef TIMING
+  t_jitting_loops_start = getTime();
+#endif
 
 #ifdef VERBOSE
   std::cout << "debug: N n_step Cb c_step Kb k_step ofh h_step ofw w_step R r_step S s_step = " << N << " " << n_step << " " << Cb << " " << c_step << " "
@@ -427,6 +435,9 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   ptr[0] += t_end - t_conv_start;
   ptr[1] += t_wt_trans_end - t_conv_start;
   ptr[2] += t_end - t_start;
+  ptr[3] += t_jitting_start - t_start;
+  ptr[4] += t_jitting_loops_start - t_jitting_start;
+  ptr[5] += t_conv_start - t_jitting_loops_start;
 #endif
 
 #ifdef VERBOSE
@@ -434,7 +445,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 #endif
 
 #ifdef TIMING
-  printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_start, 1.0);
+//  printf("PERFDUMP,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, conv_pad_h, conv_pad_w, t_end - t_start, 1.0);
 #endif
 
 #ifdef TIMING

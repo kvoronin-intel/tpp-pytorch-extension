@@ -9,7 +9,7 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 #define NTIMES_CONV 1
 
 #ifdef TIMING
-  double t_start = 0.0, t_end = 0.0, t_conv_start = 0.0;
+  double t_start = 0.0, t_end = 0.0, t_jitting_start = 0.0, t_jitting_loops_start = 0.0, t_conv_start = 0.0;
 #endif
 
 #ifdef TIMING
@@ -22,6 +22,7 @@ t_start = getTime();
 // bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
 // use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams
 // MUST be defined outside
+
 
 auto t_GO = inputs[0]; // [N][Kb][H][W][bk]
 auto t_I  = inputs[1]; // [N][Cb][H][W][bc]
@@ -357,6 +358,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 
 //return std::vector<at::Tensor>({t_grad_input, t_grad_weight});
 
+
 { /* main dummy scope */
 
   long fm_blocking = (bk % 16 == 0) ? 16 : bk;
@@ -426,6 +428,10 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   long _c_step = 1;
   long _r_step = 1;
   long _s_step = 1;
+
+#ifdef TIMING
+  t_jitting_start = getTime();
+#endif
 
   int trans_tracker_size = 0;
   std::unique_ptr<int[]> trans_tracker;
@@ -670,6 +676,10 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     } /* else-if for bf16_use_nchw_format > 0 */
 
   } /* if-else over T */
+
+#ifdef TIMING
+  t_jitting_loops_start = getTime();
+#endif
 
   // JIT requested nested loop specs
 
@@ -1413,6 +1423,9 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
   ptr[0] += t_end - t_conv_start;
   ptr[1] += 0.0;
   ptr[2] += t_end - t_start;
+  ptr[3] += t_jitting_start - t_start;
+  ptr[4] += t_jitting_loops_start - t_jitting_start;
+  ptr[5] += t_conv_start - t_jitting_loops_start;
 #endif
 
 #ifdef VERBOSE
@@ -1420,7 +1433,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 #endif
 
 #ifdef TIMING
-  printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_start, 1.0);
+//  printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_start, 1.0);
 //  printf("PERFDUMP,BP,resnetconv_w_pureconv,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f\n",  (cfg.N), (cfg.N), (cfg.C), (cfg.K), (cfg.H), (cfg.W), cfg.R, cfg.S, cfg.u, pad_h, pad_w, t_end - t_conv_start, 1.0);
 #endif
 
