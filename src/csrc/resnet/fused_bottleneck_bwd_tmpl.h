@@ -1,4 +1,4 @@
-RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
+//RECORD_FUNCTION("fused_bottleneck_bn_bwd", std::vector<c10::IValue>());
 
 //auto t_dummy     = at::empty({0},  torch::TensorOptions().dtype(at::kFloat));
 //return std::vector<at::Tensor>({t_dummy});
@@ -146,38 +146,42 @@ t_start_all = getTime();
 #ifdef TIMING
   double t_start = 0.0;
   double time_b1 = 0.0, time_b2 = 0.0, time_b3 = 0.0, time_b4 = 0.0, time_c1 = 0.0, time_c2 = 0.0, time_c3 = 0.0, time_c4 = 0.0;
+  double time_dbg_st, time_dbg_en, time_dbg_c1, time_dbg_c2, time_dbg_c3, time_dbg_c4;
 #endif
 
   std::vector<long> dummy_size{0};
   auto dummy_add    = at::zeros(dummy_size, conv1_input.options());
   auto dummy_return = at::zeros(dummy_size, conv1_input.options());
 
-  pybind11::array_t<float> tuning_timings_d1(3), tuning_timings_d2(3), tuning_timings_d3(3), tuning_timings_d4(3);
-  pybind11::array_t<float> tuning_timings_w1(3), tuning_timings_w2(3), tuning_timings_w3(3), tuning_timings_w4(3);
+  const int n_used_timers = 6;
+
+  pybind11::array_t<float> tuning_timings_d1(n_used_timers), tuning_timings_d2(n_used_timers), tuning_timings_d3(n_used_timers), tuning_timings_d4(n_used_timers);
+  pybind11::array_t<float> tuning_timings_w1(n_used_timers), tuning_timings_w2(n_used_timers), tuning_timings_w3(n_used_timers), tuning_timings_w4(n_used_timers);
+
   {
     float *ptr_d1 = tuning_timings_d1.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_d1[i] = 0.0;
     float *ptr_d2 = tuning_timings_d2.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_d2[i] = 0.0;
     float *ptr_d3 = tuning_timings_d3.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_d3[i] = 0.0;
     float *ptr_d4 = tuning_timings_d4.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_d4[i] = 0.0;
     float *ptr_w1 = tuning_timings_w1.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_w1[i] = 0.0;
     float *ptr_w2 = tuning_timings_w2.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_w2[i] = 0.0;
     float *ptr_w3 = tuning_timings_w3.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_w3[i] = 0.0;
     float *ptr_w4 = tuning_timings_w4.mutable_data();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < n_used_timers; i++)
         ptr_w4[i] = 0.0;
     //printf("dbg:in fused btlnk bwd initial values are %f %f %f %f (c1 to c4)\n", ptr_d1[0], ptr_d2[0], ptr_d3[0], ptr_d4[0]);
   }
@@ -193,6 +197,7 @@ t_start_all = getTime();
 
 #ifdef TIMING
   t_start = getTime();
+  double t_bnconvs = t_start;
 #endif
 
   bool bn3_relu = true, bn3_eltwise = true;
@@ -234,12 +239,15 @@ t_start_all = getTime();
                                             c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams},
                                       cw3_string, tuning_timings_w3);
 #else
+  time_dbg_st = getTime();
   auto conv3_grad_ret   = conv_bwd_ext(cfg.conv3, {bn3_grad_input, bn2_out, conv3_weight},
                                        {c3_hblock, c3_wblock, c3_cblock, c3_kblock, c3_h_in_gemm}, cd3_string, tuning_timings_d3,
                                        {c3_pblock, c3_use_nchw_format, c3_pack_input_upfront, c3_fuse_upd_transposes, c3_use_f32_wt_reduction_and_external_wt_vnni,
                                           c3_bf16_acc_nw, c3_par_over_h_pixels, c3_compute_full_wt_output_block,
                                             c3_use_hybrid_imgfm_parallelization, c3_n_img_teams, c3_n_ofm_teams},
                                        cw3_string, tuning_timings_w3);
+  time_dbg_en = getTime();
+  time_dbg_c3 = time_dbg_en - time_dbg_st;
   //conv_backward_new(cfg.conv3, bn3_grad_input /*grad_output*/, bn2_out, conv3_weight);
   auto conv3_grad_input = conv3_grad_ret[0];
   conv3_grad_weight     = conv3_grad_ret[1];
@@ -304,12 +312,15 @@ t_start_all = getTime();
                                             c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams},
                                      cw2_string, tuning_timings_w2);
 #else
+  time_dbg_st = getTime();
   auto conv2_grad_ret   = conv_bwd_ext(cfg.conv2, {bn2_grad_input, bn1_out, conv2_weight},
                                        {c2_hblock, c2_wblock, c2_cblock, c2_kblock, c2_h_in_gemm}, cd2_string, tuning_timings_d2,
                                        {c2_pblock, c2_use_nchw_format, c2_pack_input_upfront, c2_fuse_upd_transposes, c2_use_f32_wt_reduction_and_external_wt_vnni,
                                           c2_bf16_acc_nw, c2_par_over_h_pixels, c2_compute_full_wt_output_block,
                                             c2_use_hybrid_imgfm_parallelization, c2_n_img_teams, c2_n_ofm_teams},
                                        cw2_string, tuning_timings_w2);
+  time_dbg_en = getTime();
+  time_dbg_c2 = time_dbg_en - time_dbg_st;
   //conv_backward_new(cfg.conv2, bn2_grad_input /*grad_output*/, bn1_out, conv2_weight);
   auto conv2_grad_input = conv2_grad_ret[0];
   conv2_grad_weight     = conv2_grad_ret[1];
@@ -361,12 +372,15 @@ t_start_all = getTime();
                                             c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams},
                                      cw1_string, tuning_timings_w1);
 #else
+  time_dbg_st = getTime();
   auto conv1_grad_ret = conv_bwd_ext(cfg.conv1,  {bn1_grad_input, conv1_input, conv1_weight},
                                      {c1_hblock, c1_wblock, c1_cblock, c1_kblock, c1_h_in_gemm}, cd1_string, tuning_timings_d1,
                                      {c1_pblock, c1_use_nchw_format, c1_pack_input_upfront, c1_fuse_upd_transposes, c1_use_f32_wt_reduction_and_external_wt_vnni,
                                           c1_bf16_acc_nw, c1_par_over_h_pixels, c1_compute_full_wt_output_block,
                                             c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams},
                                      cw1_string, tuning_timings_w1);
+  time_dbg_en = getTime();
+  time_dbg_c1 = time_dbg_en - time_dbg_st;
   //conv_backward_new(cfg.conv1, bn1_grad_input /*grad_output*/, conv1_input, conv1_weight);
   conv1_grad_input    = conv1_grad_ret[0];
   conv1_grad_weight   = conv1_grad_ret[1];
@@ -420,12 +434,15 @@ t_start_all = getTime();
                                             c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams},
                                         cw4_string, tuning_timings_w4);
 #else
+    time_dbg_st = getTime();
     auto conv4_grad_ret = conv_bwd_ext(cfg.conv4, {bn4_grad_input, conv1_input, conv4_weight},
                                          {c4_hblock, c4_wblock, c4_cblock, c4_kblock, c4_h_in_gemm}, cd4_string, tuning_timings_d4,
                                          {c4_pblock, c4_use_nchw_format, c4_pack_input_upfront, c4_fuse_upd_transposes, c4_use_f32_wt_reduction_and_external_wt_vnni,
                                             c4_bf16_acc_nw, c4_par_over_h_pixels, c4_compute_full_wt_output_block,
                                               c4_use_hybrid_imgfm_parallelization, c4_n_img_teams, c4_n_ofm_teams},
                                          cw4_string, tuning_timings_w4);
+    time_dbg_en = getTime();
+    time_dbg_c4 = time_dbg_en - time_dbg_st;
     //conv_backward_new(cfg.conv4, bn4_grad_input /*grad_output*/, conv1_input, conv4_weight);
     conv4_grad_input    = conv4_grad_ret[0];
     conv4_grad_weight   = conv4_grad_ret[1];
@@ -445,6 +462,7 @@ t_start_all = getTime();
   }
 
 #ifdef TIMING
+
   auto buf = tuning_timings.request();
   float* ptr = (float*)buf.ptr;
   //if (tuning_timings.size())
@@ -530,6 +548,7 @@ t_start_all = getTime();
             printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, 1.0, (0), (0), (training));
 
 #ifdef TIMING
+
     {
     auto buf_d1 = tuning_timings_d1.request();
     float* ptr_d1 = (float*)buf_d1.ptr;
@@ -560,14 +579,71 @@ t_start_all = getTime();
         if (cfg.has_residual_conv)
             printf("PERFDUMP,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_w4[0], c4_gflop / ptr_w4[0]);
 
+        printf("PERFDBG,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_d1[2], c1_gflop / ptr_d1[0]);
+        printf("PERFDBG,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_d2[2], c2_gflop / ptr_d2[0]);
+        printf("PERFDBG,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_d3[2], c3_gflop / ptr_d3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_d4[2], c4_gflop / ptr_d4[0]);
+
+        printf("PERFDBG,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_w1[2], c1_gflop / ptr_w1[0]);
+        printf("PERFDBG,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_w2[2], c2_gflop / ptr_w2[0]);
+        printf("PERFDBG,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_w3[2], c3_gflop / ptr_w3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_w4[2], c4_gflop / ptr_w4[0]);
+
+        printf("PERFDBG3,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_d1[3], c1_gflop / ptr_d1[0]);
+        printf("PERFDBG3,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_d2[3], c2_gflop / ptr_d2[0]);
+        printf("PERFDBG3,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_d3[3], c3_gflop / ptr_d3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG3,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_d4[3], c4_gflop / ptr_d4[0]);
+
+        printf("PERFDBG3,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_w1[3], c1_gflop / ptr_w1[0]);
+        printf("PERFDBG3,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_w2[3], c2_gflop / ptr_w2[0]);
+        printf("PERFDBG3,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_w3[3], c3_gflop / ptr_w3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG3,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_w4[3], c4_gflop / ptr_w4[0]);
+
+        printf("PERFDBG4,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_d1[4], c1_gflop / ptr_d1[0]);
+        printf("PERFDBG4,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_d2[4], c2_gflop / ptr_d2[0]);
+        printf("PERFDBG4,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_d3[4], c3_gflop / ptr_d3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG4,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_d4[4], c4_gflop / ptr_d4[0]);
+
+        printf("PERFDBG4,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_w1[4], c1_gflop / ptr_w1[0]);
+        printf("PERFDBG4,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_w2[4], c2_gflop / ptr_w2[0]);
+        printf("PERFDBG4,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_w3[4], c3_gflop / ptr_w3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG4,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_w4[4], c4_gflop / ptr_w4[0]);
+
+        printf("PERFDBG5,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_d1[5], c1_gflop / ptr_d1[0]);
+        printf("PERFDBG5,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_d2[5], c2_gflop / ptr_d2[0]);
+        printf("PERFDBG5,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_d3[5], c3_gflop / ptr_d3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG5,BP,resnetconv_d,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_d4[5], c4_gflop / ptr_d4[0]);
+
+        printf("PERFDBG5,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), ptr_w1[5], c1_gflop / ptr_w1[0]);
+        printf("PERFDBG5,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, ptr_w2[5], c2_gflop / ptr_w2[0]);
+        printf("PERFDBG5,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), ptr_w3[5], c3_gflop / ptr_w3[0]);
+        if (cfg.has_residual_conv)
+            printf("PERFDBG5,BP,resnetconv_w,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), ptr_w4[5], c4_gflop / ptr_w4[0]);
+
     }
+
+        printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), time_dbg_c1, c1_gflop / time_c1);
+        printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, time_dbg_c2, c2_gflop / time_c2);
+        printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), time_dbg_c3, c3_gflop / time_c3);
+        if (cfg.has_residual_conv)
+            printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), time_dbg_c4, c4_gflop / time_c4);
+
+
 #endif
 
 #endif
 
 #ifdef TIMING
 t_all = getTime() - t_start_all;
-printf("total time for this btlnkl bwd: %f \n", t_all);
+printf("total time for this btlnkl bwd in C: %f \n", t_all);
+printf("total time for bn convs for this bottleneck bwd in C: %f \n", t_all + t_start_all - t_bnconvs);
 #endif
 
 

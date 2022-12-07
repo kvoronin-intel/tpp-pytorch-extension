@@ -67,6 +67,8 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto global_fuse_scaling = 0; /* if set to 1, enables fusion of scaling for bn1 and bn2 in the subsequent convolutions conv2 and conv3 */
 
 #ifdef TIMING
+  double t_start_all = 0.0;
+  t_start_all = getTime();
   double time_c1 = 0.0, time_b1 = 0.0, time_c2 = 0.0, time_b2 = 0.0, time_c3 = 0.0, time_b3 = 0.0, time_c4 = 0.0, time_b4 = 0.0;
   double time_c1b1 = 0.0, time_c2b2 = 0.0, time_c3b3 = 0.0, time_c4b4 = 0.0;
   double time_b1stats = 0.0, time_b2stats = 0.0, time_b3stats = 0.0, time_b4stats = 0.0;
@@ -75,10 +77,7 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
 
 #ifdef VERBOSE
   printf("running conv1 + bn1\n");
-
   std::cout << "input dtype = " << input.dtype() << std::endl;
-  std::cout << "bn1_weight dtype = " << bn1_weight.dtype() << std::endl;
-  std::cout << "bn3_weight dtype = " << bn3_weight.dtype() << std::endl;
 #endif
 
 at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
@@ -441,34 +440,37 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
 #define GB (1024.0*1024.0*1024.0)
 
 #ifdef TIMING
-        printf("perfdebug: checking for bottleneck in fwd with cfg C K H W stride: %d %d %d %d %d\n", cfg.inplanes, cfg.planes, cfg.H, cfg.W, cfg.stride);
+        //printf("perfdebug: checking for bottleneck in fwd with cfg C K H W stride: %d %d %d %d %d\n", cfg.inplanes, cfg.planes, cfg.H, cfg.W, cfg.stride);
+/*
         printf("activation size (in Mb, per core): (inp = c4_in -> c1 out = c2_in (stride) -> c2_out = c3_in -> c3_out = c4_out %f %f %f %f \n",
                                                                    (cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) / MB,
                                                                    (cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) / MB,
                                                                    (cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) / MB,
                                                                    (4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) / MB );
+*/
         double c1_ab_size = ((cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(cfg.planes)*1*1*sizeof(T)) / MB;
         double c2_ab_size = ((cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.planes)*(cfg.planes)*3*3*sizeof(T)) / MB;
         double c3_ab_size = ((cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(4*cfg.planes)*1*1*sizeof(T)) / MB;
         double c4_ab_size = ((cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(4*cfg.planes)*1*1*sizeof(T)) / MB;
+/*
         printf("conv input footprint (inp + weights) (in Mb, per core): %f %f %f %f (c1, c2, c3, c4)\n",
                                                                    c1_ab_size,
                                                                    c2_ab_size,
                                                                    c3_ab_size,
                                                                    c4_ab_size );
-
+*/
         //(2.0*(double)cfg.N*(double)cfg.C*(double)cfg.K*(double)cfg.R*(double)cfg.S*(double)cfg.ofh*(double)cfg.ofw)/(1000*1000*1000)
         double c1_gflop = (2.0*(double)cfg.N*(double)cfg.inplanes*(double)cfg.planes*(double)1*(double)1*(double)cfg.H*(double)cfg.W)/(1000*1000*1000);
         double c2_gflop = (2.0*(double)cfg.N*(double)cfg.planes*(double)cfg.planes*(double)3*(double)3*(double)(cfg.H/cfg.stride)*(double)(cfg.W/cfg.stride))/(1000*1000*1000);
         double c3_gflop = (2.0*(double)cfg.N*(double)cfg.planes*(double)4*cfg.planes*(double)1*(double)1*(double)(cfg.H/cfg.stride)*(double)(cfg.W/cfg.stride))/(1000*1000*1000);
         double c4_gflop = (2.0*(double)cfg.N*(double)cfg.inplanes*(double)4*cfg.planes*(double)1*(double)1*(double)(cfg.H/cfg.stride)*(double)(cfg.W/cfg.stride))/(1000*1000*1000);
-        printf("theoretical total conv flop: %f %f %f %f (c1, c2, c3, c4)\n", c1_gflop, c2_gflop, c3_gflop, c4_gflop);
+//        printf("theoretical total conv flop: %f %f %f %f (c1, c2, c3, c4)\n", c1_gflop, c2_gflop, c3_gflop, c4_gflop);
 
         double c1_mem_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*2*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(cfg.planes)*1*1*sizeof(T)) / GB / time_c1;
         double c2_mem_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + (double)cfg.N*2*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(cfg.planes)*3*3*sizeof(T)) / GB / time_c2;
         double c3_mem_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(4*cfg.planes)*1*1*sizeof(T)) / GB / time_c3;
         double c4_mem_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.inplanes)*(4*cfg.planes)*1*1*sizeof(T)) / GB / time_c4;
-        printf("theoretical conv flop/byte ratios: %f %f %f %f (c1, c2, c3, c4)\n", c1_gflop/c1_mem_rfo_gb, c2_gflop/c2_mem_rfo_gb, c3_gflop/c3_mem_rfo_gb, c4_gflop/c4_mem_rfo_gb);
+//        printf("theoretical conv flop/byte ratios: %f %f %f %f (c1, c2, c3, c4)\n", c1_gflop/c1_mem_rfo_gb, c2_gflop/c2_mem_rfo_gb, c3_gflop/c3_mem_rfo_gb, c4_gflop/c4_mem_rfo_gb);
 
         double c1_mem_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + (double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T) + (cfg.inplanes)*(cfg.planes)*1*1*sizeof(T)) / GB;
         double c2_mem_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + (double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + (cfg.planes)*(cfg.planes)*3*3*sizeof(T)) / GB;
@@ -529,6 +531,11 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
         printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, c3_ab_size, (1), (1), (training));
         if (cfg.has_residual_conv)
             printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, c4_ab_size, (0), (0), (training));
+#endif
+
+#ifdef TIMING
+double t_all = getTime() - t_start_all;
+printf("total time for this btlnkl fwd: %f \n", t_all);
 #endif
 
   return {bn3_out, conv1_out, bn1_out, conv2_out, bn2_out, conv3_out, bn3_out, conv4_out, residual, bn1_relu_out, bn2_relu_out, bn3_relu_out, bn4_relu_out,
