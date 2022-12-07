@@ -52,7 +52,7 @@ const int ifw = ifwp - 2 * pad_w_in;
 long ifhp_physically_padded = ifh + 2 * pad_h;
 long ifwp_physically_padded = ifw + 2 * pad_w;
 
-const int logical_padding = (pad_h_in == 0 && pad_w_in == 0 && pad_h_out == 0 && pad_w_out == 0 ? 1 : 0);
+const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 || pad_h_out == 0 || pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
 const int input_padding_copy = (logical_padding ? 1 : 0);
 
 const long N  = sizes[0];
@@ -123,11 +123,18 @@ auto t_scratch_conv = at::empty(conv_fwd_scratch_size, torch::TensorOptions().dt
 
 #ifdef VERBOSE
 std::cout << "t_I sizes = " << t_I.sizes() << std::endl;
+std::cout << "t_W sizes = " << t_W.sizes() << std::endl;
 std::cout << "size of T = " << sizeof(T) << std::endl;
 std::cout << "output_size = " << output_size << std::endl;
 std::cout << "Cb bc Kb bk = " << " " << Cb << " " << bc << " " << Kb << " " << bk << std::endl;
 std::cout << "stride_h stride_w = " << cfg.u << " " << cfg.v << std::endl;
 std::cout << "scratch size = " << conv_fwd_scratch_size << std::endl;
+#endif
+
+#ifdef VERBOSE
+auto dtype = XsmmDtype<T>();
+const int BS = xsmm_get_vnni_block_size(dtype);
+printf("BS (vnni block size) = %d \n", BS);
 #endif
 
 {
