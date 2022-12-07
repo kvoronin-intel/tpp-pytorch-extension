@@ -284,7 +284,7 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
                 # bwd_d tunings are based on results in bottleneck_*_tuning_bwd_d_not1_0721.txt
                 # bwd_w tunings are based on results in bottleneck_*_tuning_bwd_w_nohybrid_not1_0721.txt
                 if self.R == 7 and self.S == 7 and (self.in_channels == 3 or self.in_channels == 4) and self.out_channels == 64: # First Resnet-50 v1.5 convolution (applied to 224x224 images)
-                    self.tuning_params_fwd = [1, 2, 1, 1, # h,w,c,k block
+                    self.tuning_params_fwd = [1, 1, 1, 1, # h,w,c,k block
                                               1, # h_in_gemm
                                               0 ] # pack_input
                     self.tuning_string_fwd = 'Afgbdced'
