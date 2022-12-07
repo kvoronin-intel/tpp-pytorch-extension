@@ -42,7 +42,7 @@ REGISTER_SCOPE(fusedbtlnk_conv_nobatchnorm_fwd, "fusedbtlnk_conv_nobatchnorm_fwd
 
 at::Tensor conv_fwd_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs,
+    const std::vector<at::Tensor>& inputs,
     std::vector<int> tuning_params,
     std::string tuning_string,
     pybind11::array_t<float>& tuning_timings) {
@@ -65,7 +65,7 @@ at::Tensor conv_fwd_ext(
 
 at::Tensor conv_fwd_preallocated_output_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs,
+    const std::vector<at::Tensor>& inputs,
     std::vector<int> tuning_params,
     std::string tuning_string,
     pybind11::array_t<float>& tuning_timings,
@@ -93,7 +93,7 @@ at::Tensor conv_fwd_preallocated_output_ext(
 
 at::Tensor conv_fwd_as_fused_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs,
+    const std::vector<at::Tensor>& inputs,
     std::vector<int> tuning_params,
     std::string tuning_string,
     pybind11::array_t<float>& tuning_timings) {
@@ -153,7 +153,7 @@ at::Tensor conv_fwd_as_fused_ext(
 
 at::Tensor conv_fwd(
     conv_config cfg,
-    std::vector<at::Tensor> inputs) {
+    const std::vector<at::Tensor>& inputs) {
   int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
   int h_in_gemm = 1;
   int pack_input_for_1x1_strided = 0;
@@ -172,7 +172,7 @@ at::Tensor conv_fwd(
 
 at::Tensor conv_bwd_d_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs,
+    const std::vector<at::Tensor>& inputs,
     std::vector<int> tuning_params,
     std::string tuning_string,
     pybind11::array_t<float>& tuning_timings) {
@@ -195,7 +195,7 @@ at::Tensor conv_bwd_d_ext(
 
 at::Tensor conv_bwd_d(
     conv_config cfg,
-    std::vector<at::Tensor> inputs) {
+    const std::vector<at::Tensor>& inputs) {
   int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
   int h_in_gemm = 1;
   std::vector<int> default_tuning_params{h_block, w_block, c_block, k_block,
@@ -211,7 +211,7 @@ at::Tensor conv_bwd_d(
 
 at::Tensor conv_bwd_w_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs,
+    const std::vector<at::Tensor>& inputs,
     std::vector<int> tuning_params,
     std::string tuning_string,
     pybind11::array_t<float>& tuning_timings) {
@@ -241,7 +241,7 @@ at::Tensor conv_bwd_w_ext(
 
 at::Tensor conv_bwd_w(
     conv_config cfg,
-    std::vector<at::Tensor> inputs) {
+    const std::vector<at::Tensor>& inputs) {
 
   int p_block = 1;
   int bf16_use_nchw_format                      = -1;
@@ -264,19 +264,17 @@ at::Tensor conv_bwd_w(
   float *ptr = default_tuning_timings.mutable_data();
   for (int i = 0; i < 16; i++)
       ptr[i] = 0.0;
-  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
   std::string default_tuning_string;
   if (inputs[1].dtype() == at::kFloat)
     default_tuning_string = "Abcdefg";
   else
     default_tuning_string = "Abcdef";
-  //std::string default_tuning_string{"Abcdefg"};
   return conv_bwd_w_ext(cfg, inputs, default_tuning_params, default_tuning_string, default_tuning_timings);
 }
 
 std::vector<at::Tensor> conv_bwd_ext(
     conv_config cfg,
-    std::vector<at::Tensor> inputs,
+    const std::vector<at::Tensor>& inputs,
     std::vector<int> tuning_params_d,
     std::string tuning_string_d,
     pybind11::array_t<float>& tuning_timings_d,
@@ -287,13 +285,11 @@ std::vector<at::Tensor> conv_bwd_ext(
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
     auto t_grad_weight = conv_bwd_w_ext(cfg, inputs, tuning_params_w, tuning_string_w, tuning_timings_w);
-    //auto t_grad_input  = conv_bwd_d(cfg, inputs);
     auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   } else {
     typedef bfloat16 T;
     auto t_grad_weight = conv_bwd_w_ext(cfg, inputs, tuning_params_w, tuning_string_w, tuning_timings_w);
-    //auto t_grad_input  = conv_bwd_d(cfg, inputs);
     auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   }
@@ -302,7 +298,7 @@ std::vector<at::Tensor> conv_bwd_ext(
 
 std::vector<at::Tensor> conv_bwd(
     conv_config cfg,
-    std::vector<at::Tensor> inputs) {
+    const std::vector<at::Tensor>& inputs) {
   int h_block = 1, w_block = 1, c_block = 1, k_block = 1;
   int h_in_gemm = 1;
   std::vector<int> default_tuning_params_d{h_block, w_block, c_block, k_block,

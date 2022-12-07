@@ -108,15 +108,15 @@ extern std::vector<at::Tensor> batchnorm_bwd(bool relu, bool eltwise, float eps,
 extern std::vector<at::Tensor> batchnorm_bwd_ext(bool  relu, bool  eltwise, float eps, std::vector<long> padding,
                                                   std::string tuning_string_ncp, std::string tuning_string_cp, std::vector<at::Tensor> inputs);
 
-extern at::Tensor conv_fwd(conv_config cfg, std::vector<at::Tensor> inputs);
-extern std::vector<at::Tensor> conv_bwd(conv_config cfg, std::vector<at::Tensor> inputs);
+extern at::Tensor conv_fwd(conv_config cfg, const std::vector<at::Tensor>& inputs);
+extern std::vector<at::Tensor> conv_bwd(conv_config cfg, const std::vector<at::Tensor>& inputs);
 
-extern std::vector<at::Tensor> conv_bwd_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+extern std::vector<at::Tensor> conv_bwd_ext(conv_config cfg, const std::vector<at::Tensor>& inputs,
                                             std::vector<int> tuning_params_d, std::string tuning_string_d, pybind11::array_t<float>& tuning_timings_d,
                                             std::vector<int> tuning_params_w, std::string tuning_string_w, pybind11::array_t<float>& tuning_timings_w);
-extern at::Tensor conv_bwd_d_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+extern at::Tensor conv_bwd_d_ext(conv_config cfg, const std::vector<at::Tensor>& inputs,
                                  std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
-extern at::Tensor conv_bwd_w_ext(conv_config cfg, std::vector<at::Tensor> inputs,
+extern at::Tensor conv_bwd_w_ext(conv_config cfg, const std::vector<at::Tensor>& inputs,
                                  std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
 
 std::array<std::string, 2> parse_conv_loop_string_for_batchnorm(const char *conv_loop_specs, int conv_is_nckhwrs, int use_nchw_format);
