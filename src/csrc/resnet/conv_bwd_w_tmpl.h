@@ -494,6 +494,12 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     gemm_m = bk;
     gemm_k = bn;
 
+    auto dtype = XsmmDtype<T>();
+    const int BS = xsmm_get_vnni_block_size(dtype);
+#ifdef VERBOSE
+    printf("BS (vnni block size) = %d \n", BS);
+#endif
+
     //auto tr_unary_shape = libxsmm_create_meltw_unary_shape(bc, bn, C*ifhp*ifwp, bn, dtype, dtype, dtype);
     //trans_xform_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
     //std::cout << "trans_xform_tpp " << std::endl;
@@ -656,7 +662,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
       //transpose_input_pixels_bf16 = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT, new_tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
       transpose_input_pixels_bf16_xform_tpp = SCOPEIT(XformExtTPP<T>(ifwp, bc, bc, ifwp, bc, input_pixels, XformTPP::XFORM_XPOSE_TPP, false), XPOSE); /* assuming row-major-ness */
       //new_tr_unary_shape = libxsmm_create_meltw_unary_shape(bk, compute_pixels, bk, bk, dtype, dtype, dtype);
-      if ((ofhp * ofwp) % 2 == 0) {
+      if (compute_pixels % BS == 0) {
         //vnni_output_compute_pixels_bf16 =  libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI2, new_tr_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE );
         vnni_output_compute_pixels_bf16_xform_tpp = SCOPEIT(XformExtTPP<T>(compute_pixels, bk, compute_pixels, bk, bk, bk, XformTPP::XFORM_N2V_TPP, false), XPOSE); /* assuming row-major-ness */
       } else {

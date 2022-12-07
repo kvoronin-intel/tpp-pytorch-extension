@@ -12,6 +12,9 @@ from pcl_pytorch_extension.utils.blocked_layout import (
     get_blocking_signature,
 )
 from pcl_pytorch_extension._C import _conv as conv_cpp
+
+from pcl_pytorch_extension.utils.xsmm import get_vnni_blocking
+
 import time
 from contextlib import contextmanager
 
@@ -167,8 +170,12 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
         self.dtype        = dtype
         self.use_bf16     = True if self.dtype == torch.bfloat16 else False
 
-        if self.use_bf16 and self.C_pad%2 != 0:
-          self.C_pad = self.C_pad + 1
+        self.low_prec_vnni_blocking = get_vnni_blocking(dtype)
+
+        print("dbg: in DummyConv2dTPP constructor self.low_prec_vnni_blocking = ", self.low_prec_vnni_blocking)
+
+        if self.use_bf16 and self.C_pad%self.low_prec_vnni_blocking != 0:
+          self.C_pad = self.C_pad + (self.low_prec_vnni_blocking - self.C_pad)
 
         #super(XsmmConv2dTPP, self).__init__()
         #nn_Conv2d.__init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
@@ -214,6 +221,8 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
         self.pad_h_out = 0 if self.logical_padding else self.pad_h
         self.pad_w_out = 0 if self.logical_padding else self.pad_w
 
+        print("C, C_pad, pad_h_in, pad_w_in, pad_h_out, pad_w_out = ", self.C, self.C_pad, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out)
+
         self.config       = None
 
         self.weight = BlockedParameter(self.weight.data)
@@ -232,13 +241,17 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
             self.preset_blocksizes = True
             self.Cblock   = bc
             self.Kblock   = bk
-            self.lp_block = 1 if self.dtype == torch.float else 2
+            self.lp_block = 1 if self.dtype == torch.float else self.low_prec_vnni_blocking
         else:
             self.preset_blocksizes = False
             [self.Cblock, self.Kblock, self.lp_block] = conv_cpp.conv_get_feature_map_blocks(self.C_pad, self.K, 0 if self.dtype == torch.float else 1)
 
-        #print("debug: preset_blocksizes = ", self.preset_blocksizes)
-        #print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
+            if self.low_prec_vnni_blocking != 2:
+                print("Error: DummyConv2dTPP constructor uses conv_get_feature_map_blocks() which only can produce 2 as VNNI blocking factor")
+                exit()
+
+        print("debug: preset_blocksizes = ", self.preset_blocksizes)
+        print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
 
         if self.use_bf16:
             self.weight.set_blocking_param(

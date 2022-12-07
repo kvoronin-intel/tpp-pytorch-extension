@@ -3,6 +3,8 @@ from . import conv
 from . import bottleneck
 
 from pcl_pytorch_extension.utils.blocked_layout import block_model_params as block
+from pcl_pytorch_extension.utils.xsmm import get_vnni_blocking
+
 from contextlib import contextmanager
 
 @contextmanager

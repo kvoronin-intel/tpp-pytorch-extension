@@ -7,6 +7,7 @@
 
 #include "init.h"
 #include "utils.h"
+#include "xsmm_functors.h"
 
 thread_local unsigned int* rng_state = NULL;
 thread_local struct drand48_data drng_state; // For non AVX512 version
@@ -53,7 +54,13 @@ void init_libxsmm() {
   xsmm_manual_seed(0);
 }
 
+int get_vnni_blocking(py::object dtype) {
+  c10::ScalarType type = torch::python::detail::py_object_to_dtype(dtype);
+  return pcl::get_vnni_block_size(type);
+}
+
 REGISTER_SUBMODULE(_xsmm, m) {
   m.def("manual_seed", &xsmm_manual_seed, "Set libxsmm random seed");
   m.def("init_libxsmm", &init_libxsmm, "Initialize libxsmm");
+  m.def("get_vnni_blocking", &get_vnni_blocking, "Get VNNI blocking (2 or 4)");
 }
