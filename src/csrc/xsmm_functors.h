@@ -4577,7 +4577,7 @@ class SplitSGDExtTPP {
         eqn_momentum(this, 1),
         eqn_lr(this, 2),
         copy_kernel(
-            N, 1, N, N,
+            1, N, N, N,
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_DATATYPE_F32,
             LIBXSMM_DATATYPE_F32,
@@ -4875,7 +4875,7 @@ class SGDExtTPP {
         eqn_momentum(this, 1),
         eqn_lr(this, 2),
         copy_kernel(
-            N, 1, N, N,
+            1, N, N, N,
             XsmmDtype<T>(),
             XsmmDtype<T>(),
             XsmmDtype<T>(), // LIBXSMM_DATATYPE_F32,
