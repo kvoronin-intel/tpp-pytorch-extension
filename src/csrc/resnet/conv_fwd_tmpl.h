@@ -13,7 +13,7 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-//#define VERBOSE
+#define VERBOSE
 
 #define NTIMES_CONV 1
 
@@ -52,7 +52,7 @@ const int ifw = ifwp - 2 * pad_w_in;
 long ifhp_physically_padded = ifh + 2 * pad_h;
 long ifwp_physically_padded = ifw + 2 * pad_w;
 
-const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 || pad_h_out == 0 || pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
+const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 && pad_h_out == 0 && pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
 const int input_padding_copy = (logical_padding ? 1 : 0);
 
 const long N  = sizes[0];
@@ -276,10 +276,13 @@ printf("BS (vnni block size) = %d \n", BS);
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d   %d %d   %d %d %d %d %d %d  1000 %d %d \n", N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
-                                        N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h, pad_w,
-                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
-                                        logical_padding, input_padding_copy);
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d   %d %d   %d %d %d %d %d %d  1000 %d %d \n",
+          (int)N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
+          (int)N, ifh, ifw, cfg.C, cfg.K, R, S,
+          stride_h, stride_w, pad_h, pad_w,
+          bc, bk,
+          h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
+          logical_padding, input_padding_copy);
 #endif
 
   auto input_pad_loop = ThreadedLoop<2>({

@@ -26,6 +26,10 @@ t_start = getTime();
 
 //#define VERBOSE
 
+#ifndef BITS_PER_CHAR
+#   define BITS_PER_CHAR (8)
+#endif
+
 #ifdef MAKE_INPUT_HOT
   #ifdef VERBOSE
   printf("MAKE_INPUT_HOT is active!\n");
@@ -189,8 +193,6 @@ std::cout << "BCAST_UPFRONT is not enabled (with full H-W-bc processing without 
 
   DECL_VLA_PTR_PT    (float, sum_X_X2, [CP][bc],      t_scratch);
   DECL_VLA_PTR_PT_EXT(float, sums_N,   [N][2*bc],     t_scratch, sum_N_offset);
-  //DECL_VLA_PTR_PT_EXT(float, sum_N,    [N][bc],       t_scratch, sum_N_offset);
-  //DECL_VLA_PTR_PT_EXT(float, sumsq_N,  [N][bc],       t_scratch, sumsq_N_offset);
 #endif
 
   auto zero_tpp = SCOPEIT(SetZeroTPP<float>(bc), EW_ZERO);
@@ -282,7 +284,7 @@ if (bcast_upfront) {
   if (training) {
     for (int i = 0; i < NUM_ITER_PERF_DEBUG; i++)
     {
-      RECORD_SCOPE(bn_fwd_reduce, {});//{t_HS, t_Wq_V});
+      RECORD_SCOPE(bn_fwd_reduce, {});
       {
 #ifdef THREADED_LOOPS
         ncp_loop(
@@ -397,19 +399,18 @@ if (bcast_upfront) {
   } /* end of if (training) for computing the stats */
 
 #ifdef USE_VTUNE
-    if (CP*bc == 256 && ifhp == 56 && ifwp == 56) {
-      //__itt_resume();
-      //printf("Called resume\n");
-      __itt_frame_begin_v3(ITT_DOMAIN, NULL);
-      printf("Called frame_begin\n");
-    } else {
-      //printf("Cp*bc = %d ifhwp = %d ifwp = %d \n", CP*bc, ifhp, ifwp);
-      printf("Did not call frame_begin\n");
-    }
+  if (CP*bc == 256 && ifhp == 56 && ifwp == 56) {
+    //__itt_resume();
+    //printf("Called resume\n");
+    __itt_frame_begin_v3(ITT_DOMAIN, NULL);
+    printf("Called frame_begin\n");
+  } else {
+    printf("Did not call frame_begin\n");
+  }
 #endif
 
 #ifdef TIMING
-    t_bn_scale_start = getTime();
+  t_bn_scale_start = getTime();
 #endif
 
   for (int i = 0; i < NUM_ITER_PERF_DEBUG; i++)
@@ -718,6 +719,10 @@ printf("t scale = %6.6f \n", t_end  - t_bn_scale_start);
 
 #endif
 
+#ifdef BITS_PER_CHAR
+  #undef BITS_PER_CHAR
+#endif
+
 #ifdef VERBOSE
   #undef VERBOSE
 #endif
@@ -732,5 +737,4 @@ printf("t scale = %6.6f \n", t_end  - t_bn_scale_start);
   #undef USE_VTUNE
 #endif
 
-//return std::vector<at::Tensor>({t_O, t_relu_mask, inputs[6]});
 return std::vector<at::Tensor>({t_O, t_relu_mask, t_scratch});

@@ -4,7 +4,7 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 
 #define TIMING
 
-//#define VERBOSE
+#define VERBOSE
 
 #define NTIMES_CONV 1
 
@@ -101,7 +101,7 @@ int ifwp_physically_padded = ifw + 2 * pad_w;
 int ofhp_physically_padded = ofh + 2 * pad_h;
 int ofwp_physically_padded = ofw + 2 * pad_w;
 
-const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 || pad_h_out == 0 || pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
+const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 && pad_h_out == 0 && pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
 
 int nThreads = cfg.threads;
 
@@ -133,13 +133,13 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
 
   /* Some algorithmic knobs  */
   /* Uses parallelism in the MB dimension for f32 precision */
-  long use_mb_par_f32 = 1; //1; FIXME back
+  int use_mb_par_f32 = 1; //1; FIXME back
 
   /* Fuse bf16 necessary transposes */
   if (!is_fixed_bf16_use_nchw_format)
     bf16_use_nchw_format = 1;//1; // FIXME back!
-  long bf16_use_chwn_format = 1;
-  long bf16_fuse_upd_transposes = 1; //1; FIXME back!
+  int bf16_use_chwn_format = 1;
+  int bf16_fuse_upd_transposes = 1; //1; FIXME back!
   if (!is_fixed_fuse_upd_transposes)
     bf16_fuse_upd_transposes = 1;//1; FIXME back!
   else
@@ -150,7 +150,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
     bf16_acc_nw = 1;
   if (!is_fixed_par_over_h_pixels)
     par_over_h_pixels = 1;
-  long use_private_trans = 0;
+  int use_private_trans = 0;
 
   /* Control variants for nchw format */
   if (!is_fixed_pack_input_upfront)
@@ -163,24 +163,24 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   long input_compute_pad = 0;
   long input_pixels = 0;
   long output_pixels = 0;
-  long pixel_blocking = 0;
   long n_used_pixels = 0;
-  long use_intermediate_f32_wt_tensor = 0;
+  int pixel_blocking = 0;
+  int use_intermediate_f32_wt_tensor = 0;
   if (!is_fixed_use_hybrid_imgfm_parallelization)
     use_hybrid_imgfm_parallelization = 0; //0; FIXME back
   if (!is_fixed_n_img_teams)
     n_img_teams = 7;
   if (!is_fixed_n_ofm_teams)
     n_ofm_teams = 4;
-  long weight_copies = 0;
-  long multiple_target = 32;
-  long max_compute_offset_input = 0;
+  int weight_copies = 0;
+  int multiple_target = 32;
+  int max_compute_offset_input = 0;
   if (!is_fixed_use_f32_wt_reduction_and_external_wt_vnni)
     use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
   if (!is_fixed_compute_full_wt_output_block)
     compute_full_wt_output_block = 0; // 0; FIXME back
 
-  long pixels_blocking_factor = p_block;//1;
+  int pixels_blocking_factor = p_block;//1;
 
   if(R == 3 && S == 3 && (stride_w != 1 || stride_h != 1)) {
     if (!is_fixed_bf16_use_nchw_format && !is_fixed_compute_full_wt_output_block && !is_fixed_n_img_teams && !is_fixed_n_ofm_teams  ) {
@@ -326,18 +326,14 @@ if (sizeof(T) == 2) {
       if (!do_not_reset_use_intermediate_f32_wt_tensor)
         use_intermediate_f32_wt_tensor = (pixel_blocking == n_used_pixels) ? 0 : 1;
 #ifdef VERBOSE
-      printf("dbg: pixel_blocking = %d, n_used_pixels = %d use_intermediate_f32_wt_tensor = %d \n", pixel_blocking, n_used_pixels, use_intermediate_f32_wt_tensor);
+      printf("dbg: pixel_blocking = %d, n_used_pixels = %ld use_intermediate_f32_wt_tensor = %d \n", pixel_blocking, n_used_pixels, use_intermediate_f32_wt_tensor);
 #endif
-      float beta = (use_intermediate_f32_wt_tensor) ? (float)1.0 : (float)0.0;
-      if (use_hybrid_imgfm_parallelization == 0) {
-        ;
-      } else {
-        ;
-      }
+      //float beta = (use_intermediate_f32_wt_tensor) ? (float)1.0 : (float)0.0;
+
       upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
 
 #ifdef VERBOSE
-      printf("dbg: extra computed parameters: upd_remaining_pixels: %d\n", upd_remaining_pixels);
+      printf("dbg: extra computed parameters: upd_remaining_pixels: %ld\n", upd_remaining_pixels);
 #endif
     }
   //input_linearized_pixels  = (DType*)libxsmm_aligned_malloc( N*input_pixels*C*sizeof(DType), 2097152);
@@ -692,29 +688,32 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
 #ifdef VERBOSE
 
   if (sizeof(T) == 2)
-    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d %d %d  %d %d %d  %d %d %d  %d %d %d %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
-                                          N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h, pad_w,
-                                          bc, bk, 1000,
-                                          bf16_use_nchw_format, bf16_fuse_upd_transposes, bf16_acc_nw,
-                                          par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor,
-                                          use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams,
-                                          use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pixels_blocking_factor,
-                                          logical_padding);
+    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s  %d %d %d %d %d %d %d  %d %d %d %d  %d %d  1000  %d %d %d  %d %d %d  %d %d %d  %d %d %d %d \n",
+              (int)N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
+              (int)N, ifh, ifw, cfg.C, cfg.K, R, S,
+              stride_h, stride_w, pad_h, pad_w,
+              bc, bk,
+              bf16_use_nchw_format, bf16_fuse_upd_transposes, bf16_acc_nw,
+              par_over_h_pixels, pack_input_upfront, use_intermediate_f32_wt_tensor,
+              use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams,
+              use_f32_wt_reduction_and_external_wt_vnni, compute_full_wt_output_block, pixels_blocking_factor,
+              logical_padding);
   else /* fp32 */
-    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d \n", N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
-                                          N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h, pad_w,
-                                          bc, bk, 1000, use_mb_par_f32);
+    printf("parlooper upd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_upd.sh %s %d %d %d %d %d  %d %d  %d %d  %d %d  %d %d  %d  %d \n",
+            (int)N, (sizeof(T) == 2 ? 1 : 0), (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
+            (int)N, ifh, ifw, cfg.C, cfg.K, R, S, stride_h, stride_w, pad_h, pad_w,
+            bc, bk, 1000, use_mb_par_f32);
 
   printf("conv_ext upd string: python -u test_conv_ext.py --test-module ext_tpp %s --with-bwd --perf-bwd-w --bc %d --bk %d --basic-sizes %d %d %d %d %d %d %d"
          "  --tuning-params %d %d  %d %d %d  %d %d %d  %d %d %d --tuning-string %s --niters 1000 --niters-warmup 100 %s \n",
-                                        (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
-                                        N, ifh, ifw, cfg.C, cfg.K, stride_h, R,
-                                        p_block, bf16_use_nchw_format,
-                                        pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
-                                        bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
-                                        use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams,
-                                        (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
-                                        (logical_padding ? "--logical-padding" : ""));
+          (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
+          (int)N, ifh, ifw, cfg.C, cfg.K, stride_h, R,
+          p_block, bf16_use_nchw_format,
+          pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni,
+          bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block,
+          use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams,
+          (sizeof(T) == 2 ? bf16_conv_spec_string : fp32_conv_spec_string),
+          (logical_padding ? "--logical-padding" : ""));
 
 #endif
 
@@ -777,7 +776,6 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
       LoopSpecs{0, S, s_step}},
       "ABCD");
 
-  char nchw_format_loop_spec[256];
   auto tr_input_nchw_loop = ThreadedLoop<2>({
       LoopSpecs{0, N, _n_step},
       LoopSpecs{0, Cb, _c_step}},
@@ -788,9 +786,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
       LoopSpecs{0, Kb, _k_step}},
       "Ab");
 
-  if (use_hybrid_imgfm_parallelization == 0) {
-    //sprintf(nchw_format_loop_spec, "Abcdef");
-  } else {
+  if (use_hybrid_imgfm_parallelization != 0) {
     if (compute_full_wt_output_block > 0) {
       _n_step = N;
     } else {
@@ -798,12 +794,11 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
     }
   }
 
-
   auto conv_loop_bf16_nchw = ThreadedLoop<6>({
       LoopSpecs{0, N, _n_step, true},
       LoopSpecs{0, Cb, _c_step, true},
       LoopSpecs{0, Kb, _k_step, true},
-      LoopSpecs{0, n_used_pixels, pixel_blocking},
+      LoopSpecs{0, n_used_pixels, (long)pixel_blocking},
       LoopSpecs{0, R, _r_step, true},
       LoopSpecs{0, S, _s_step, true}},
       bf16_conv_spec_string);

@@ -26,29 +26,29 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   auto bn3_var      = inputs[19];
   auto bn4_var      = inputs[20];
 
-  const long h1_block = tuning_params[0];
-  const long w1_block = tuning_params[1];
-  const long h2_block = tuning_params[2];
-  const long w2_block = tuning_params[3];
-  const long h3_block = tuning_params[4];
-  const long w3_block = tuning_params[5];
-  const long h4_block = tuning_params[6];
-  const long w4_block = tuning_params[7];
-  const long c1_block = tuning_params[8];
-  const long k1_block = tuning_params[9];
-  const long c2_block = tuning_params[10];
-  const long k2_block = tuning_params[11];
-  const long c3_block = tuning_params[12];
-  const long k3_block = tuning_params[13];
-  const long c4_block = tuning_params[14];
-  const long k4_block = tuning_params[15];
-  const long h1_in_gemm = tuning_params[16];
-  const long h2_in_gemm = tuning_params[17];
-  const long h3_in_gemm = tuning_params[18];
-  const long h4_in_gemm = tuning_params[19];
-  const long pack_input_for_1x1_strided = tuning_params[20];
-  //const long fuse_stats = tuning_params[21];
-  long fuse_stats = tuning_params[21];
+  const int h1_block = tuning_params[0];
+  const int w1_block = tuning_params[1];
+  const int h2_block = tuning_params[2];
+  const int w2_block = tuning_params[3];
+  const int h3_block = tuning_params[4];
+  const int w3_block = tuning_params[5];
+  const int h4_block = tuning_params[6];
+  const int w4_block = tuning_params[7];
+  const int c1_block = tuning_params[8];
+  const int k1_block = tuning_params[9];
+  const int c2_block = tuning_params[10];
+  const int k2_block = tuning_params[11];
+  const int c3_block = tuning_params[12];
+  const int k3_block = tuning_params[13];
+  const int c4_block = tuning_params[14];
+  const int k4_block = tuning_params[15];
+  const int h1_in_gemm = tuning_params[16];
+  const int h2_in_gemm = tuning_params[17];
+  const int h3_in_gemm = tuning_params[18];
+  const int h4_in_gemm = tuning_params[19];
+  const int pack_input_for_1x1_strided = tuning_params[20];
+  //const int fuse_stats = tuning_params[21];
+  int fuse_stats = tuning_params[21];
 
   const std::string c1_string = tuning_strings[0];
   const std::string c2_string = tuning_strings[1];
@@ -81,8 +81,6 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
 #endif
 
 at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
-
-#if !defined(EXT_STUDY2)
 
 //RECORD_SCOPE("conv1_bn1_fwd", std::vector<c10::IValue>());
 {
@@ -150,23 +148,6 @@ at::Tensor conv1_out, bn1_out, bn1_relu_out, bn1_scratch_out;
 #endif
 }
 
-#ifdef EXT_STUDY1
-#ifdef TIMING
-  {
-    auto buf = tuning_timings.request();
-    float* ptr = (float*)buf.ptr;
-    ptr[0] += time_c1;
-    ptr[4] += time_b1;
-    ptr[8] += time_c1b1;
-    ptr[12] += time_c1b1extra;
-  }
-#endif
-
-  return {conv1_out, bn1_out};
-#endif
-
-#endif /* for #if !defined(EXT_STUDY2) */
-
 #ifdef VERBOSE
   printf("running conv2 + bn2\n");
 #endif
@@ -186,11 +167,7 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   #define ITT_DOMAIN bn2_domain
 #endif
 
-#ifdef EXT_STUDY2
-  auto t_CI  = input;
-#else
   auto t_CI  = bn1_out;
-#endif
   auto t_CW  = conv2_weight;
 
   auto conv_cfg = cfg.conv2;
@@ -242,22 +219,6 @@ at::Tensor conv2_out, bn2_out, bn2_relu_out, bn2_scratch_out;
   time_c2b2extra = (t_end - t_start) - (time_c2 + time_b2);
 #endif
 }
-
-#ifdef EXT_STUDY2
-#ifdef TIMING
-  {
-    auto buf = tuning_timings.request();
-    float* ptr = (float*)buf.ptr;
-    ptr[1] += time_c2;
-    ptr[5] += time_b2;
-    ptr[9] += time_c2b2;
-    ptr[13] += time_c2b2extra;
-  }
-#endif
-
-  return {conv2_out, bn2_out};
-#endif
-
 
   at::Tensor conv4_out, residual, bn4_relu_out, bn4_scratch_out;
   if (cfg.has_residual_conv) {
@@ -459,6 +420,7 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
                                                                    c3_ab_size,
                                                                    c4_ab_size );
 */
+/*
         //(2.0*(double)cfg.N*(double)cfg.C*(double)cfg.K*(double)cfg.R*(double)cfg.S*(double)cfg.ofh*(double)cfg.ofw)/(1000*1000*1000)
         double c1_gflop = (2.0*(double)cfg.N*(double)cfg.inplanes*(double)cfg.planes*(double)1*(double)1*(double)cfg.H*(double)cfg.W)/(1000*1000*1000);
         double c2_gflop = (2.0*(double)cfg.N*(double)cfg.planes*(double)cfg.planes*(double)3*(double)3*(double)(cfg.H/cfg.stride)*(double)(cfg.W/cfg.stride))/(1000*1000*1000);
@@ -486,7 +448,7 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
         double c2_mem_act_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)   + 2*(double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
         double c3_mem_act_rfo_gb = ((double)cfg.N*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) + 2*(double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
         double c4_mem_act_rfo_gb = ((double)cfg.N*(cfg.inplanes)*(cfg.H)*(cfg.W)*sizeof(T) + 2*(double)cfg.N*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T) ) / GB;
-
+*/
         double c1_mem_write_rfo_gb = ((double)cfg.N*2*(cfg.planes)*(cfg.H)*(cfg.W)*sizeof(T)) / GB / time_c1;
         double c2_mem_write_rfo_gb = ((double)cfg.N*2*(cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T)) / GB / time_c2;
         double c3_mem_write_rfo_gb = ((double)cfg.N*2*(4*cfg.planes)*(cfg.H / cfg.stride)*(cfg.W / cfg.stride)*sizeof(T)) / GB / time_c3;
@@ -530,7 +492,7 @@ at::Tensor conv3_out, bn3_out, bn3_relu_out, bn3_scratch_out;
         printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (1), (0), time_b2, c2_ab_size, (1), (0), (training));
         printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, c3_ab_size, (1), (1), (training));
         if (cfg.has_residual_conv)
-            printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, c4_ab_size, (0), (0), (training));
+            printf("PERFDUMP,FP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, c4_ab_size, (0), (0), (training));
 #endif
 
 #ifdef TIMING

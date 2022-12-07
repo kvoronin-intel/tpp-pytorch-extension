@@ -1018,7 +1018,6 @@ void fused_sgd_v2_impl(
     LIBXSMM_ALIGNED(float g_f32[BS], 64);
     LIBXSMM_ALIGNED(float d_f32[BS], 64);
     //LIBXSMM_ALIGNED(float m_f32[BS], 64);
-    LIBXSMM_ALIGNED(bfloat16 g_downconvert_bf16[BS], 64);
 
     if (std::is_same<T, float>::value) {
       copy_f32_tpp((float*)g[i], &g_f32[0]);
@@ -1076,15 +1075,6 @@ void fused_sgd_v2_impl(
         in_hi_cast[j] = bf16_hp.i[1];
         //printf("bf16_w combined as float after lr = %6.6f \n", bf16_hp.f);
       }
-#if 0
-does the wrong thing
-      downconvert_tpp(&g_f32[0], (T*)&g_downconvert_bf16[0]);
-      scale_add_split_bf16_tpp(
-          (at::BFloat16*)d[i],
-          (at::BFloat16*)dl[i],
-          (at::BFloat16*)&g_downconvert_bf16[0],//g[i],
-          -lr);
-#endif
       //LIBXSMM_ALIGNED(float d_dbg_f32[BS], 64);
       //upconvert_split_tpp((bfloat16*)d[i], (bfloat16*)dl[i], &d_dbg_f32[0]);
       //printf("dbg: after lr d_dbg_f32 = %6.6f \n", d_dbg_f32[0]);

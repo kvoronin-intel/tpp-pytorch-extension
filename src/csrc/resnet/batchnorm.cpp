@@ -27,7 +27,7 @@ static int my_rank = guess_mpi_rank();
 #define THREADED_LOOPS
 
 #ifdef THREADED_LOOPS
-#   warning "Building batchnorm with threaded loops instead of OpenMP pragmas"
+//#   warning "Building batchnorm with threaded loops instead of OpenMP pragmas"
 #   include "threaded_loops.h"
 #endif
 
@@ -38,10 +38,6 @@ REGISTER_SCOPE(bn_fwd_scale,    "bn_fwd_scale");
 REGISTER_SCOPE(bn_bwd_w_inpadd, "bn_bwd_w_inpadd");
 REGISTER_SCOPE(bn_bwd_w_add,    "bn_bwd_w_add");
 REGISTER_SCOPE(bn_bwd_d,        "bn_bwd_d");
-
-#ifndef BITS_PER_CHAR
-#   define BITS_PER_CHAR (8)
-#endif
 
 std::vector<at::Tensor> batchnorm_fwd_ext(
     bool  training,

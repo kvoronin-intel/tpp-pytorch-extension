@@ -20,12 +20,13 @@ using namespace pcl;
 
 static int my_rank = guess_mpi_rank();
 
+// used for debugging
 static int counter = 0;
 
 #define THREADED_LOOPS
 
 #ifdef THREADED_LOOPS
-#   warning "Building conv with threaded loops instead of OpenMP pragmas"
+//#   warning "Building conv with threaded loops instead of OpenMP pragmas"
 #   include "threaded_loops.h"
 #endif
 
@@ -48,12 +49,12 @@ at::Tensor conv_fwd_ext(
     pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(FWD);
 
-  const long h_block = tuning_params[0];
-  const long w_block = tuning_params[1];
-  const long c_block = tuning_params[2];
-  const long k_block = tuning_params[3];
-  const long h_in_gemm = tuning_params[4];
-        long pack_input = tuning_params[5];
+  const int h_block = tuning_params[0];
+  const int w_block = tuning_params[1];
+  const int c_block = tuning_params[2];
+  const int k_block = tuning_params[3];
+  const int h_in_gemm = tuning_params[4];
+        int pack_input = tuning_params[5];
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
 #include "conv_fwd_tmpl.h"
@@ -72,12 +73,12 @@ at::Tensor conv_fwd_preallocated_output_ext(
     at::Tensor t_O) {
   GlobalPass _gp(FWD);
 
-  const long h_block = tuning_params[0];
-  const long w_block = tuning_params[1];
-  const long c_block = tuning_params[2];
-  const long k_block = tuning_params[3];
-  const long h_in_gemm = tuning_params[4];
-        long pack_input = tuning_params[5];
+  const int h_block = tuning_params[0];
+  const int w_block = tuning_params[1];
+  const int c_block = tuning_params[2];
+  const int k_block = tuning_params[3];
+  const int h_in_gemm = tuning_params[4];
+        int pack_input = tuning_params[5];
 #define TIMING
 #define PREALLOCATED_OUTPUT
   if (inputs[0].dtype() == at::kFloat) {
@@ -102,12 +103,12 @@ at::Tensor conv_fwd_as_fused_ext(
 //for (int i = 0; i < 1000; i++) {
 #define NO_BATCHNORM
 #define TIMING
-  const long h_block = tuning_params[0];
-  const long w_block = tuning_params[1];
-  const long c_block = tuning_params[2];
-  const long k_block = tuning_params[3];
-  const long h_in_gemm = tuning_params[4];
-        long pack_input = tuning_params[5];
+  const int h_block = tuning_params[0];
+  const int w_block = tuning_params[1];
+  const int c_block = tuning_params[2];
+  const int k_block = tuning_params[3];
+  const int h_in_gemm = tuning_params[4];
+        int pack_input = tuning_params[5];
 
 
   auto t_CI  = inputs[0];//input;
@@ -120,7 +121,7 @@ at::Tensor conv_fwd_as_fused_ext(
   auto fuse_stats = 0;
   auto conv_loop_string = tuning_string;
 
-  double t_start, t_conv_start, t_conv_end, t_bn_stats_end, t_bn_end, t_end;
+  double t_start, t_conv_start, t_conv_end, /*t_bn_stats_end, t_bn_end,*/ t_end;
 
   if (inputs[0].dtype() == at::kFloat) {
     typedef float T;
@@ -131,9 +132,9 @@ at::Tensor conv_fwd_as_fused_ext(
   }
 
   #undef CONV_OUT
-#ifdef TIMING
-  auto time_c1        = t_conv_end - t_conv_start;
-#endif
+//#ifdef TIMING
+//  auto time_c1        = t_conv_end - t_conv_start;
+//#endif
 
 #ifdef TIMING
   auto buf = tuning_timings.request();
@@ -178,11 +179,11 @@ at::Tensor conv_bwd_d_ext(
     pybind11::array_t<float>& tuning_timings) {
   GlobalPass _gp(BWD);
 
-  const long h_block = tuning_params[0];
-  const long w_block = tuning_params[1];
-  const long c_block = tuning_params[2];
-  const long k_block = tuning_params[3];
-        long h_in_gemm = tuning_params[4];
+  const int h_block   = tuning_params[0];
+  const int w_block   = tuning_params[1];
+  const int c_block   = tuning_params[2];
+  const int k_block   = tuning_params[3];
+        int h_in_gemm = tuning_params[4];
 
   if (inputs[1].dtype() == at::kFloat) {
     typedef float T;
@@ -283,17 +284,16 @@ std::vector<at::Tensor> conv_bwd_ext(
     pybind11::array_t<float>& tuning_timings_w) {
   GlobalPass _gp(BWD);
   if (inputs[1].dtype() == at::kFloat) {
-    typedef float T;
+    //typedef float T;
     auto t_grad_weight = conv_bwd_w_ext(cfg, inputs, tuning_params_w, tuning_string_w, tuning_timings_w);
     auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   } else {
-    typedef bfloat16 T;
+    //typedef bfloat16 T;
     auto t_grad_weight = conv_bwd_w_ext(cfg, inputs, tuning_params_w, tuning_string_w, tuning_timings_w);
     auto t_grad_input  = conv_bwd_d_ext(cfg, inputs, tuning_params_d, tuning_string_d, tuning_timings_d);
     return std::vector<at::Tensor> {t_grad_input, t_grad_weight};
   }
-
 }
 
 std::vector<at::Tensor> conv_bwd(

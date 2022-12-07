@@ -57,26 +57,26 @@ t_start_all = getTime();
   auto bn4_scratch   = inputs[37];
 
 #ifndef BWD_W_ONLY
-  const long c1_hblock = tuning_params_d[0];
-  const long c1_wblock = tuning_params_d[1];
-  const long c2_hblock = tuning_params_d[2];
-  const long c2_wblock = tuning_params_d[3];
-  const long c3_hblock = tuning_params_d[4];
-  const long c3_wblock = tuning_params_d[5];
-  const long c4_hblock = tuning_params_d[6];
-  const long c4_wblock = tuning_params_d[7];
-  const long c1_cblock = tuning_params_d[8];
-  const long c1_kblock = tuning_params_d[9];
-  const long c2_cblock = tuning_params_d[10];
-  const long c2_kblock = tuning_params_d[11];
-  const long c3_cblock = tuning_params_d[12];
-  const long c3_kblock = tuning_params_d[13];
-  const long c4_cblock = tuning_params_d[14];
-  const long c4_kblock = tuning_params_d[15];
-  const long c1_h_in_gemm = tuning_params_d[16];
-  const long c2_h_in_gemm = tuning_params_d[17];
-  const long c3_h_in_gemm = tuning_params_d[18];
-  const long c4_h_in_gemm = tuning_params_d[19];
+  const int c1_hblock = tuning_params_d[0];
+  const int c1_wblock = tuning_params_d[1];
+  const int c2_hblock = tuning_params_d[2];
+  const int c2_wblock = tuning_params_d[3];
+  const int c3_hblock = tuning_params_d[4];
+  const int c3_wblock = tuning_params_d[5];
+  const int c4_hblock = tuning_params_d[6];
+  const int c4_wblock = tuning_params_d[7];
+  const int c1_cblock = tuning_params_d[8];
+  const int c1_kblock = tuning_params_d[9];
+  const int c2_cblock = tuning_params_d[10];
+  const int c2_kblock = tuning_params_d[11];
+  const int c3_cblock = tuning_params_d[12];
+  const int c3_kblock = tuning_params_d[13];
+  const int c4_cblock = tuning_params_d[14];
+  const int c4_kblock = tuning_params_d[15];
+  const int c1_h_in_gemm = tuning_params_d[16];
+  const int c2_h_in_gemm = tuning_params_d[17];
+  const int c3_h_in_gemm = tuning_params_d[18];
+  const int c4_h_in_gemm = tuning_params_d[19];
 
   const std::string cd1_string = tuning_strings_d[0];
   const std::string cd2_string = tuning_strings_d[1];
@@ -85,57 +85,57 @@ t_start_all = getTime();
 #endif
 
 #ifndef BWD_D_ONLY
-  const long c1_use_nchw_format                            = tuning_params_w[0];
-  const long c1_fuse_upd_transposes                        = tuning_params_w[1];
-  const long c1_bf16_acc_nw                                = tuning_params_w[2];
-  const long c1_par_over_h_pixels                          = tuning_params_w[3];
-  const long c1_pack_input_upfront                         = tuning_params_w[4];
-  const long c1_use_intermediate_f32_wt_tensor             = tuning_params_w[5];
-  const long c1_use_hybrid_imgfm_parallelization           = tuning_params_w[6];
-  const long c1_n_img_teams                                = tuning_params_w[7];
-  const long c1_n_ofm_teams                                = tuning_params_w[8];
-  const long c1_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9];
-  const long c1_compute_full_wt_output_block               = tuning_params_w[10];
-  const long c1_pblock                                     = tuning_params_w[11];
+  const int c1_use_nchw_format                            = tuning_params_w[0];
+  const int c1_fuse_upd_transposes                        = tuning_params_w[1];
+  const int c1_bf16_acc_nw                                = tuning_params_w[2];
+  const int c1_par_over_h_pixels                          = tuning_params_w[3];
+  const int c1_pack_input_upfront                         = tuning_params_w[4];
+  //const int c1_use_intermediate_f32_wt_tensor             = tuning_params_w[5]; a local varaible is used instead
+  const int c1_use_hybrid_imgfm_parallelization           = tuning_params_w[6];
+  const int c1_n_img_teams                                = tuning_params_w[7];
+  const int c1_n_ofm_teams                                = tuning_params_w[8];
+  const int c1_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9];
+  const int c1_compute_full_wt_output_block               = tuning_params_w[10];
+  const int c1_pblock                                     = tuning_params_w[11];
 
-  const long c2_use_nchw_format                            = tuning_params_w[0 + 12*1];
-  const long c2_fuse_upd_transposes                        = tuning_params_w[1 + 12*1];
-  const long c2_bf16_acc_nw                                = tuning_params_w[2 + 12*1];
-  const long c2_par_over_h_pixels                          = tuning_params_w[3 + 12*1];
-  const long c2_pack_input_upfront                         = tuning_params_w[4 + 12*1];
-  const long c2_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*1];
-  const long c2_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*1];
-  const long c2_n_img_teams                                = tuning_params_w[7 + 12*1];
-  const long c2_n_ofm_teams                                = tuning_params_w[8 + 12*1];
-  const long c2_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*1];
-  const long c2_compute_full_wt_output_block               = tuning_params_w[10 + 12*1];
-  const long c2_pblock                                     = tuning_params_w[11 + 12*1];
+  const int c2_use_nchw_format                            = tuning_params_w[0 + 12*1];
+  const int c2_fuse_upd_transposes                        = tuning_params_w[1 + 12*1];
+  const int c2_bf16_acc_nw                                = tuning_params_w[2 + 12*1];
+  const int c2_par_over_h_pixels                          = tuning_params_w[3 + 12*1];
+  const int c2_pack_input_upfront                         = tuning_params_w[4 + 12*1];
+  //const int c2_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*1]; a local varaible is used instead
+  const int c2_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*1];
+  const int c2_n_img_teams                                = tuning_params_w[7 + 12*1];
+  const int c2_n_ofm_teams                                = tuning_params_w[8 + 12*1];
+  const int c2_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*1];
+  const int c2_compute_full_wt_output_block               = tuning_params_w[10 + 12*1];
+  const int c2_pblock                                     = tuning_params_w[11 + 12*1];
 
-  const long c3_use_nchw_format                            = tuning_params_w[0 + 12*2];
-  const long c3_fuse_upd_transposes                        = tuning_params_w[1 + 12*2];
-  const long c3_bf16_acc_nw                                = tuning_params_w[2 + 12*2];
-  const long c3_par_over_h_pixels                          = tuning_params_w[3 + 12*2];
-  const long c3_pack_input_upfront                         = tuning_params_w[4 + 12*2];
-  const long c3_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*2];
-  const long c3_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*2];
-  const long c3_n_img_teams                                = tuning_params_w[7 + 12*2];
-  const long c3_n_ofm_teams                                = tuning_params_w[8 + 12*2];
-  const long c3_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*2];
-  const long c3_compute_full_wt_output_block               = tuning_params_w[10 + 12*2];
-  const long c3_pblock                                     = tuning_params_w[11 + 12*2];
+  const int c3_use_nchw_format                            = tuning_params_w[0 + 12*2];
+  const int c3_fuse_upd_transposes                        = tuning_params_w[1 + 12*2];
+  const int c3_bf16_acc_nw                                = tuning_params_w[2 + 12*2];
+  const int c3_par_over_h_pixels                          = tuning_params_w[3 + 12*2];
+  const int c3_pack_input_upfront                         = tuning_params_w[4 + 12*2];
+  //const int c3_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*2]; a local varaible is used instead
+  const int c3_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*2];
+  const int c3_n_img_teams                                = tuning_params_w[7 + 12*2];
+  const int c3_n_ofm_teams                                = tuning_params_w[8 + 12*2];
+  const int c3_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*2];
+  const int c3_compute_full_wt_output_block               = tuning_params_w[10 + 12*2];
+  const int c3_pblock                                     = tuning_params_w[11 + 12*2];
 
-  const long c4_use_nchw_format                            = tuning_params_w[0 + 12*3];
-  const long c4_fuse_upd_transposes                        = tuning_params_w[1 + 12*3];
-  const long c4_bf16_acc_nw                                = tuning_params_w[2 + 12*3];
-  const long c4_par_over_h_pixels                          = tuning_params_w[3 + 12*3];
-  const long c4_pack_input_upfront                         = tuning_params_w[4 + 12*3];
-  const long c4_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*3];
-  const long c4_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*3];
-  const long c4_n_img_teams                                = tuning_params_w[7 + 12*3];
-  const long c4_n_ofm_teams                                = tuning_params_w[8 + 12*3];
-  const long c4_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*3];
-  const long c4_compute_full_wt_output_block               = tuning_params_w[10 + 12*3];
-  const long c4_pblock                                     = tuning_params_w[11 + 12*3];
+  const int c4_use_nchw_format                            = tuning_params_w[0 + 12*3];
+  const int c4_fuse_upd_transposes                        = tuning_params_w[1 + 12*3];
+  const int c4_bf16_acc_nw                                = tuning_params_w[2 + 12*3];
+  const int c4_par_over_h_pixels                          = tuning_params_w[3 + 12*3];
+  const int c4_pack_input_upfront                         = tuning_params_w[4 + 12*3];
+  //const int c4_use_intermediate_f32_wt_tensor             = tuning_params_w[5 + 12*3]; a local varaible is used instead
+  const int c4_use_hybrid_imgfm_parallelization           = tuning_params_w[6 + 12*3];
+  const int c4_n_img_teams                                = tuning_params_w[7 + 12*3];
+  const int c4_n_ofm_teams                                = tuning_params_w[8 + 12*3];
+  const int c4_use_f32_wt_reduction_and_external_wt_vnni  = tuning_params_w[9 + 12*3];
+  const int c4_compute_full_wt_output_block               = tuning_params_w[10 + 12*3];
+  const int c4_pblock                                     = tuning_params_w[11 + 12*3];
 
   const std::string cw1_string = tuning_strings_w[0];
   const std::string cw2_string = tuning_strings_w[1];
@@ -146,7 +146,9 @@ t_start_all = getTime();
 #ifdef TIMING
   double t_start = 0.0;
   double time_b1 = 0.0, time_b2 = 0.0, time_b3 = 0.0, time_b4 = 0.0, time_c1 = 0.0, time_c2 = 0.0, time_c3 = 0.0, time_c4 = 0.0;
+  #if !defined(BWD_D_ONLY) && !defined(BWD_W_ONLY)
   double time_dbg_st, time_dbg_en, time_dbg_c1, time_dbg_c2, time_dbg_c3, time_dbg_c4;
+  #endif
 #endif
 
   std::vector<long> dummy_size{0};
@@ -545,7 +547,7 @@ t_start_all = getTime();
         printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (cfg.planes)  , (cfg.planes)  , (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (1), (0), time_b2, 1.0, (1), (0), (training));
         printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), "na", "na", "na", (0), (0), time_b3, 1.0, (1), (1), (training));
         if (cfg.has_residual_conv)
-            printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,1.0,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, 1.0, (0), (0), (training));
+            printf("PERFDUMP,BP,resnetbn,%d,%d,%d,%d,%d,%d,%s,%s,%s,%d,%d,%f,%f,%d,%d,%d\n", (cfg.N), (cfg.N), (4*cfg.planes), (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride)                 , "na", "na", "na", (0), (0), time_b4, 1.0, (0), (0), (training));
 
 #ifdef TIMING
 
@@ -629,12 +631,13 @@ t_start_all = getTime();
 
     }
 
+  #if !defined(BWD_D_ONLY) && !defined(BWD_W_ONLY)
         printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.inplanes), (cfg.planes)  , (cfg.H), (cfg.W), time_dbg_c1, c1_gflop / time_c1);
         printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,3,3,%d,1,1,%f,%f\n", (cfg.N), (cfg.N), (cfg.planes),   (cfg.planes)  , (cfg.H), (cfg.W), cfg.stride, time_dbg_c2, c2_gflop / time_c2);
         printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,1,0,0,%f,%f\n",  (cfg.N), (cfg.N), (cfg.planes),   (4*cfg.planes), (cfg.H / cfg.stride), (cfg.W / cfg.stride), time_dbg_c3, c3_gflop / time_c3);
         if (cfg.has_residual_conv)
             printf("PERFDUMP2,BP,resnetconv,%d,%d,%d,%d,%d,%d,1,1,%d,0,0,%f,%f\n", (cfg.N), (cfg.N), (cfg.inplanes), (4*cfg.planes), (cfg.H), (cfg.W), (cfg.stride), time_dbg_c4, c4_gflop / time_c4);
-
+  #endif
 
 #endif
 

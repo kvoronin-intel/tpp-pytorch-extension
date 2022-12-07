@@ -80,9 +80,7 @@ static int my_rank = guess_mpi_rank();
 #define TIMING
 
 #ifdef FUSED_BOTTLENECK
-  #warning "FUSED_BOTTLENECK is enabled"
-
-  #define BITS_PER_CHAR 8
+  //#warning "FUSED_BOTTLENECK is enabled"
 
   //REGISTER_SCOPE(conv1_bn1_fwd,     "conv1_bn1_fwd");
 
@@ -96,8 +94,7 @@ static int my_rank = guess_mpi_rank();
 #define THREADED_LOOPS
 
 #ifdef THREADED_LOOPS
-#   warning "Building bottleneck with threaded loops instead of OpenMP pragmas"
-//#   error   "Building conv with threaded loops instead of OpenMP pragmas is not supported yet"
+//#   warning "Building bottleneck with threaded loops instead of OpenMP pragmas"
 #   include "threaded_loops.h"
 #endif
 
@@ -202,60 +199,6 @@ std::vector<at::Tensor> bottleneck_bn_fwd_ext(
 //#endif
 }
 
-std::vector<at::Tensor> bottleneck_bn_fwd_ext_study1(
-    bottleneck_bn_config cfg,
-    bool training,
-    std::vector<at::Tensor> inputs,
-    std::vector<int> tuning_params,
-    std::vector<std::string> tuning_strings,
-    pybind11::array_t<float>& tuning_timings) {
-  GlobalPass _gp(FWD);
-#define EXT_STUDY1
-  if (inputs[0].dtype() == at::kFloat) {
-    typedef float T;
-#ifdef FUSED_BOTTLENECK
-#   include "fused_bottleneck_fwd_tmpl.h"
-#else
-#   include "bottleneck_fwd_tmpl.h"
-#endif
-  } else {
-    typedef bfloat16 T;
-#ifdef FUSED_BOTTLENECK
-#   include "fused_bottleneck_fwd_tmpl.h"
-#else
-#   include "bottleneck_fwd_tmpl.h"
-#endif
-  }
-#undef EXT_STUDY1
-}
-
-std::vector<at::Tensor> bottleneck_bn_fwd_ext_study2(
-    bottleneck_bn_config cfg,
-    bool training,
-    std::vector<at::Tensor> inputs,
-    std::vector<int> tuning_params,
-    std::vector<std::string> tuning_strings,
-    pybind11::array_t<float>& tuning_timings) {
-  GlobalPass _gp(FWD);
-#define EXT_STUDY2
-  if (inputs[0].dtype() == at::kFloat) {
-    typedef float T;
-#ifdef FUSED_BOTTLENECK
-#   include "fused_bottleneck_fwd_tmpl.h"
-#else
-#   include "bottleneck_fwd_tmpl.h"
-#endif
-  } else {
-    typedef bfloat16 T;
-#ifdef FUSED_BOTTLENECK
-#   include "fused_bottleneck_fwd_tmpl.h"
-#else
-#   include "bottleneck_fwd_tmpl.h"
-#endif
-  }
-#undef EXT_STUDY2
-}
-
 std::vector<at::Tensor> bottleneck_bn_fwd(
     bottleneck_bn_config cfg,
     bool training,
@@ -289,14 +232,14 @@ std::vector<at::Tensor> bottleneck_bn_bwd_w_ext(
 
 #define BWD_W_ONLY
   if (inputs[0].dtype() == at::kFloat) {
-    typedef float T;
+    //typedef float T;
 #ifdef FUSED_BOTTLENECK
 #   include "fused_bottleneck_bwd_tmpl.h"
 #else
 #   include "bottleneck_bwd_tmpl.h"
 #endif
   } else {
-    typedef bfloat16 T;
+    //typedef bfloat16 T;
 #ifdef FUSED_BOTTLENECK
 #   include "fused_bottleneck_bwd_tmpl.h"
 #else
@@ -317,14 +260,14 @@ std::vector<at::Tensor> bottleneck_bn_bwd_d_ext(
 
 #define BWD_D_ONLY
   if (inputs[0].dtype() == at::kFloat) {
-    typedef float T;
+    //typedef float T;
 #ifdef FUSED_BOTTLENECK
 #   include "fused_bottleneck_bwd_tmpl.h"
 #else
 #   include "bottleneck_bwd_tmpl.h"
 #endif
   } else {
-    typedef bfloat16 T;
+    //typedef bfloat16 T;
 #ifdef FUSED_BOTTLENECK
 #   include "fused_bottleneck_bwd_tmpl.h"
 #else
@@ -345,14 +288,14 @@ std::vector<at::Tensor> bottleneck_bn_bwd_ext(
   GlobalPass _gp(BWD);
 
   if (inputs[0].dtype() == at::kFloat) {
-    typedef float T;
+    //typedef float T;
 #ifdef FUSED_BOTTLENECK
 #   include "fused_bottleneck_bwd_tmpl.h"
 #else
 #   include "bottleneck_bwd_tmpl.h"
 #endif
   } else {
-    typedef bfloat16 T;
+    //typedef bfloat16 T;
 #ifdef FUSED_BOTTLENECK
 #   include "fused_bottleneck_bwd_tmpl.h"
 #else
@@ -736,7 +679,7 @@ std::vector<float> bottleneck_bn_bwd_w_get_gflop_details(bottleneck_bn_config cf
 /* conv_is_nckhwrs is 0 for bwd_w and fwd, or 1 for bwd_w or full bwd */
 std::array<std::string, 2> parse_conv_loop_string_for_batchnorm(const char *conv_loop_specs, int conv_is_nckhwrs, int use_nchw_format) {
   int A_seen = 0, C_seen = 0;
-  for (int i = 0; i < strlen(conv_loop_specs); i++) {
+  for (size_t i = 0; i < strlen(conv_loop_specs); i++) {
       if(conv_is_nckhwrs) {
         /* For nckhwrs the loop string is as for forward, with A and C for N and K respectively */
         if (conv_loop_specs[i] == 'A')
@@ -826,8 +769,6 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_fwd_ext", &bottleneck_bn_fwd_ext, "Pcl BOTTLENECK BN forward with tuning params");
   m.def("bottleneck_bn_fwd_get_gflop", &bottleneck_bn_fwd_get_gflop, "Pcl BOTTLENECK BN forward gflop count");
   m.def("bottleneck_bn_fwd_get_gflop_details", &bottleneck_bn_fwd_get_gflop_details, "Pcl BOTTLENECK BN forward gflop counts for various components");
-  m.def("bottleneck_bn_fwd_ext_study1", &bottleneck_bn_fwd_ext_study1, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
-  m.def("bottleneck_bn_fwd_ext_study2", &bottleneck_bn_fwd_ext_study2, "Pcl BOTTLENECK BN forward with tuning params study (with some parts disabled)");
   m.def("bottleneck_bn_bwd_ext", &bottleneck_bn_bwd_ext, "Pcl BOTTLENECK BN backward with tuning params");
   m.def("bottleneck_bn_bwd_defaultd_ext", &bottleneck_bn_bwd_defaultd_ext, "Pcl BOTTLENECK BN backward with tuning params for w and default d");
   m.def("bottleneck_bn_bwd_defaultw_ext", &bottleneck_bn_bwd_defaultw_ext, "Pcl BOTTLENECK BN backward with tuning params for d and default w");

@@ -5,6 +5,10 @@
 t_start = getTime();
 #endif
 
+#ifndef BITS_PER_CHAR
+#   define BITS_PER_CHAR (8)
+#endif
+
 #define NTIMES_CONV 1
 #define NTIMES_BATCHNORM_SCALE 1
 
@@ -56,6 +60,7 @@ t_start = getTime();
   llc_victims llc_vic_min, llc_vic_max, llc_vic_avg;
 
 #ifdef USE_DRAM_COUNTERS
+  // counter should be defined as static variable in conv.cpp
   if (counter == 0)
     setup_uncore_ctrs( CTRS_EXP_DRAM_CAS );
 #else
@@ -87,20 +92,18 @@ counter++;
 
 auto sizes = t_CI.sizes();
 
-//const int fuse_stats = ?
-const int separate_stats_reduction = 1; /* only value currently supported is 1 */
+//const int fuse_stats = ?    /* must be defined in the calling code */
+#if defined(NO_BATCHNORM) || defined(COPY_INSTEAD_OF_BATCHNORM)
+fuse_stats = 0;
+#endif
 //const int fuse_scaling = 0; /* must be defined in the calling code */
+#ifndef NO_BATCHNORM
+const int separate_stats_reduction = 1; /* only value currently supported is 1 */
+#endif
 
 char conv_fwd_loop_specs_str[256];
 std::strcpy(conv_fwd_loop_specs_str, conv_loop_string.c_str());
 
-#ifdef NO_BATCHNORM
-fuse_stats = 0;
-#endif
-
-#ifdef COPY_INSTEAD_OF_BATCHNORM
-fuse_stats = 0;
-#endif
 
 // DEBUGGING:
 /*
@@ -139,7 +142,7 @@ int Kb = conv_cfg.blocksofm;
 
 int conv_pad_h_out = conv_cfg.pad_h_out;
 int conv_pad_w_out = conv_cfg.pad_w_out;
-int conv_pad_h = conv_cfg.pad_h;
+//int conv_pad_h = conv_cfg.pad_h;
 int conv_pad_w = conv_cfg.pad_w;
 
 const long N  = sizes[0];
@@ -218,7 +221,6 @@ auto t_scratch_bn = BN_SCRATCH_OUT;
 bool use_hw_blocking_in_fusion      = true;
 bool use_hw_blocking_outside_fusion = true;
 
-
 //const long num_HW_blocks = (H > W ? H : W);
 //const long num_W_blocks  = (W % 64 == 0 ? W / 64 : 1);
 long num_HW_blocks_outside_fusion = 0;
@@ -270,7 +272,7 @@ else if (H > W)
 else
   num_HW_blocks_outside_fusion = W;
 
-  spatial_block_size_outside_fusion = H * W / num_HW_blocks_outside_fusion;//h_in_gemm * W; //or set it always to 1 * W ???
+spatial_block_size_outside_fusion = H * W / num_HW_blocks_outside_fusion;//h_in_gemm * W; //or set it always to 1 * W ???
 }
 
   }
@@ -338,7 +340,7 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   }
 */
 
-  long avoid_fmas_in_rim = 0;
+  int avoid_fmas_in_rim = 0;
   if (ofh <= 7 && ofw <= 7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
     avoid_fmas_in_rim = 1;
   }
@@ -417,7 +419,6 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   }
 */
 
-  int dummy = 0; // too avoid ambiguous call (due to the BrggemmTPP constructors signature collision)
   if ((R == 1 && S == 1) || (avoid_fmas_in_rim == 1)) {
     //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
     if (pack_input == 0) {
@@ -504,16 +505,18 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d 1000\n", N, (sizeof(T) == 2 ? 1 : 0), conv_fwd_loop_specs_str,
-                                        N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, R, S, stride_h, stride_w, conv_pad_h_out, conv_pad_w_out,
-                                        bc, bk, h_block, w_block, c_block, k_block, h_in_gemm, pack_input);
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s  %d %d %d %d %d %d %d  %d %d %d %d  %d %d  %d %d %d %d %d %d 1000 0 0\n",
+          (int)N, (sizeof(T) == 2 ? 1 : 0), conv_fwd_loop_specs_str,
+          (int)N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, R, S,
+          stride_h, stride_w, conv_pad_h_out, conv_pad_w_out,
+          bc, bk,
+          h_block, w_block, c_block, k_block, h_in_gemm, pack_input);
 
-//200~--with-bwd --bc 64 --bk 64 --basic-sizes 28 7 7 2048 512 1 1 --tuning-params  1  1  0 0 0 0 0 0 0 7 4 --tuning-string Aefbcd --perf-bwd-w201~
   printf("conv_ext fwd string: python -u test_conv_ext.py --test-module ext_tpp %s --perf-fwd --bc %d --bk %d --basic-sizes %d %d %d %d %d %d %d --tuning-params %d %d %d %d %d %d --tuning-string %s --niters 1000 --niters-warmup 100 \n",
-                                        (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
-                                        N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, stride_h, R,
-                                        h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
-                                        conv_fwd_loop_specs_str);
+          (sizeof(T) == 2 ? "--use-bf16-opt" : ""), bc, bk,
+          (int)N, ifhp - 2 * conv_pad_h_out, ifwp - 2 * conv_pad_w_out, conv_cfg.C, conv_cfg.K, stride_h, R,
+          h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
+          conv_fwd_loop_specs_str);
 #endif
 
 #ifndef NO_BATCHNORM
@@ -552,7 +555,7 @@ std::cout << "Setting up the bn in conv/bn fusion" << std::endl;
   char kb_loop_specs_str[256];
   char nkb_loop_specs_str[256];// = "AB";
   int A_seen = 0, C_seen = 0;
-  for (int i = 0; i < strlen(conv_fwd_loop_specs_str); i++) {
+  for (size_t i = 0; i < strlen(conv_fwd_loop_specs_str); i++) {
       if (conv_fwd_loop_specs_str[i] == 'A')
         A_seen++;
       else if (conv_fwd_loop_specs_str[i] == 'C')
@@ -810,7 +813,9 @@ for (int i = 0; i < NTIMES_CONV; i++) {
   divi_core_ctrs( &s, NTIMES );
 #endif
 
+#if defined(USE_UNCORE_PERF_COUNTERS) || defined(USE_DRAM_COUNTERS) || defined(USE_CORE_PERF_COUNTERS)
   double l_avgTime = (t_conv_end - t_conv_start) / 1;
+#endif
 
 #ifdef USE_UNCORE_PERF_COUNTERS
 #ifdef USE_DRAM_COUNTERS
@@ -1188,6 +1193,14 @@ std::cout << "Running bn part in conv/bn fusion" << std::endl;
 #endif
 
 #endif /* #ifndef NO_BATCHNORM */
+
+#ifdef BITS_PER_CHAR
+  #undef BITS_PER_CHAR
+#endif
+
+#ifdef VERBOSE
+  #undef VERBOSE
+#endif
 
 } /* end of the scope for conv1 + bn1 */
 
