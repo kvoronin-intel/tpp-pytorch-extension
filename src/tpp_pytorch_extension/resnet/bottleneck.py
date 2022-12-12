@@ -18,6 +18,9 @@ from pcl_pytorch_extension.resnet import conv      as conv_py
 
 from pcl_pytorch_extension._C import _bottleneck as bottleneck_cpp
 from pcl_pytorch_extension._C import _conv       as conv_cpp
+
+#from pcl_pytorch_extension.utils.xsmm import get_vnni_blocking
+
 import time
 from contextlib import contextmanager
 
@@ -551,13 +554,17 @@ class BottleneckApplyBNTPP(Function):
 
         time_btlnk_fwd = time.time() - time_start
 
-        #print("time_btlnk_fwd (C K H W stride) = ", config.inplanes, config.planes, config.H, config.W, config.stride, time_btlnk_fwd)
+        print("time_btlnk_fwd (C K H W stride) = ", config.inplanes, config.planes, config.H, config.W, config.stride, time_btlnk_fwd)
+        #exit()
 
         return output
 
     @staticmethod
     def backward(ctx, *grad_outs):
         #print("dbg: in bottleneck apply backward")
+
+        time_start = time.time()
+
         inputs = []
         inputs += [g.contiguous() for g in grad_outs]
 
@@ -675,6 +682,9 @@ class BottleneckApplyBNTPP(Function):
             print("ind grad_c1i grad_c4i ", ind, grad_c1i.view(-1)[ind].item(), grad_c4i.view(-1)[ind].item())
         """
 
+        time_btlnk_bwd = time.time() - time_start
+
+        print("time_btlnk_bwd (C K H W stride) = ", config.inplanes, config.planes, config.H, config.W, config.stride, time_btlnk_bwd)
 
         return (None, None,       # for handle and training arguments in forward
                 None, None, None, # for tuning_params, tuning_strings and tuning_timings_fwd
