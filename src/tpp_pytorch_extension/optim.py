@@ -825,7 +825,73 @@ class FlatBufferSGD:
             # decided against doing it here
             #if self._flat_f32_m is not None:
             #    self._flat_f32_m[s : e].view_as(p.data).copy_(p.grad.to(torch.float32).data).add(self._flat_f32_w[s : e].view_as(p.data), alpha=weight_decay)
-        
+
+    def remap_onto(self, new_param_list):
+        # Recalculating stats
+        p_i = 0
+        total_size = 0
+        size_array = []
+        padded_size_array = []
+        offset_array = [0]
+        cur_offset = 0
+        model_params = []
+        block2param = []
+        block_sizes = []
+        for p in new_param_list:
+            if p.dtype != self.dtype:
+                print("Error: type mismatch between new_param_list entry and the existing FlatBufferSGD instance in remap_onto()")
+                exit()
+            sz = p.data.numel()
+            aligned_blocks = ((sz + self.block_size - 1) // self.block_size)
+            aligned_sz = aligned_blocks * self.block_size
+            block2param += [p_i] * aligned_blocks
+            block_sizes += [self.block_size] * aligned_blocks
+            block_sizes[-1] = self.block_size if sz % self.block_size == 0 else sz % self.block_size
+            size_array.append(sz)
+            padded_size_array.append(aligned_sz)
+            cur_offset += aligned_sz
+            offset_array.append(cur_offset)
+            total_size += aligned_sz
+            p_i += 1
+
+        #dummy = torch.tensor(size_array,dtype=torch.long)
+        #equal = torch.equal(dummy, self._param_sizes)
+        #if equal is not True:
+            #print("equal, dummy, self._param_sizes, diff = ", equal, dummy, self._param_sizes, dummy - self._param_sizes)
+
+        # TODO: Could be more checks for rest of the arrays to be safer that flat buffer structure is not compromised
+        if torch.equal(torch.tensor(size_array,dtype=torch.long), self._param_sizes) is not True:
+            print("Error: size array for new param list is different from the existing one in remap_onto()!")
+            #print("dbg: size_array, as tensor, type = ", size_array, torch.tensor(size_array,dtype=torch.long), type(size_array))
+            #print("dbg: self._param_sizes, type = ", self._param_sizes, type(self._param_sizes), self._param_sizes.dtype)
+            exit()
+
+        #self._param_sizes = torch.tensor(size_array, dtype=torch.long)
+        #self._param_sizes_padded = torch.tensor(padded_size_array, dtype=torch.long)
+        #self._offsets = torch.tensor(offset_array, dtype=torch.long)
+        #self._block2param = torch.tensor(block2param, dtype=torch.int)
+        #self._block_sizes = torch.tensor(block_sizes, dtype=torch.int)
+
+        #print("inside remap, self, self._flat_w data_ptr = ", self, self._flat_w.data_ptr())
+
+        for i, p in enumerate(new_param_list):
+            s = offset_array[i]
+            e = offset_array[i] + size_array[i]
+            #print("dbg: p.data before remap = ", p.data, p.data_ptr())
+            # No need to copy here as p data should not have changed between
+            # load_state_dict() [where flat_w was loaded] and step() [where remap is called]
+            p.data = self._flat_w[s : e].view_as(p.data)
+            #print("dbg: p.data after remap = ", p.data, p.data_ptr())
+            #print("_flat_w, dtype = ", self._flat_w, self._flat_w.dtype)
+            #p.grad = self._flat_g[s : e].view_as(p.data)
+            # Need to copy data from p.grad into flat_g as it could be modified by the backward() call between
+            # load_state_dict() [where flat_g was loaded] and step() [where remap is called]
+            if p.grad is None:
+                p.grad = self._flat_g[s : e].view_as(p.data)
+            else:
+                p.grad = self._flat_g[s : e].view_as(p.data).copy_(p.grad.data)
+
+        #print("inside remap after, self._flat_w data_ptr = ", self._flat_w.data_ptr())
 
 class SGD_fb_enhanced(torch.optim.SGD): #Optimizer):
     r"""Implements an SGD enhanced with a flat buffer (perf optimization)."""
@@ -1626,9 +1692,9 @@ class SGD_bf16fb_enhanced(torch.optim.SGD):
         super(SGD_bf16fb_enhanced, self).__init__(params, lr=lr, momentum=momentum, dampening=dampening, weight_decay=weight_decay, nesterov=nesterov)
         
         self._one_time_setup_done = False
-        print("Caution: setting block_size to 64 in SGD_bf16fb_enhanced constructor")
-        self.block_size = 2
-        print("Caution: setting with_weight_f32_copy to True in SGD_bf16fb_enhanced constructor")
+        self.block_size = 64
+        print("Caution: setting block_size in SplitSGD_bf16fb_enhanced constructor to ", self.block_size)
+        #print("Caution: setting with_weight_f32_copy to True in SGD_bf16fb_enhanced constructor")
         self.with_f32_weight_copy = True
 
     
@@ -1914,42 +1980,91 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
             raise ValueError("Invalid dampening value: {}".format(dampening))
 
         super(SplitSGD_bf16fb_enhanced, self).__init__(params, lr=lr, momentum=momentum, dampening=dampening, weight_decay=weight_decay, nesterov=nesterov)
-        
+        self.state['_one_time_setup_done'] = False
+        self.state['block_size'] = 64
         self._one_time_setup_done = False
-        print("Caution: setting block_size to 64 in SplitSGD_bf16fb_enhanced constructor")
-        self.block_size = 2
-        print("Caution: setting with_weight_f32_copy to True in SplitSGD_bf16fb_enhanced constructor")
+        self.block_size = 64
+        print("Caution: setting block_size in SplitSGD_bf16fb_enhanced constructor to ", self.block_size)
         # FIXME: Disable after the splitsgd is properly implemented
-        self.with_f32_weight_copy = True #False
+        self.with_f32_weight_copy = False #True #False
+        #print("Caution: setting with_weight_f32_copy to True in SplitSGD_bf16fb_enhanced constructor")
         self.with_bf16_momentum = False and momentum != 0 #True if momentum != 0 else False
         self.with_fp32_momentum = True  and momentum != 0 #True if momentum != 0 else False
         self.with_split = True
         print("dbg: advanced split-sgd flags: with_f32_weight_copy, with_bf16_momentum, with_fp32_momentum, with_split = ",
                 self.with_f32_weight_copy, self.with_bf16_momentum, self.with_fp32_momentum, self.with_split)
 
+        self.state['_one_time_map_done'] = False
+        self._one_time_map_done = False
+
         if not self.with_split:
             print("Error: with_split flag must be set to True for SplitSGD optimizer")
             exit()
 
     
-    # Not really well tested (affects saving/loading from checkpoints)
-    def __setstate__(self, state):
-        print("Error: __setstate__ has not been implemented for SplitSGD_bf16fb_enhanced")
-    
     def __getstate__(self):
         print("Error: __getstate__ has not been implemented for SplitSGD_bf16fb_enhanced")
         exit()
+
+    # One important difference w.r.t to standard SGD's state_dict: setting packed_state['_one_time_map_done'] = False
+    # Without it, remap is not doine in the step() after the optimizer state_dict is loaded and hence optimizer works incorrectly
+    def state_dict(self):
+        r"""Returns the state of the optimizer as a :class:`dict`.
+
+        It contains two entries:
+
+        * state - a dict holding current optimization state. Its content
+            differs between optimizer classes.
+        * param_groups - a list containing all parameter groups where each
+            parameter group is a dict
+        """
+        # Save order indices instead of Tensors
+        param_mappings = {}
+        start_index = 0
+        start_index_dbg = 0
+
+        def pack_group(group):
+            nonlocal start_index
+            nonlocal start_index_dbg
+            packed = {k: v for k, v in group.items() if k != 'params'}
+            #print("debug: group params = ", group['params'])
+            #for i, p in enumerate(group['params'], start_index_dbg):
+            #    print("i p id(p) is_in = ", i, p, id(p), 1 if id(p) in param_mappings else 0)
+            param_mappings.update({id(p): i for i, p in enumerate(group['params'], start_index)
+                                   if id(p) not in param_mappings})
+            #print("debug: packed, param_mappings = ", packed, param_mappings)
+            packed['params'] = [param_mappings[id(p)] for p in group['params']]
+            start_index += len(packed['params'])
+            return packed
+        #print("debug: self.param_groups = ", self.param_groups)
+        param_groups = [pack_group(g) for g in self.param_groups]
+        # Remap state to use order indices as keys
+        #print("state keys = ", self.state.keys())
+        #print("param_mappings = ", param_mappings)
+        #for k, v in self.state.items():
+        #    #print("type(k) type(v) id(k) = ", type(k), type(v), id(k))
+        #    if isinstance(k, torch.Tensor):
+        #        print("id(k) param_mappings[id(k)] = ", id(k), param_mappings[id(k)])
+        packed_state = {(param_mappings[id(k)] if isinstance(k, torch.Tensor) else k): v
+                        for k, v in self.state.items()}
+        packed_state['_one_time_map_done'] = False
+        #print("dbg: packed_state = ", packed_state)
+        return {
+            'state': packed_state,
+            'param_groups': param_groups,
+        }
+
     
     def _one_time_setup(self):
-        if self._one_time_setup_done == True:
+        if self._one_time_setup_done == True and self.state['_one_time_setup_done'] == True:
             return
+        print("dbg: doing one_time_setup")
         from collections import defaultdict
-        self.flat_params = [] #[]
+        #self.flat_params = [] #[]
+        self.state['flat_params'] = []
         for i, group in enumerate(self.param_groups):
             #print("debug: group = ", group)
             model_params = defaultdict(list)
-            weight_decay = group['weight_decay']
-            momentum = group['momentum']
             for p in group['params']:
                 #print("debug: in group params p  = ", p)
                 #torch.distributed.broadcast(p, 0)
@@ -1963,7 +2078,8 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
                 #flat_buf = self.FlatBuffer(param_list, group, dt, self.block_size)
                 flat_buf = FlatBufferSGD(param_list, group, dt, self.block_size, self.with_f32_weight_copy, self.with_bf16_momentum, self.with_fp32_momentum, self.with_split) #, True if momentum != 0 else False )
                 #print("dbg: type of group, group = ", type(group), group)
-                self.flat_params.append(flat_buf)
+                #self.flat_params.append(flat_buf)
+                self.state['flat_params'].append(flat_buf)
 
             #value_list = self.flat_params
             #print("debug: value_list, type = ", value_list, type(value_list))
@@ -1971,11 +2087,45 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
 
         self._step = 0
         self._one_time_setup_done = True
+        self.state['_one_time_setup_done'] = True
+
+        self.state['_one_time_map_done'] = True
+        self._one_time_map_done = True
+
+    def _one_time_remap_onto(self):
+        if self._one_time_map_done == True and self.state['_one_time_map_done'] == True:
+            return
+        #print("dbg: doing one_time_remap_onto")
+
+        from collections import defaultdict
+
+        for i, group in enumerate(self.param_groups):
+            model_params = defaultdict(list)
+            for p in group['params']:
+                if not p.requires_grad:
+                    continue
+                dt = p.dtype
+                model_params[dt].append(p)
+            #print("dbg: model_params.items() = ", model_params.items())
+            #print("dbg: list of model_params.items() = ", list(model_params.items()))
+            #print("dbg: zip with a list of model_params.items() = ", zip(list(model_params.items()), self.state['flat_params']))
+            for (dt, param_list), flat_buf in zip(list(model_params.items()), self.state['flat_params']):
+                #print("dbg: in the one_time_remap, flat_buf = ", flat_buf, flat_buf._flat_w.data_ptr())
+                #for p in param_list:
+                #    print("dbg: in the one_time_remap, p in param_list = ", p, p.data_ptr())
+                flat_buf.remap_onto(param_list)
+                #flat_buf = FlatBufferSGD(param_list, group, dt, self.block_size, self.with_f32_weight_copy, self.with_bf16_momentum, self.with_fp32_momentum, self.with_split) #, True if momentum != 0 else False )
+                #self.flat_params.append(flat_buf)
+                #self.state['flat_params'].append(flat_buf)
+
+        self.state['_one_time_map_done'] = True
+        self._one_time_map_done = True
 
     
     def zero_grad(self):
         if hasattr(self, 'flat_params'):
-            for fp in self.flat_params:
+            #for fp in self.flat_params:
+            for fp in self.state['flat_params']:
                 fp._flat_g.zero_()
         else:
             super(SplitSGD_bf16fb_enhanced, self).zero_grad()
@@ -1994,18 +2144,31 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
                 loss = closure()
 
         self._one_time_setup()
+        self._one_time_remap_onto()
         # Warning: unlike some other optimizers, _step is enumerated starting with 0 (which is important
         # for the momentum check done in fused_sgd_vX implementations)
         # Therefore, the addition is done AFTER the actual computations of the step
         #self._step += 1
 
-        for ii, fp in enumerate(self.flat_params):
+        #for i, group in enumerate(self.param_groups):
+        #    for p in group['params']:
+        #        print("dbg: in self.param_groups before p = ", p, p.data_ptr())
+        #        print("dbg: in self.param_groups before p.grad = ", p.grad, p.grad.data_ptr())
+
+        #for ii, fp in enumerate(self.flat_params):
+        for ii, fp in enumerate(self.state['flat_params']):
             group = fp.group
             weight_decay = group['weight_decay']
             momentum = group['momentum']
             dampening = group['dampening']
             nesterov = group['nesterov']
             lr = group["lr"]
+
+            #print("dbg: inside step loop, fp, fp flat_w data_ptr = ", fp, fp._flat_w.data_ptr())
+            #print("dbg: inside step loop, fp, fp flat_g data_ptr = ", fp, fp._flat_g.data_ptr())
+
+            #for p in group['params']:
+            #    print("p in group params before = ", p, p.dtype, p.data_ptr())
 
             if momentum != 0 and self.with_fp32_momentum:
                 #optim_cpp.fused_sgd_v2(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
@@ -2017,6 +2180,17 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
                 #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None)
                 optim_cpp.fused_sgd_v1(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
                                        weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step)
-        # end of loop over fp in self.flat_params
+
+            #for p in group['params']:
+            #    print("p in group params after = ", p, p.dtype, p.data_ptr())
+
+            #print("dbg: after step, flat_w = ", fp._flat_w, fp._flat_w.data_ptr())
+            #print("dbg: after step, flat_g = ", fp._flat_g, fp._flat_g.data_ptr())
+
+        #for i, group in enumerate(self.param_groups):
+        #    for p in group['params']:
+        #        print("dbg: in self.param_groups after p = ", p, p.data_ptr())
+
+        # end of loop over fp in self.state['flat_params']
         self._step += 1
         return loss

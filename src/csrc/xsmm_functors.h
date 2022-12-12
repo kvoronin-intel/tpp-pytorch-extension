@@ -2069,6 +2069,7 @@ class BrgemmTPP {
       //                                                            l_flags,
       //                                                            l_prefetch_flags);
 
+
       l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
           l_shape, l_flags, l_prefetch_flags, l_brconfig);
 
@@ -4705,6 +4706,10 @@ class SplitSGDExtTPP {
 
     float alpha, beta;
 
+    //std::cout << "dbg: before decay g_bf16 = " << g_bf16[0] << std::endl;
+    //std::cout << "dbg: before decay d_hi   = " << d_hi[0] << std::endl;
+    //std::cout << "dbg: before decay alpha  = " << alpha  << std::endl;
+
     alpha = weight_decay;
     arg_array[0].primary = (void*)d_lo;
     arg_array[1].primary = (void*)d_hi;
@@ -4724,14 +4729,6 @@ class SplitSGDExtTPP {
     } else {
 
       //printf("dbg: before momentum m = %6.6f %6.6f\n", m[0], m[1]);
-#if 0
-      scale_kernel(m, m, momentum);
-
-      alpha  = 1 - dampening;
-      arg_array[0].primary = (void*)g_f32;
-      arg_array[1].primary = (void*)&alpha;
-      arg_array[2].primary = (void*)m;
-#endif
 
       // for the older version which attempted to have a single equation which includes ternary and scaling in-place but didn't work
       alpha = 1 - dampening;
@@ -4761,6 +4758,11 @@ class SplitSGDExtTPP {
     eqn_param.output.secondary = (void*)offset;
 
     eqn_lr(&eqn_param);
+
+    //std::cout << "dbg: after lr d_lo  = " << d_lo[0] << std::endl;
+    //std::cout << "dbg: after lr d_hi  = " << d_hi[0] << std::endl;
+    //std::cout << "dbg: after lr g_bf16 = " << g_bf16[0] << std::endl;
+
   }
   void ref(bfloat16* d_lo, bfloat16* d_hi, bfloat16 *g_bf16, float* m, float *g_f32, float weight_decay, float dampening, float momentum, float lr, int step) {
     printf("ref() not implemented for SplitSGDExtTPP\n");
@@ -4805,7 +4807,6 @@ class SGDExtTPP {
       libxsmm_datatype datatype_out  = datatype_in;
       libxsmm_datatype datatype_comp = XsmmDtype<T>();
 
-      libxsmm_bitfield unary_flags;
       libxsmm_bitfield binary_flags;
       libxsmm_bitfield ternary_flags;
 
