@@ -276,10 +276,10 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
         self.tuning_params_w   = None
         self.tuning_string_w   = None
 
-        # hardcoded for 56 threads on SPR
+        # was hardcoded for 56 threads on SPR but extended to max_threads available
+        max_nthreads = torch.get_num_threads()
+
         if self.use_hardcoded_tunings:
-            self.hybrid_cols = 14
-            self.hybrid_rows = 4
             if self.use_bf16 == True:
                 # bwd_d tunings are based on results in bottleneck_*_tuning_bwd_d_not1_0721.txt
                 # bwd_w tunings are based on results in bottleneck_*_tuning_bwd_w_nohybrid_not1_0721.txt
@@ -292,8 +292,8 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
                                             0, # bf16_use_nchw_format
                                             1, 0, 0, # pack_input_upfront, fuse_upd_transposes, #use_f32_wt_reduction_and_external_wt_vnni
                                             1, 1, 0, # bf16_acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 56 ] # use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams
-                    self.tuning_string_w = 'C{C:56}A{R:1}bdef'
+                                            0, 1, max_nthreads ] # use_hybrid_imgfm_parallelization, n_img_teams, n_ofm_teams
+                    self.tuning_string_w = 'C{C:' + str(max_nthreads) + '}A{R:1}bdef'
 
     def maybe_block_params(self):
         self.weight.block()
