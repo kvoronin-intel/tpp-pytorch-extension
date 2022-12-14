@@ -981,6 +981,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                               'A{R:' + str(self.hybrid1_b) + '}C{C:' + str(self.hybrid1_a) + '}dbef',
                                               'Aefcdb']
             else: # fp32
+                d = 0 # dummy unused variable used as use_intermediate_f32_wt_tensor (shadowed by the local variable in cpp)
+
                 # fwd tunings are based on results in bottleneck_*_tuning_fp32_dbg.txt
                 # bwd tunings are defaults
                 if self.inplanes == 64 and self.planes == 64: # Bottleneck type #0
@@ -998,12 +1000,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             1, 1, 1, 1, 1, 1, 1, 1, # c,k blocks
                                             1, 1, 1, 1] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 1, 1, 1, # use nchw formats
-                                            0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 1, 1, 1, # use nchw formats
+                    #                        0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 256 and self.planes == 64:  # Bottleneck type #1
                     self.tuning_params_fwd = [7, 1, 7, 1, 7, 1, 7, 1 , # h,w blocks
                                               1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -1020,12 +1027,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                             1, 1, 1, 1] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 1, 1, 1, # use nchw formats
-                                            0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 1, 1, 1, # use nchw formats
+                    #                        0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 256 and self.planes == 128:  # Bottleneck type #2
                     self.tuning_params_fwd = [7, 1, 4, 1, 4, 1, 4, 1 , # h,w blocks
                                               1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -1037,12 +1049,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                             1, 1, 1, 1] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 0, 1, 1, # use nchw formats
-                                            1, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            1, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 0, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            0, 0, 1, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 1, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 0, 1, 1, # use nchw formats
+                    #                        1, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        1, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 512 and self.planes == 128:  # Bottleneck type #3
                     self.tuning_params_fwd = [7, 1, 7, 1, 7, 1, 7, 1 , # h,w blocks
                                               1, 1, 1, 1, 1, 2, 1, 1 , # c,k blocks
@@ -1053,12 +1070,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             1, 1, 1, 1, 2, 1, 1, 1 , # c,k blocks
                                             1, 1, 1, 1] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 1, 1, 1, # use nchw formats
-                                            0, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 1, 1, 1, # use nchw formats
+                    #                        0, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 512 and self.planes == 256:  # Bottleneck type #4
                     self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                               1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
@@ -1069,12 +1091,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             1, 1, 1, 1, 4, 1, 4, 1 , # c,k blocks
                                             1, 1, 2, 1] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 0, 1, 1, # use nchw formats
-                                            1, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 1, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            0, 1, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 1, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 0, 1, 1, # use nchw formats
+                    #                        1, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 1024 and self.planes == 256:  # Bottleneck type #5
                     self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                               1, 4, 1, 1, 1, 4, 1, 1 , # c,k blocks
@@ -1085,12 +1112,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             8, 1, 1, 1, 8, 1, 1, 1 , # c,k blocks
                                             2, 2, 2, 2] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 1, 1, 1, # use nchw formats
-                                            0, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 1, 0, 0, 0, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 1, 1, 1, # use nchw formats
+                    #                        0, 1, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 1024 and self.planes == 512:  # Bottleneck type #6
                     self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                               1, 8, 1, 8, 1, 8, 1, 16 , # c,k blocks
@@ -1101,32 +1133,44 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                                             4, 1, 8, 1, 8, 1, 16, 1 , # c,k blocks
                                             2, 1, 7, 1] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 0, 1, 1, # use nchw formats
-                                            1, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            1, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_params_w = [1, 0, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            0, 0, 1, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 1, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 1, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 0, 1, 1, # use nchw formats
+                    #                        1, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        1, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
                 elif self.inplanes == 2048 and self.planes == 512:  # Bottleneck type #7
                     self.tuning_params_fwd = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                               1, 1, 1, 1, 1, 1, 1, 1 , # c,k blocks
                                               7, 1, 7, 7, # h_in_gemms # ! fixed h_in_gemm for 3x3 manually (was 7)
                                               0, 0 ] # pack_input, fuse_stats
                     #self.tuning_strings_fwd = ['ACfgbced', 'ACfgbced', 'ACfgbced', 'ACfgbced']
-                    self.tuning_strings_fwd = ['A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbcde',
-                                               'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbcde',
-                                               'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbcde',
-                                               'A{C:' + str(self.hybrid_cols) + '}C{R:' + str(self.hybrid_rows) +'}fgbcde']
+                    self.tuning_strings_fwd = ['A{C:' + str(self.hybrid1_b) + '}C{R:' + str(self.hybrid1_a) +'}fgbcde',
+                                               'A{C:' + str(self.hybrid1_b) + '}C{R:' + str(self.hybrid1_a) +'}fgbcde',
+                                               'A{C:' + str(self.hybrid1_b) + '}C{R:' + str(self.hybrid1_a) +'}fgbcde',
+                                               'A{C:' + str(self.hybrid1_b) + '}C{R:' + str(self.hybrid1_a) +'}fgbcde']
                     self.tuning_params_d = [1, 1, 1, 1, 1, 1, 1, 1 , # h,w blocks
                                             4, 1, 4, 1, 4, 1, 1, 1 , # c,k blocks
                                             7, 1, 7, 7] # h_in_gemms
                     self.tuning_strings_d = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
-                    self.tuning_params_w = [1, 1, 1, 1, # p blocks
-                                            1, 1, 1, 1, # use nchw formats
-                                            0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
-                                            0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
-                                            0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
-                    self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    #std::vector<int> default_tuning_params_w{c1_use_nchw_format, c1_fuse_upd_transposes, c1_bf16_acc_nw, c1_par_over_h_pixels, c1_pack_input_upfront, c1_use_intermediate_f32_wt_tensor,
+                    #                       c1_use_hybrid_imgfm_parallelization, c1_n_img_teams, c1_n_ofm_teams, c1_use_f32_wt_reduction_and_external_wt_vnni, c1_compute_full_wt_output_block, c1_pblock,
+                    self.tuning_params_w = [1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1,
+                                            1, 0, 0, 0, 0, d,  0, 1, 1,  1, 0, 1]
+                    #self.tuning_params_w = [1, 1, 1, 1, # p blocks
+                    #                        1, 1, 1, 1, # use nchw formats
+                    #                        0, 0, 1, # pack_input_upfront, fuse_upd_transposes, use_f32_wt_reduction_and_external_wt_vnni
+                    #                        0, 0, 0, # acc_nw, par_over_h_pixels, compute_full_wt_output_block
+                    #                        0, 1, 1] #hybrid, n_img_teams, n_ofm_teams
+                    #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
+                    self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
 
 
 
