@@ -6187,10 +6187,15 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       op_metadata.eqn_idx      = my_eqn10;
       op_metadata.op_arg_pos   = -1;
 
+#ifdef __x86_64__
       libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_RELU, datatype_out, unary_flags);
 
       if (datatype_out == LIBXSMM_DATATYPE_BF16)
         libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_out, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+#else
+#  warning "On GVT3 (ARM with neov1) bf16 relu produces incorrect relu masks so one has to do fp32 relu (which is less efficient)
+      libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_RELU, datatype_comp, unary_flags);
+#endif
     }
 
     if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
