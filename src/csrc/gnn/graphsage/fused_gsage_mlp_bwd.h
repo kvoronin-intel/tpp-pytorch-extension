@@ -374,7 +374,7 @@ if (res)
           int c = ck % nc;
           int nnb = end_nn - start_nn + 1;
 
-          constexpr int BS = 16;
+          const int BS = 16;
           // auto t0 = getTime();
           // brgemm_dw_tpp(in_T[start_nn][c], grad_out_V[start_nn][k], tmp,
           // nnb);
@@ -440,7 +440,7 @@ if (res)
             int k = ck / nc;
             int c = ck % nc;
             int nnb = end_nn - start_nn + 1;
-            constexpr int BS = 16;
+            const int BS = 16;
             // auto t0 = getTime();
             // brgemm_dw_tpp(in_res_T[start_nn][c], grad_out_V[start_nn][k],
             // tmp, nnb);

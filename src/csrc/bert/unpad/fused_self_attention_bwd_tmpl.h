@@ -52,7 +52,7 @@ auto t_dAPD = at::empty_like(t_AP);
 auto t_dAPD_V = t_AP.new_empty({N, SS1, S2, S2});
 
 auto null_EHS = false;
-constexpr int VBS = get_vnni_block_size<T>();
+const int VBS = get_vnni_block_size<T>();
 
 if (t_EHS_T.numel() == 0) {
   null_EHS = true;

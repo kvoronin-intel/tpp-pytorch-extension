@@ -641,7 +641,7 @@ if (self_loop) {
       RECORD_FUNCTION("parallel_for", std::vector<c10::IValue>());
 #pragma omp parallel
       {
-        constexpr int BS = 16;
+        const int BS = 16;
         float tmp[bc * bk];
         int threads = omp_get_num_threads();
         int tid = omp_get_thread_num();

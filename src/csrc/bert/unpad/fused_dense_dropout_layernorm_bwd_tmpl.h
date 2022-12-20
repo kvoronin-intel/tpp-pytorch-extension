@@ -18,7 +18,7 @@ auto Hc = in_sizes[3];
 auto Nk = wt_sizes[0];
 auto Hk = wt_sizes[3];
 
-constexpr int VBS = get_vnni_block_size<T>();
+const int VBS = get_vnni_block_size<T>();
 const auto grad_wt_flag =
     (t_wt.dim() == 5 ? XformTPP::XFORM_N2V_TPP : XformTPP::XFORM_NONE_TPP);
 const auto input_trans_flag =
