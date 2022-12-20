@@ -9,6 +9,8 @@ import pathlib
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
+use_parlooper = False
+
 libxsmm_root = os.path.join(cwd, "libxsmm")
 if "LIBXSMM_ROOT" in os.environ:
     libxsmm_root = os.getenv("LIBXSMM_ROOT")
@@ -40,6 +42,13 @@ if not os.path.exists(xsmm_makefile):
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+
+extra_compile_args = ["-fopenmp", "-g", "-march=native", "-O3"] + [ vtune_compile_opts ]
+#if platform.processor() != "aarch64":
+#    extra_compile_args.append("-march=native")
+
+if use_parlooper is not True:
+    extra_compile_args.append("-DNO_PARLOOPER")
 
 class BuildMakeLib(Command):
 
@@ -137,7 +146,7 @@ setup(
         CppExtension(
             "tpp_pytorch_extension._C",
             sources,
-            extra_compile_args=["-fopenmp", "-g", "-march=native", "-O0" , vtune_compile_opts ],
+            extra_compile_args=extra_compile_args, #["-fopenmp", "-g", "-march=native", "-O0" , vtune_compile_opts ],
             include_dirs=[xsmm_include, "{}/src/csrc".format(cwd),vtune_include],
             library_dirs=[xsmm_lib, vtune_lib],
             extra_objects=[vtune_lib_name] if os.getenv("USE_VTUNE") is not None else [],
