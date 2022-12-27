@@ -197,7 +197,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     #print("Weight: ", weight)
     #print("Bias: ", bias)
     x = torch.randn(N, inc, H, W, requires_grad=not disabled_bwd_d)
-    #x = torch.ones_like(x, requires_grad=True)
+    #x = torch.ones_like(x, requires_grad=not disabled_bwd_d)
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         x_bf16 = x.to(torch.bfloat16)
         x      = x_bf16.to(torch.float)
@@ -258,7 +258,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
     [bc, bk, lp_block] = [opt_conv.Cblock, opt_conv.Kblock, opt_conv.lp_block]
 
-    print("Info: bc, bk = ", bc, bk)
+    print("Info: bc, bk, lp_block = ", bc, bk, lp_block)
 
     #y1 = opt_conv(x1, x1_add)
     #y2 = relu(torch_conv(x2) + x2_add)
