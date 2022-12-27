@@ -13,7 +13,7 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-#define VERBOSE
+//#define VERBOSE
 
 #define NTIMES_CONV 1
 
