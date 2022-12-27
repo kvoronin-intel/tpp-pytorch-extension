@@ -173,7 +173,18 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   if (!is_fixed_n_ofm_teams)
     n_ofm_teams = 4;
   int weight_copies = 0;
-  int multiple_target = 32;
+  int multiple_target = 0;
+#ifdef __x86_64__
+  if (sizeof(T) == 2)
+    multiple_target = 32;
+  else if (sizeof(T) == 4)
+    multiple_target = 2;
+#else
+  if (sizeof(T) == 2)
+    multiple_target = 4;
+  else if (sizeof(T) == 4)
+    multiple_target = 2;
+#endif
   int max_compute_offset_input = 0;
   if (!is_fixed_use_f32_wt_reduction_and_external_wt_vnni)
     use_f32_wt_reduction_and_external_wt_vnni = 0; //0; FIXME back
@@ -245,6 +256,12 @@ if (sizeof(T) == 2) {
   scratch_bf16_weight_offset = running_scratch_size_in_bytes;
   running_scratch_size_in_bytes +=            C * K * R * S * sizeof(T);
 }
+
+auto dtype = XsmmDtype<T>();
+const int BS = xsmm_get_vnni_block_size(dtype);
+#ifdef VERBOSE
+printf("BS (vnni block size) = %d \n", BS);
+#endif
 
 if (sizeof(T) == 2) {
     if (bf16_use_nchw_format > 0) {
@@ -330,7 +347,7 @@ if (sizeof(T) == 2) {
 #endif
       //float beta = (use_intermediate_f32_wt_tensor) ? (float)1.0 : (float)0.0;
 
-      upd_remaining_pixels = output_pixels - ((compute_pixels+1)/2)*2;
+      upd_remaining_pixels = output_pixels - ((compute_pixels+BS-1)/BS)*BS;
 
 #ifdef VERBOSE
       printf("dbg: extra computed parameters: upd_remaining_pixels: %ld\n", upd_remaining_pixels);
@@ -1001,6 +1018,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
               [&]() {},
               [&]() {});
 */
+
             tr_output_nchw_loop(
               [&](int* ind) {
                 int i_n = ind[0], i_k = ind[1];
@@ -1010,7 +1028,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                 vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
                 if (upd_remaining_pixels > 0) {
                   //printf("Case upd_remaining_pixels > 0 is untested so far!\n"); exit(-1);
-                  vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+1)/2)*2]);
+                  vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+BS-1)/BS)*BS]);
                 }
               },
               [&]() {},
@@ -1038,7 +1056,7 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                   vnni_output_compute_pixels_bf16_xform_tpp(gradout[i_n][i_k][pad_h][pad_w], output_mylinearized_pixels[i_n][i_k][0]);
                   if (upd_remaining_pixels > 0) {
                     //printf("Case upd_remaining_pixels > 0 is untested so far!\n"); exit(-1);
-                    vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+1)/2)*2]);
+                    vnni_output_zero_remaining_pixels_bf16_tpp(output_mylinearized_pixels[i_n][i_k][((compute_pixels+BS-1)/BS)*BS]);
                   }
                 }
 
@@ -1090,7 +1108,6 @@ std::cout << "total scratch size in bytes = " << max_scratch_size_in_bytes << " 
                 },
                 [&]() {},
                 [&]() {});
-
               vnni_wt_loop(
                 [&](int* ind) {
                   int i_k = ind[0], i_c = ind[1], i_r = ind[2], i_s = ind[3];
