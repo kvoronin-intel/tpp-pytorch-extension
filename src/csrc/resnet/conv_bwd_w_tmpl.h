@@ -4,7 +4,7 @@ RECORD_FUNCTION("conv_bwd_w", std::vector<c10::IValue>());
 
 #define TIMING
 
-#define VERBOSE
+//#define VERBOSE
 
 #define NTIMES_CONV 1
 
