@@ -38,6 +38,13 @@ def compare_weight_grads( opt_weight_grad, ref_weight_grad, label_string, rtol=1
     for i in range(10):
         print("i opt_tensor_grad ref_tensor_grad = ", i, opt_tensor_grad_unblocked.view(-1)[i].item(), ref_tensor_grad.view(-1)[i].item())
 
+    #if opt_tensor_grad_unblocked.numel() > 1000:
+    #    for i in range(240,320):
+    #        print("i opt_tensor_grad ref_tensor_grad = ", i, opt_tensor_grad_unblocked.view(-1)[i].item(), ref_tensor_grad.view(-1)[i].item())
+    #else:
+    #    for i in range(50):
+    #        print("i opt_tensor_grad ref_tensor_grad = ", i, opt_tensor_grad_unblocked.view(-1)[i].item(), ref_tensor_grad.view(-1)[i].item())
+
     return valid
 
 # For zero_rim_for_opt = True, HW must be third-fourth dimension (as in NCHW or NCHWC):
