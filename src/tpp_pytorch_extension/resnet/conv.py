@@ -246,8 +246,8 @@ class DummyConv2dTPP(BlockedModule, pytorch_conv2d):
             self.preset_blocksizes = False
             [self.Cblock, self.Kblock, self.lp_block] = conv_cpp.conv_get_feature_map_blocks(self.C_pad, self.K, 0 if self.dtype == torch.float else 1)
 
-            if self.low_prec_vnni_blocking != 2:
-                print("Error: DummyConv2dTPP constructor uses conv_get_feature_map_blocks() which only can produce 2 as VNNI blocking factor")
+            if (self.dtype == torch.bfloat16 and self.low_prec_vnni_blocking != 2) or (self.dtype == torch.float32 and self.low_prec_vnni_blocking != 1):
+                print("Error: DummyConv2dTPP constructor uses conv_get_feature_map_blocks() which only can produce 2 as VNNI blocking factor for bf16 and 1 for fp32")
                 exit()
 
         print("debug: preset_blocksizes = ", self.preset_blocksizes)
