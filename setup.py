@@ -146,7 +146,7 @@ setup(
         CppExtension(
             "tpp_pytorch_extension._C",
             sources,
-            extra_compile_args=extra_compile_args, #["-fopenmp", "-g", "-march=native", "-O0" , vtune_compile_opts ],
+            extra_compile_args=extra_compile_args, #["-fopenmp", "-g", "-march=native", "-O3" , vtune_compile_opts ],
             include_dirs=[xsmm_include, "{}/src/csrc".format(cwd),vtune_include],
             library_dirs=[xsmm_lib, vtune_lib],
             extra_objects=[vtune_lib_name] if os.getenv("USE_VTUNE") is not None else [],
