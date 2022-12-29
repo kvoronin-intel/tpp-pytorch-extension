@@ -202,7 +202,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     if opt_dtype == torch.bfloat16:
         rtol=1.5e-1
     else:
-        rtol=3.0e-3 # for last bottlenecks with huge #channels
+        rtol=4.0e-3 # for last bottlenecks with huge #channels
     atol=1e+0
 
     validation_check_failed1 = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
@@ -238,6 +238,17 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     validation_checks_failed = validation_check_failed1 or validation_check_failed2 or validation_check_failed3 or validation_check_failed4 or validation_check_failed5 or validation_check_failed6 or validation_check_failed7 or validation_check_failed8 or validation_check_failed9 or validation_check_failed10
     if validation_checks_failed:
         print("Validation FAILED")
+        print("Details:")
+        print("validation_check_failed1  = ", validation_check_failed1)
+        print("validation_check_failed2  = ", validation_check_failed2)
+        print("validation_check_failed3  = ", validation_check_failed3)
+        print("validation_check_failed4  = ", validation_check_failed4)
+        print("validation_check_failed5  = ", validation_check_failed5)
+        print("validation_check_failed6  = ", validation_check_failed6)
+        print("validation_check_failed7  = ", validation_check_failed7)
+        print("validation_check_failed8  = ", validation_check_failed8)
+        print("validation_check_failed9  = ", validation_check_failed9)
+        print("validation_check_failed10 = ", validation_check_failed10)
     else:
         print("Validation PASSED")
 
