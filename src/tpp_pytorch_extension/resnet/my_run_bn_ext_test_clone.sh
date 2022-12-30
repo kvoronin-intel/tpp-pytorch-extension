@@ -6,6 +6,8 @@ export LIBXSMM_TARGET=SPR
 
 export CC=gcc
 
+export LD_LIBRARY_PATH=/home/kvoronin/work/libxsmm/libxsmm/lib:$LD_LIBRARY_PATH
+
 python --version
 gcc --version
 #exit

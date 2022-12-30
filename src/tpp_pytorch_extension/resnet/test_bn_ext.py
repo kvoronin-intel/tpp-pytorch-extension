@@ -46,7 +46,7 @@ parser.add_argument('--bc',  nargs='?', type=int)
 parser.add_argument('--tuning-string-ncp', default=None, type=str, help='tuning string for ncp loop')
 parser.add_argument('--tuning-string-cp', default=None, type=str, help='tuning string for cp loop')
 
-parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_28thr.data', type=str,
+parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_56thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
 parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N, H, W, C, has_relu, has_eltwise, track_running_stats, pad_in, pad_out for the bn')
@@ -491,7 +491,8 @@ def main():
                         args.tuning_string_ncp, args.tuning_string_cp, args.niters, args.niters_warmup, args.perf_fwd, args.scale_only)
 
     else:
-        with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
+        #with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
+        with open("resnet50_bn_test_data_extended_new_56thr.data") as f:
             contents = f.readlines()
             for line in contents:
                 #print("line")
