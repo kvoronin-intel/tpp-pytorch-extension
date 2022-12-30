@@ -5,15 +5,15 @@ from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.nn import Conv2d as pytorch_conv2d
 from torch.autograd import Function
-from pcl_pytorch_extension.utils.blocked_layout import (
+from tpp_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
     get_blocking_signature,
 )
-from pcl_pytorch_extension._C import _conv as conv_cpp
+from tpp_pytorch_extension._C import _conv as conv_cpp
 
-from pcl_pytorch_extension.utils.xsmm import get_vnni_blocking
+from tpp_pytorch_extension.utils.xsmm import get_vnni_blocking
 
 import time
 from contextlib import contextmanager

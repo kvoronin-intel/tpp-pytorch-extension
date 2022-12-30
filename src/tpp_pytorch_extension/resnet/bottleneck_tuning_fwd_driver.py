@@ -6,15 +6,15 @@ import time
 #import logging, sys
 #logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
-import pcl_pytorch_extension
+import tpp_pytorch_extension
 
-from pcl_pytorch_extension._C import _xsmm as xsmm_cpp
+from tpp_pytorch_extension._C import _xsmm as xsmm_cpp
 
-from pcl_pytorch_extension._C import _bottleneck as bottleneck_cpp
+from tpp_pytorch_extension._C import _bottleneck as bottleneck_cpp
 import bottleneck as bottleneck_py
-from pcl_pytorch_extension._C import _conv as conv_cpp
+from tpp_pytorch_extension._C import _conv as conv_cpp
 import conv as conv_py
-from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
+from tpp_pytorch_extension._C import _batchnorm as batchnorm_cpp
 import batchnorm as batchnorm_py
 
 import pcl_cgbp

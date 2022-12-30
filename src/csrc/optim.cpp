@@ -1219,7 +1219,7 @@ void fused_sgd_v0(
           block_size,
           step);
     } else {
-      PCL_ASSERT(0, "Should not come here\n");
+      TPP_ASSERT(0, "Should not come here\n");
     }
 }
 
@@ -1274,7 +1274,7 @@ void fused_sgd_v1(
           block_size,
           step);
     } else {
-      PCL_ASSERT(0, "Should not come here\n");
+      TPP_ASSERT(0, "Should not come here\n");
     }
 }
 
@@ -1329,7 +1329,7 @@ void fused_sgd_v2(
           block_size,
           step);
     } else {
-      PCL_ASSERT(0, "Should not come here\n");
+      TPP_ASSERT(0, "Should not come here\n");
     }
 }
 
@@ -1384,7 +1384,7 @@ void fused_sgd_v3(
           block_size,
           step);
     } else {
-      PCL_ASSERT(0, "Should not come here\n");
+      TPP_ASSERT(0, "Should not come here\n");
     }
 }
 

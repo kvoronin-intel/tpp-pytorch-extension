@@ -3,8 +3,8 @@ import time
 import numpy as np
 import torch
 
-import pcl_pytorch_extension
-from pcl_pytorch_extension._C import _conv as conv_cpp
+import tpp_pytorch_extension
+from tpp_pytorch_extension._C import _conv as conv_cpp
 import conv as conv_py
 
 import pcl_cgbp
@@ -143,7 +143,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("info: testing TPP module from CNN (pcl_cgbp)")
         opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk)
     elif test_module == 'ext_tpp':
-        print("info: testing TPP module from extensions (pcl_pytorch_extension)")
+        print("info: testing TPP module from extensions (tpp_pytorch_extension)")
         print("caution: TPP module from extensions only works with physical padding")
         opt_conv = conv_py.DummyConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk, logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings)
         opt_has_physical_padding = (not logical_padding) and (padding != 0)

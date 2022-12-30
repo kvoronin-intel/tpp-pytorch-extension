@@ -111,8 +111,13 @@ class BuildMakeLib(Command):
             build_dir.mkdir(parents=True, exist_ok=True)
             check_call(["make", "-f", makefile] + build_args, cwd=str(build_dir))
 
-
-sources = ["src/csrc/init.cpp", "src/csrc/optim.cpp", "src/csrc/xsmm.cpp"]
+sources = [
+    "src/csrc/init.cpp",
+    "src/csrc/optim.cpp",
+    "src/csrc/xsmm.cpp",
+    "src/csrc/embedding.cpp",
+    "src/csrc/bfloat8.cpp",
+]
 sources += ["src/csrc/jit_compile.cpp", "src/csrc/common_loops.cpp", "src/csrc/par_loop_generator.cpp"]
 sources += glob.glob("src/csrc/bert/pad/*.cpp")
 sources += glob.glob("src/csrc/bert/unpad/*.cpp")

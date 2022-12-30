@@ -4,22 +4,22 @@ from torch import nn
 from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.autograd import Function
-from pcl_pytorch_extension.utils.blocked_layout import (
+from tpp_pytorch_extension.utils.blocked_layout import (
     BlockedParameter,
     BlockedModule,
     BlockedTensor,
     get_blocking_signature,
 )
 
-#import pcl_pytorch_extension
-from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
-from pcl_pytorch_extension.resnet import batchnorm as batchnorm_py
-from pcl_pytorch_extension.resnet import conv      as conv_py
+#import tpp_pytorch_extension
+from tpp_pytorch_extension._C import _batchnorm as batchnorm_cpp
+from tpp_pytorch_extension.resnet import batchnorm as batchnorm_py
+from tpp_pytorch_extension.resnet import conv      as conv_py
 
-from pcl_pytorch_extension._C import _bottleneck as bottleneck_cpp
-from pcl_pytorch_extension._C import _conv       as conv_cpp
+from tpp_pytorch_extension._C import _bottleneck as bottleneck_cpp
+from tpp_pytorch_extension._C import _conv       as conv_cpp
 
-#from pcl_pytorch_extension.utils.xsmm import get_vnni_blocking
+#from tpp_pytorch_extension.utils.xsmm import get_vnni_blocking
 
 import time
 from contextlib import contextmanager

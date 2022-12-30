@@ -56,7 +56,7 @@ void init_libxsmm() {
 
 int get_vnni_blocking(py::object dtype) {
   c10::ScalarType type = torch::python::detail::py_object_to_dtype(dtype);
-  return pcl::get_vnni_block_size(type);
+  return tpp::get_vnni_block_size(type);
 }
 
 REGISTER_SUBMODULE(_xsmm, m) {

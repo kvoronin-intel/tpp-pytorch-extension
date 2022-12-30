@@ -9,8 +9,8 @@ from collections import OrderedDict
 import copy
 
 
-import pcl_pytorch_extension
-from pcl_pytorch_extension import optim as optim_py
+import tpp_pytorch_extension
+from tpp_pytorch_extension import optim as optim_py
 #import conv as conv_py
 
 #import optim

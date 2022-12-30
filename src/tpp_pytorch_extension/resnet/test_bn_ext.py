@@ -5,8 +5,8 @@ import torch
 #import pcl_cgbp_cpp
 import numpy as np
 
-import pcl_pytorch_extension
-from pcl_pytorch_extension._C import _batchnorm as batchnorm_cpp
+import tpp_pytorch_extension
+from tpp_pytorch_extension._C import _batchnorm as batchnorm_cpp
 import batchnorm as batchnorm_py
 
 import pcl_cgbp
@@ -19,7 +19,7 @@ from test_utils import compare_weight_grads, compare_padded_tensors
 import sys, inspect
 
 def print_classes():
-    for name, obj in inspect.getmembers(sys.modules['pcl_pytorch_extension']):
+    for name, obj in inspect.getmembers(sys.modules['tpp_pytorch_extension']):
         print(obj)
         #if inspect.isclass(obj):
         #    print(obj)
@@ -108,7 +108,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
             exit()
         opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
     elif test_module == 'ext_tpp':
-        print("info: testing TPP module from extensions (pcl_pytorch_extension)")
+        print("info: testing TPP module from extensions (tpp_pytorch_extension)")
         opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
     else:
         print("test_module not supported, test_module = ", test_module)

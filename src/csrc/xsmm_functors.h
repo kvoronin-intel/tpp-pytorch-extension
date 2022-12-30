@@ -17,7 +17,7 @@
 #include <unordered_map>
 
 
-#define PCL_ASSERT(cond, x...) \
+#define TPP_ASSERT(cond, x...) \
   do {                         \
     if (!(cond)) {             \
       printf(x);               \
@@ -27,7 +27,7 @@
   } while (0)
 #define DECL_VLA_PTR(type, name, dims, ptr) type(*name) dims = (type(*) dims)ptr
 #define ALIGNDOWN(N, A) ((N) & ~((A)-1))
-namespace pcl {
+namespace tpp {
 typedef at::BFloat16 bfloat16;
 typedef at::Half half;
 typedef at::BFloat8 bfloat8;
@@ -1261,6 +1261,88 @@ class ScaleAddTPP {
   BinaryTPP kernel;
 };
 
+template <typename Tin, typename Tind, typename Tout>
+class EmbeddingFwdTPP {
+ public:
+  EmbeddingFwdTPP() {}
+  EmbeddingFwdTPP(int rows, int cols, int ldi)
+      : EmbeddingFwdTPP(rows, cols, ldi, ldi) {}
+  EmbeddingFwdTPP(int rows, int cols)
+      : EmbeddingFwdTPP(rows, cols, cols, cols) {}
+  EmbeddingFwdTPP(int rows, int cols, int ldi, int ldo)
+      : rows(rows),
+        cols(cols),
+        ldi(ldi),
+        ldo(ldo),
+        kernel(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            (LIBXSMM_MELTW_FLAG_UNARY_GS_COLS |
+             (sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
+                                : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES)),
+            LIBXSMM_MELTW_TYPE_UNARY_GATHER) {}
+  void operator()(Tin* in0, Tind* in1, Tout* out) {
+    kernel((void*)in0, (void*)in1, NULL, (void*)out, NULL);
+  }
+  void ref(Tin* in0, Tind* in1, Tout* out) {
+    for (int r = 0; r < rows; r++) {
+      auto ind = in1[r];
+      for (int c = 0; c < cols; c++) {
+        out[r * ldo + c] = in0[ind * ldi + c];
+      }
+    }
+  }
+
+ private:
+  int rows = 0;
+  int cols = 0;
+  int ldi = 0;
+  int ldo = 0;
+  UnaryTPP kernel;
+};
+
+template <typename Tin, typename Tind, typename Tout>
+class EmbeddingBwdTPP {
+ public:
+  EmbeddingBwdTPP() {}
+  EmbeddingBwdTPP(int E)
+      : E(E),
+        kernel(
+            0,
+            E,
+            E,
+            E,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+            LIBXSMM_DATATYPE_F32,
+            (libxsmm_meltw_unary_flags)(
+                sizeof(Tind) == 8 ? LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_8BYTES
+                                  : LIBXSMM_MELTW_FLAG_UNARY_IDX_SIZE_4BYTES),
+            LIBXSMM_MELTW_TYPE_UNARY_REDUCE_COLS_IDX_OP_ADD) {}
+  void operator()(Tin* in0, Tind* in1, Tout* out, int N) {
+    unsigned long long _N = N;
+    kernel((void*)in0, (void*)in1, (void*)&_N, (void*)out, NULL);
+  }
+  void ref(Tin* in0, Tind* in1, Tout* out, int N) {
+    for (long v = 0; v < E; v++)
+      out[v] = 0;
+    for (long s = 0; s < N; s++) {
+      auto ind = in1[s];
+      for (long v = 0; v < E; v++)
+        out[v] += in0[ind * E + v];
+    }
+  }
+
+ private:
+  int E = 0;
+  UnaryTPP kernel;
+};
+
 class XformTPP {
  public:
   XformTPP() {}
@@ -1365,7 +1447,7 @@ class XformExtTPP {
         zero() {
     libxsmm_meltw_unary_type unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
     if (ignore_vnni_for_fp32 == false) {
-      PCL_ASSERT(
+      TPP_ASSERT(
           (xtype == XformTPP::XFORM_XPOSE_TPP || dtype != LIBXSMM_DATATYPE_F32),
           "Only Transpose Xofrm supportd for FP32 datatype, specified %d\n",
           (int)xtype);
@@ -1384,12 +1466,12 @@ class XformExtTPP {
           } else if (BS == 4) {
             unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4;
           } else {
-            PCL_ASSERT(false, "N2VTPP: unsupported packing size (%d)\n", BS);
+            TPP_ASSERT(false, "N2VTPP: unsupported packing size (%d)\n", BS);
           }
           if (in_rows_p % BS != 0) {
             printf("Got you!\n");
           }
-          PCL_ASSERT(in_rows_p % BS == 0, "N2VTPP: unaligned number of rows\n");
+          TPP_ASSERT(in_rows_p % BS == 0, "N2VTPP: unaligned number of rows\n");
         }
         else { /* XformTPP::XFORM_N2V_PAD_TPP */
           if (BS == 2) {
@@ -1397,9 +1479,9 @@ class XformExtTPP {
           } else if (BS == 4) {
             unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNI4_PAD;
           } else {
-            PCL_ASSERT(false, "N2VTPP: unsupported packing size (%d)\n", BS);
+            TPP_ASSERT(false, "N2VTPP: unsupported packing size (%d)\n", BS);
           }
-          PCL_ASSERT(in_rows_p % BS != 0, "N2VTPP_PAD: aligned number of rows, N2V_PAD should not be used\n");
+          TPP_ASSERT(in_rows_p % BS != 0, "N2VTPP_PAD: aligned number of rows, N2V_PAD should not be used\n");
         }
       } else {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_IDENTITY;
@@ -1414,7 +1496,7 @@ class XformExtTPP {
         } else if (xtype == XformTPP::XFORM_XPOSE_N2V_TPP) {
           // unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_VNNIT;
           unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
-          PCL_ASSERT(
+          TPP_ASSERT(
               in_cols_p % BS == 0, "XposeN2VTPP: uneven number of cols\n");
         } else {
           if (BS == 2) {
@@ -1422,20 +1504,20 @@ class XformExtTPP {
           } else if (BS == 4) {
             unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_VNNI4_TO_VNNI4T;
           } else {
-            PCL_ASSERT(false, "V2VTPP: unsupported packing size (%d)\n", BS);
+            TPP_ASSERT(false, "V2VTPP: unsupported packing size (%d)\n", BS);
           }
-          PCL_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
-          PCL_ASSERT(
+          TPP_ASSERT(in_rows % BS == 0, "XposeV2VTPP: uneven number of rows\n");
+          TPP_ASSERT(
               in_cols_p % BS == 0, "XposeV2VTPP: uneven number of cols\n");
         }
       } else {
         unary_type = LIBXSMM_MELTW_TYPE_UNARY_TRANSFORM_NORM_TO_NORMT;
       }
     }
-    PCL_ASSERT(
+    TPP_ASSERT(
         (in_rows_p >= in_rows && in_cols_p >= in_cols),
         "Invalid output rows or cols value\n");
-    PCL_ASSERT(
+    TPP_ASSERT(
         in_rows_p == in_rows || in_cols_p == in_cols,
         "Padding can only be done in rows or cols\n");
 
@@ -1536,7 +1618,7 @@ class XformExtTPP {
         }
       }
     } else {
-      PCL_ASSERT(false, "Should not come here\n");
+      TPP_ASSERT(false, "Should not come here\n");
     }
   }
 
@@ -1600,7 +1682,7 @@ class XformExtTPP {
         }
       }
     } else {
-      PCL_ASSERT(false, "Should not come here\n");
+      TPP_ASSERT(false, "Should not come here\n");
     }
   }
   void operator()(int count, long str_in, long str_out, T* in, T* out) {
@@ -1960,7 +2042,7 @@ class BrgemmTPP {
       auto dt_out = XsmmDtype<Tout>();
       long type = -1;
       if (dt_in == LIBXSMM_DATATYPE_F32) {
-        PCL_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
+        TPP_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
         type = 0;
       } else if (dt_out == LIBXSMM_DATATYPE_F32) {
         type = 1;
@@ -1968,7 +2050,7 @@ class BrgemmTPP {
         type = 2;
       }
       if (type != 0)
-        PCL_ASSERT(
+        TPP_ASSERT(
             p->a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
       brgemm_type = type;
       kernel.gemm = (libxsmm_gemmfunction)get_kernel();
@@ -3131,7 +3213,7 @@ class SoftMaxBwdTPP {
         debug_print_eqn_tree(my_eqn3);
         func = meqn_dispatch(S3, S1, &ld, dt_1, my_eqn3);
       } else {
-        PCL_ASSERT(false, "Should not come here\n");
+        TPP_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -3514,7 +3596,7 @@ class VarSoftMaxBwdTPP {
         debug_print_eqn_tree(my_eqn3);
         func = meqn_dispatch(S3, 1, &ld, dt_1, my_eqn3);
       } else {
-        PCL_ASSERT(false, "Should not come here\n");
+        TPP_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -3913,7 +3995,7 @@ class LayerNormBwdTPP {
         meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
         func = meqn_dispatch(S3, S1, &ld, in_dt, my_eqn5);
       } else {
-        PCL_ASSERT(false, "LayerNormBwdTPP: invalid eqn. number %d\n", eqn_no);
+        TPP_ASSERT(false, "LayerNormBwdTPP: invalid eqn. number %d\n", eqn_no);
       }
       return (void*)func;
     }
@@ -4306,7 +4388,7 @@ class GroupNormBwdTPP {
         meqn_push_arg(my_eqn5, 1, 1, 1, 7, 0, LIBXSMM_DATATYPE_F32);
         func = meqn_dispatch(S3, S1, &ld, in_dt, my_eqn5);
       } else {
-        PCL_ASSERT(false, "GroupNormBwdTPP: invalid eqn. number %d\n", eqn_no);
+        TPP_ASSERT(false, "GroupNormBwdTPP: invalid eqn. number %d\n", eqn_no);
       }
       return (void*)func;
     }
@@ -5367,7 +5449,7 @@ class FusedAdamWTPP {
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn2);
       } else {
-        PCL_ASSERT(false, "Should not come here\n");
+        TPP_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -5636,7 +5718,7 @@ class FusedSplitAdamWTPP {
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2);
       } else {
-        PCL_ASSERT(false, "Should not come here\n");
+        TPP_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -5920,7 +6002,7 @@ class FusedAdamStepTPP {
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, in_dt, my_eqn2);
       } else {
-        PCL_ASSERT(false, "Should not come here\n");
+        TPP_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -6492,7 +6574,7 @@ class BatchNormBwdWTPP {
         }
 
       } else {
-        PCL_ASSERT(false, "Should not come here\n");
+        TPP_ASSERT(false, "Should not come here\n");
       }
       return (void*)func;
     }
@@ -6780,6 +6862,6 @@ class ReduceAddColExtTPP {
   UnaryTPP reduce;
 };
 
-}; // namespace pcl
+}; // namespace tpp
 
 #endif // _XSMM_FUNCTORS_H_

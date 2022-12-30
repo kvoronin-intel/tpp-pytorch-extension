@@ -10,7 +10,7 @@
 #include "timing.h"
 #include "xsmm_functors.h"
 
-using namespace pcl;
+using namespace tpp;
 #include "tensor_helper.h"
 
 #include <pybind11/pybind11.h>
