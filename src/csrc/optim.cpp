@@ -807,7 +807,7 @@ void fused_lamb_v2(
   }
 }
 
-/* Stores momentum as T (bf16) */
+/* Stores momentum as T (bf16) and computes in bf16 except the lr update */
 template <typename T>
 void fused_sgd_v0_impl(
     at::Tensor& t_data,
@@ -839,8 +839,7 @@ void fused_sgd_v0_impl(
 
   auto scale_add_split_bf16_tpp = SCOPEIT((SplitSGDTPP(BS)), OPTIM);
 
-  //printf("dbg: fused_sgd_v0_impl\n");
-  //printf("dbg: step = %d \n", step);
+  //printf("dbg: fused_sgd_v0_impl, step = %d\n", step);
 
 #pragma omp parallel for
   for (long i = 0; i < num_blocks; i++) {
@@ -879,7 +878,7 @@ void fused_sgd_v0_impl(
 }
 
 
-/* Stores momentum as T (bf16) */
+/* Stores momentum as T (bf16) and computes in fp32 */
 template <typename T>
 void fused_sgd_v1_impl(
     at::Tensor& t_data,
@@ -913,8 +912,7 @@ void fused_sgd_v1_impl(
   auto upconvert_split_tpp = SCOPEIT_REF(ConvertSplitTPP(BS), OPTIM);
   auto downconvert_tpp = SCOPEIT((ConvertTPP<float, T>(BS)), OPTIM);
 
-  //printf("dbg: fused_sgd_v1_impl\n");
-  //printf("dbg: step = %d \n", step);
+  //printf("dbg: fused_sgd_v1_impl, step = %d\n", step);
 
 #pragma omp parallel for
   for (long i = 0; i < num_blocks; i++) {
@@ -970,7 +968,7 @@ void fused_sgd_v1_impl(
   }
 }
 
-/* Stores momentum as fp32 */
+/* Stores momentum as fp32 and computes in fp32 but has scalar non-TPP code for lr update when T = bf16 */
 template <typename T>
 void fused_sgd_v2_impl(
     at::Tensor& t_data,
@@ -1010,114 +1008,62 @@ void fused_sgd_v2_impl(
   auto upconvert_split_tpp = SCOPEIT_REF(ConvertSplitTPP(BS), OPTIM);
   auto downconvert_tpp = SCOPEIT((ConvertTPP<float, T>(BS)), OPTIM);
 
-  //printf("dbg: fused_sgd_v2_impl\n");
-  //printf("dbg: step = %d \n", step);
+  //printf("dbg: fused_sgd_v2_impl, step = %d\n", step);
 
 #pragma omp parallel for
   for (long i = 0; i < num_blocks; i++) {
     LIBXSMM_ALIGNED(float g_f32[BS], 64);
     LIBXSMM_ALIGNED(float d_f32[BS], 64);
-    //LIBXSMM_ALIGNED(float m_f32[BS], 64);
 
     if (std::is_same<T, float>::value) {
       copy_f32_tpp((float*)g[i], &g_f32[0]);
       copy_f32_tpp((float*)d[i], &d_f32[0]);
-      //copy_f32_tpp((float*)m[i], &m_f32[0]);
     } else {
       upconvert_tpp(g[i], &g_f32[0]);
-      //upconvert_tpp(m[i], &m_f32[0]);
       upconvert_split_tpp((bfloat16*)d[i], (bfloat16*)dl[i], &d_f32[0]);
     }
-    //printf("dbg: before g_f32 = %6.6f d_f32 = %6.6f \n", g_f32[0], d_f32[0]);
 
     // 1. weight decay
     if (weight_decay != 0)
       scale_add_f32_tpp(&d_f32[0], &g_f32[0], weight_decay);
-    //printf("dbg: after decay g_f32 = %6.6f \n", g_f32[0]);
     // 2. momentum computation
     if (momentum != 0) {
-        //printf("dbg: before momentum m_f32 = %6.6f \n", m[i][0]);
         if (step == 0) {
-          copy_f32_tpp(&g_f32[0], m[i]);//&m_f32[0]);
+          copy_f32_tpp(&g_f32[0], m[i]);
         } else {
-          scale_f32_tpp(m[i], m[i], momentum);//(&m_f32[0], &m_f32[0], momentum);
-          scale_add_f32_tpp(&g_f32[0], m[i], 1.0f - dampening);//&m_f32[0], 1.0f - dampening);
+          scale_f32_tpp(m[i], m[i], momentum);
+          scale_add_f32_tpp(&g_f32[0], m[i], 1.0f - dampening);
         }
-        //printf("dbg: after momentum m_f32 = %6.6f \n", m[i][0]);
 
       // nesterov
       if (nesterov != 0) {
         printf("nesterov support has not been implemented for fused_sgd_v2_impl\n");
         exit(-1);
       } else {
-        copy_f32_tpp(m[i], &g_f32[0]);//&m_f32[0], &g_f32[0]);
+        copy_f32_tpp(m[i], &g_f32[0]);
       }
-      //printf("dbg: after momentum g_f32 = %6.6f \n", g_f32[0]);
     }
 
     // 3. lr term
     if (std::is_same<T, float>::value) {
-      //scale_add_tpp(g[i], d[i], -lr);
       scale_add_f32_tpp(&g_f32[0], (float*)d[i], -lr);
     } else {
-      //downconvert_tpp(&m_f32[0], m[i]);
-
       auto in_hi_cast = (libxsmm_bfloat16*)d[i];
       auto in_lo_cast = (libxsmm_bfloat16*)dl[i];
       for (int j = 0; j < BS; j++) {
         union libxsmm_bfloat16_f32 bf16_w;
         bf16_w.i[0] = in_lo_cast[j];
         bf16_w.i[1] = in_hi_cast[j];
-        //printf("bf16_w combined as float before lr = %6.6f \n", bf16_w.f);
         union libxsmm_bfloat16_f32 bf16_hp;
         bf16_hp.f = bf16_w.f - (float)lr * g_f32[j];
         in_lo_cast[j] = bf16_hp.i[0];
         in_hi_cast[j] = bf16_hp.i[1];
-        //printf("bf16_w combined as float after lr = %6.6f \n", bf16_hp.f);
-      }
-      //LIBXSMM_ALIGNED(float d_dbg_f32[BS], 64);
-      //upconvert_split_tpp((bfloat16*)d[i], (bfloat16*)dl[i], &d_dbg_f32[0]);
-      //printf("dbg: after lr d_dbg_f32 = %6.6f \n", d_dbg_f32[0]);
-    }
-
-    // correct operations but missing conversion to f32 for all except last computes
-#if 0
-    // 1. weight decay
-    if (weight_decay != 0)
-      scale_add_tpp(d[i], g[i], weight_decay);
-    // 2. momentum computation
-    if (momentum != 0) {
-        if (step == 0) {
-          copy_tpp(g[i], m[i]);
-        } else {
-          scale_tpp(m[i], m[i], momentum);
-          scale_add_tpp(g[i], m[i], 1.0f - dampening);
-        }
-
-      // nesterov
-      if (nesterov != 0) {
-        printf("nesterov support has not been implemented for fused_sgd_v2_impl\n");
-        exit(-1);
-      } else {
-        copy_tpp(m[i], g[i]);
       }
     }
-    // 3. lr term
-    if (std::is_same<T, float>::value) {
-      scale_add_tpp(g[i], d[i], -lr);
-    } else {
-      scale_add_split_bf16_tpp(
-          (at::BFloat16*)d[i],
-          (at::BFloat16*)dl[i],
-          (at::BFloat16*)g[i],
-          -lr);
-    }
-#endif
   }
-
 }
 
-
+/* The most up-to-date SplitSGD implementation */
 /* Stores momentum as fp32, computes in fp32 but keeps fp32 version of gradient split into two bf16 parts (overlapped with bf16 gradient) */
 template <typename T>
 void fused_sgd_v3_impl(
@@ -1142,12 +1088,9 @@ void fused_sgd_v3_impl(
   DECL_VLA_PTR_PT(float, m, [BS], t_moment);
   DECL_VLA_PTR_PT(T, dl, [BS], t_data_low);
 
-  //printf("dbg: fused_sgd_v3_impl\n");
-  //printf("dbg: step = %d \n", step);
+  //printf("dbg: fused_sgd_v3_impl, step = %d\n", step);
 
   if (std::is_same<T, float>::value) {
-    //printf("Error: fused_sgd_v3_impl does not support T = float\n");
-    //exit(-1);
     auto sgd_ext_tpp = SCOPEIT((SGDExtTPP<T>(BS)), OPTIM);
 
 #   pragma omp parallel for
@@ -1161,7 +1104,6 @@ void fused_sgd_v3_impl(
 #   pragma omp parallel for
     for (long i = 0; i < num_blocks; i++) {
       LIBXSMM_ALIGNED(float g_f32[BS], 64);
-      //void operator()(bfloat16* d_lo, bfloat16* d_hi, bfloat16 *g_bf16, float* m, float *g_f32, float weight_decay, float dampening, float momentum, float lr, int step) {
       split_sgd_ext_tpp((bfloat16*)dl[i], (bfloat16*)d[i], (bfloat16*)g[i], m[i], &g_f32[0], weight_decay, dampening, momentum, lr, step);
     }
   }

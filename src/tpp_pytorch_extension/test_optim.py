@@ -2,21 +2,18 @@ import argparse
 import torch
 from torch.autograd import Variable
 import numpy as np
-import pdb
+#import math
+#import pdb
 
 from collections import OrderedDict
 
 import copy
 
-
 import tpp_pytorch_extension
 from tpp_pytorch_extension import optim as optim_py
-#import conv as conv_py
 
-#import optim
-#from pcl_optim import SGD_fb_enhanced, SGD_bf16_enhanced, SGD_bf16fb_enhanced
-
-parser = argparse.ArgumentParser(description='PCL PyTorch extension standalone testing for optimizers')
+parser = argparse.ArgumentParser(description='PCL PyTorch extension standalone testing for SGD optimizers. ' +
+'Example: test_optim.py --test-optim SplitSGD_bf16fb_enhanced --use-bf16-opt')
 
 parser.add_argument('--test-optim', default=None, type=str,
                     help='module to test against the reference', dest='test_optim')
@@ -30,6 +27,8 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
 parser.add_argument('--wd', '--weight-decay', default=5e-3, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
+
+parser.add_argument('--without-checkpointing', action="store_true", default=False)
 
 class LinearRegression(torch.nn.Module):
     def __init__(self, inputSize, outputSize, dtype=torch.float):
@@ -72,7 +71,6 @@ def main():
         checkpoint_bf16 = OrderedDict()
         for param_tensor in checkpoint:
             checkpoint_bf16[param_tensor] = checkpoint[param_tensor].to(torch.bfloat16)
-        #exit()
         model_opt = LinearRegression(inputDim, outputDim, torch.bfloat16)
         model_opt.load_state_dict(checkpoint_bf16)
     else:
@@ -80,7 +78,6 @@ def main():
 
     criterion = torch.nn.MSELoss()
 
-    #optimizer_opt   = torch.optim.SGD(model_opt.parameters(), lr=args.lr)
     if args.test_optim == 'SGD_fb_enhanced':
         optimizer_opt = optim_py.SGD_fb_enhanced(model_opt.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.test_optim == 'SGD_bf16_enhanced':
@@ -94,13 +91,22 @@ def main():
     else:
         raise RuntimeError('unrecognized args.test_optim value = ', args.test_optim)
 
-    #optimizer_torch = torch.optim.AdamW(model_torch.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08)
     optimizer_torch = torch.optim.SGD(model_torch.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     print("optimizer_opt   = ", optimizer_opt)
     print("optimizer_torch = ", optimizer_torch)
 
-    epoch_to_checkpoint = epochs // 2
+    # Define an epoch when saving/loading will happen
+    if not args.without_checkpointing:
+        epoch_to_checkpoint = epochs // 2
+    else:
+        epoch_to_checkpoint = epochs + 1
+
+    # Relative loss tolerance (crude 15% for bf16)
+    if args.use_bf16_opt:
+        loss_tolerance = 0.15
+    else:
+        loss_tolerance = 0.00001
 
     checkpoint_name_torch = "checkpoint_torch.pt"
     checkpoint_name_opt   = "checkpoint_opt.pt"
@@ -131,11 +137,7 @@ def main():
             model_state_dict_before = model_torch.state_dict()
             model_state_dict_downconverted_torch = OrderedDict()
             for param_tensor in checkpoint_torch['model_state_dict']:
-                #print("dbg: param_tensor, type = ", param_tensor, type(param_tensor))
-                #checkpoint_bf16 +=
-                #print("dbg:", param_tensor, "\t", checkpoint_torch['model_state_dict'][param_tensor].shape, "\t", checkpoint_torch['model_state_dict'][param_tensor].dtype)
                 model_state_dict_downconverted_torch[param_tensor] = checkpoint_torch['model_state_dict'][param_tensor].to(model_state_dict_before[param_tensor].dtype)
-            #exit()
             model_torch.load_state_dict(model_state_dict_downconverted_torch)
             optimizer_torch.load_state_dict(checkpoint_torch['optimizer_state_dict'])
             loss_torch = checkpoint_torch['loss']
@@ -146,18 +148,12 @@ def main():
             model_state_dict_before = model_opt.state_dict()
             model_state_dict_downconverted_opt = OrderedDict()
             for param_tensor in checkpoint_opt['model_state_dict']:
-                #print("dbg: param_tensor, type = ", param_tensor, type(param_tensor))
-                #checkpoint_bf16 +=
-                #print("dbg:", param_tensor, "\t", checkpoint_opt['model_state_dict'][param_tensor].shape, "\t", checkpoint_opt['model_state_dict'][param_tensor].dtype)
                 model_state_dict_downconverted_opt[param_tensor] = checkpoint_opt['model_state_dict'][param_tensor].to(model_state_dict_before[param_tensor].dtype)
-            #exit()
             model_opt.load_state_dict(model_state_dict_downconverted_opt)
             optimizer_opt.load_state_dict(checkpoint_opt['optimizer_state_dict'])
             loss_opt = checkpoint_opt['loss']
 
-            #exit()
-
-        # Clear gradient buffers because we don't want any gradient from previous epoch to carry forward, dont want to cummulate gradients
+        # Clear gradient buffers because we don't want any gradient from previous epoch to carry forward, dont want to acumulate gradients
         optimizer_torch.zero_grad()
         optimizer_opt.zero_grad()
 
@@ -167,14 +163,14 @@ def main():
 
         # get loss for the predicted output
         loss_torch = criterion(outputs_torch, labels)
-        #loss_torch = criterion(outputs_torch.to(torch.bfloat16), labels)
-        #print(loss_torch)
-        #loss_opt   = criterion(outputs_opt, labels_opt)
         loss_opt   = criterion(outputs_opt.to(torch.float), labels_opt.to(torch.float))
-        #print(loss_opt)
 
-        #print('epoch {}, loss_torch {}'.format(epoch, loss_torch.item()))
         print('epoch {}, loss_torch {}, loss_opt {}'.format(epoch, loss_torch.item(), loss_opt.item()))
+
+        # A very crude error check
+        if abs(loss_torch.item() - loss_opt.item()) > loss_tolerance * abs(loss_opt.item()):
+            print("Error: Validation failed (loss is too far apart for opt vs torch)")
+            exit()
 
         # get gradients w.r.t to parameters
         loss_torch.backward()
@@ -184,17 +180,11 @@ def main():
         optimizer_torch.step()
         optimizer_opt.step()
 
-        #print("Optimizer ref's state_dict:")
-        #for var_name in optimizer_torch.state_dict():
-        #    print(var_name, "\t", optimizer_torch.state_dict()[var_name])
-
         #print("Optimizer opt's state_dict:")
         #for var_name in optimizer_opt.state_dict():
         #    print(var_name, "\t", optimizer_opt.state_dict()[var_name])
 
-
         if epoch == epoch_to_checkpoint:
-            #print("")
             print("Saving a checkpoint for epoch = (stock setup)", epoch);
 
             #print("dbg: optimizer state dict torch = ", optimizer_torch.state_dict())
@@ -204,17 +194,6 @@ def main():
                 'optimizer_state_dict': optimizer_torch.state_dict(),
                 'loss': loss_torch,
             }, checkpoint_name_torch)
-            """
-            save_checkpoint({
-                    'epoch': epoch + 1,
-                    'model_state_dict': model_torch.state_dict(),
-                    'optimizer_state_dict' : optimizer_torch.state_dict(),
-                    'loss': loss_torch,
-                })
-            """
-
-            #print("dbg: optimizer state dict dbg opt = ", optimizer_opt.state_dict_dbg())
-            #exit()
 
             print("Saving a checkpoint for epoch = (optimized setup)", epoch);
             torch.save({
@@ -224,28 +203,8 @@ def main():
                 'optimizer_state_dict': optimizer_opt.state_dict(),
                 'loss': loss_opt,
             }, checkpoint_name_opt)
-            """
-            save_checkpoint({
-                    'epoch': epoch + 1,
-                    'model_state_dict': model_opt.state_dict(),
-                    'optimizer_state_dict' : optimizer_opt.state_dict(),
-                    'loss': loss_opt,
-                })
-            """
-        #print("dbg: model torch weight =  grad = ", model_torch.linear.weight, model_torch.linear.weight.grad)
-        #print("dbg: model opt   weight =  grad = ", model_opt.linear.weight,   model_opt.linear.weight.grad)
 
-        #state_dict_dbg2 = optimizer_opt.state_dict_dbg()
-        #print("state_dict_dbg here 2 = ", state_dict_dbg1)
-
-        # This is done to check that the state dict is correct in the optimizer
-        torch.save({
-          'epoch': epoch + 1,
-          #'state_dict': model.state_dict(),
-          #'best_acc1': best_acc1,
-          'optimizer' : optimizer_opt.state_dict(),
-        }, 'checkpoint_test_optim.pth.tar')
-
+    print("Validation succeeded (as it did not fail and exit earlier)")
 
 if __name__ == "__main__":
     args = parser.parse_args()
