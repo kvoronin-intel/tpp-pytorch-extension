@@ -145,7 +145,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (tpp_pytorch_extension)")
         print("caution: TPP module from extensions only works with physical padding")
-        opt_conv = conv_py.DummyConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk, logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings)
+        opt_conv = conv_py.TPPConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk, logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings)
         opt_has_physical_padding = (not logical_padding) and (padding != 0)
     elif test_module == 'handlebased':
         print("info: testing handle-based module")

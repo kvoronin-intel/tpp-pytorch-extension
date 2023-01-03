@@ -14,10 +14,10 @@ from tpp_pytorch_extension._C import _batchnorm as batchnorm_cpp
 import time
 from contextlib import contextmanager
 
-class DummyBatchNormFunction(torch.autograd.Function):
+class TPPBatchNormFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, training, relu, eltwise, eps, padding, tuning_string_ncp, tuning_string_cp, tuning_timing, *inputs):
-        # print("DummyBatchNormFunction FWD Called")
+        # print("TPPBatchNormFunction FWD Called")
 
         #( input, input_add, weight, bias, mean, var, scratch ) = inputs
         if eltwise:
@@ -69,12 +69,12 @@ class DummyBatchNormFunction(torch.autograd.Function):
             print("debug: i fwd output     = ", ind, output.view(-1)[ind].item())
         """
 
-        # print("Returning from DummyBatchNormFunction FWD")
+        # print("Returning from TPPBatchNormFunction FWD")
         return output
 
     @staticmethod
     def backward(ctx, *grad_outs):
-        # print("DummyBatchNormFunction BWD Called")
+        # print("TPPBatchNormFunction BWD Called")
         inputs = []
         inputs += [g.contiguous() for g in grad_outs]
 
@@ -124,7 +124,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
             print("debug: ind bwd grad_bias        = ", ind, grad_bias.view(-1)[ind].item())
         """
 
-        # print("Returning from DummyBatchNormFunction BWD")
+        # print("Returning from TPPBatchNormFunction BWD")
         if ctx.eltwise:
             return (None, None, None, None, None, # for training, relu, eltwise, eps, padding,
                     None, None, # for two tuning strings
@@ -136,7 +136,7 @@ class DummyBatchNormFunction(torch.autograd.Function):
                     None, # for tuning_timings
                     grad_input,                 grad_weight, grad_bias, None, None) #, None)
 
-class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
+class TPPBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
     r"""PCL batchNorm TPP module for using libxsmm BN"""
 
     def __init__(self, num_channels, padding, eps, momentum=0.1, affine=True, track_running_stats=True, relu=False, eltwise=False, dtype=torch.float32, bc = None):
@@ -162,7 +162,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
         #self.scratch = torch.Tensor()
 
         if len(padding) != 4:
-            print("Error: padding must be supplied to DummyBatchNormTPP as a list of 4 elements")
+            print("Error: padding must be supplied to TPPBatchNormTPP as a list of 4 elements")
             exit()
 
         self.blocked_input_signature = get_blocking_signature(
@@ -249,7 +249,7 @@ class DummyBatchNormTPP(BlockedModule, torch.nn.BatchNorm2d):
                 inputs = [ blocked_input,                    self.weight, self.bias, self.mean, self.var ]
             #output = XsmmBNTPP.apply(blocked_input, blocked_input_add, self.weight, self.bias, self.mean, self.var, self.invstd, self.xsmm_handle, output_size, self.training)
 
-        output = DummyBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, tuning_string_ncp, tuning_string_cp, tuning_timings, *inputs) #output_size, *inputs)
+        output = TPPBatchNormFunction.apply(self.training, self.relu, self.eltwise, self.eps, self.padding, tuning_string_ncp, tuning_string_cp, tuning_timings, *inputs) #output_size, *inputs)
 
         if self.training and self.track_running_stats:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.mean

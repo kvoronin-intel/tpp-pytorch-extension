@@ -29,7 +29,7 @@ print_classes()
 exit()
 """
 
-#from batchnorm_py import DummyBatchNormTPP
+#from batchnorm_py import TPPBatchNormTPP
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
@@ -109,7 +109,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         opt_bn = pcl_cgbp.XsmmBatchNormTPP(C, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (tpp_pytorch_extension)")
-        opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
+        opt_bn = batchnorm_py.TPPBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype, bc=bc)
     else:
         print("test_module not supported, test_module = ", test_module)
         exit()

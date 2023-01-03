@@ -64,37 +64,37 @@ class Bottleneck_base(nn.Module):
         self.relu = nn.ReLU(inplace=False)
 
         #self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False, dtype=self.dtype)
-        self.conv1 = conv_py.DummyConv2dTPP(inplanes, planes, bc=bc_conv1, bk=bc_conv2, kernel_size=1, bias=False, dtype=self.dtype)
+        self.conv1 = conv_py.TPPConv2dTPP(inplanes, planes, bc=bc_conv1, bk=bc_conv2, kernel_size=1, bias=False, dtype=self.dtype)
 
         if self.use_groupnorm:
             self.bn1 = nn.GroupNorm(32, planes, eps)
         else:
-            self.bn1 = batchnorm_py.DummyBatchNormTPP(planes, bc=bc_conv2, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
+            self.bn1 = batchnorm_py.TPPBatchNormTPP(planes, bc=bc_conv2, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
             #self.bn1 = XsmmBatchNormTPP(planes, eps, relu=True, dtype=self.dtype)
             #self.bn1 = nn.BatchNorm2d(planes, eps)
             #self.bn1  = nn.BatchNorm2d(planes, eps, track_running_stats=False)
 
         #self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
         #                       padding=1, bias=False, dtype=self.dtype)
-        self.conv2 = conv_py.DummyConv2dTPP(planes, planes, kernel_size=3, stride=stride,
+        self.conv2 = conv_py.TPPConv2dTPP(planes, planes, kernel_size=3, stride=stride,
                                padding=1, bias=False, dtype=self.dtype,
                                bc=bc_conv2, bk=bc_conv3)
 
         if self.use_groupnorm:
             self.bn2 = nn.GroupNorm(32, planes, eps, dtype=self.dtype)
         else:
-            self.bn2 = batchnorm_py.DummyBatchNormTPP(planes, bc=bc_conv3, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
+            self.bn2 = batchnorm_py.TPPBatchNormTPP(planes, bc=bc_conv3, padding=[0, 0, 0, 0], eps=eps, relu=True, dtype=self.dtype)
             #self.bn2 = XsmmBatchNormTPP(planes, eps, relu=True, dtype=self.dtype)
             #self.bn2 = nn.BatchNorm2d(planes, eps, dtype=self.dtype)
             #self.bn2  = nn.BatchNorm2d(planes, eps, track_running_stats=False)
 
         #self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False, dtype=self.dtype)
-        self.conv3 = conv_py.DummyConv2dTPP(planes, planes * 4, bc=bc_conv3, bk=bk_conv3, kernel_size=1, bias=False, dtype=self.dtype)
+        self.conv3 = conv_py.TPPConv2dTPP(planes, planes * 4, bc=bc_conv3, bk=bk_conv3, kernel_size=1, bias=False, dtype=self.dtype)
 
         if self.use_groupnorm:
             self.bn3 = nn.GroupNorm(32, planes * 4, eps, dtype=self.dtype)
         else:
-            self.bn3 = batchnorm_py.DummyBatchNormTPP(planes * 4, bc=bk_conv3, padding=[0, 0, 0, 0], eps=eps, relu=True, eltwise=True, dtype=self.dtype)
+            self.bn3 = batchnorm_py.TPPBatchNormTPP(planes * 4, bc=bk_conv3, padding=[0, 0, 0, 0], eps=eps, relu=True, eltwise=True, dtype=self.dtype)
             #self.bn3 = XsmmBatchNormTPP(planes * 4, eps, relu=True, eltwise=True, dtype=self.dtype)
             #self.bn3  = nn.BatchNorm2d(planes * 4, eps, dtype=self.dtype)
             #self.bn3  = nn.BatchNorm2d(planes * 4, eps, track_running_stats=False)
@@ -648,6 +648,17 @@ class BottleneckApplyBNTPP(Function):
             if grad_b1w_nan_count > 0 or grad_b2w_nan_count > 0 or grad_b3w_nan_count > 0 or grad_b4w_nan_count > 0 or grad_c1w_nan_count > 0 or grad_c2w_nan_count > 0 or grad_c3w_nan_count > 0 or grad_c4w_nan_count > 0:
                 print("Exiting because nan count is not zero")
                 exit(-1)
+        
+
+            grad_c1i_nan_count = torch.isnan(grad_c1i.view(-1)).sum()
+            print("nan check in bottleneck for grad_c1i, nancount = ", grad_c1i_nan_count)
+            grad_c4i_nan_count = torch.isnan(grad_c4i.view(-1)).sum()
+            print("nan check in bottleneck for grad_c4i, nancount = ", grad_c4i_nan_count)
+
+            if grad_c1i_nan_count > 0 or grad_c4i_nan_count > 0:
+                print("Exiting because nan count is not zero in grad_c1i or grad_c4i")
+                exit(-1)
+
         """
 
         """

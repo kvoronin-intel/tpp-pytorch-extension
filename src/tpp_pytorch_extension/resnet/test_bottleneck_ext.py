@@ -107,7 +107,7 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
                 print("Error, for test_module = ext_bottleneck only physical padding for 3x3 convolutions is supported")
                 exit()
             torch.manual_seed(0)
-            opt_downsample1 = conv_py.DummyConv2dTPP(inc, outc * expansion, kernel_size=1, stride=stride, bias=False, dtype=opt_dtype,
+            opt_downsample1 = conv_py.TPPConv2dTPP(inc, outc * expansion, kernel_size=1, stride=stride, bias=False, dtype=opt_dtype,
                                                      bc=channel_block_size, bk=channel_block_size)
             torch.manual_seed(0)
             if use_groupnorm:
@@ -115,8 +115,8 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
                 #opt_downsample2 = XsmmGroupNormTPP(32, outc * expansion, eps, dtype=opt_dtype)
                 #gn_init(opt_downsample2)
             else:
-                #opt_bn = batchnorm_py.DummyBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
-                opt_downsample2 = batchnorm_py.DummyBatchNormTPP(outc * expansion, padding=[0, 0, 0, 0],eps=eps, dtype=opt_dtype, bc=channel_block_size)
+                #opt_bn = batchnorm_py.TPPBatchNormTPP(C, opt_padding, eps=eps, track_running_stats=track_running_stats, relu=has_relu, eltwise=has_eltwise, dtype=opt_dtype)
+                opt_downsample2 = batchnorm_py.TPPBatchNormTPP(outc * expansion, padding=[0, 0, 0, 0],eps=eps, dtype=opt_dtype, bc=channel_block_size)
     else:
         torch_downsample1 = None
         torch_downsample2 = None
