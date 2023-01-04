@@ -290,8 +290,8 @@ class BlockedModule(torch.nn.Module):
         super(BlockedModule, self)._save_to_state_dict(destination, prefix, keep_vars)
         for p in blocked_params:
             p.block()
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-            print("_save_to_state_dict Called - %s" % prefix)
+        #if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        #    print("_save_to_state_dict Called - %s" % prefix)
 
     def _load_from_state_dict(
         self,
@@ -319,8 +319,8 @@ class BlockedModule(torch.nn.Module):
         )
         for p in blocked_params:
             p.block()
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-            print("_load_from_state_dict Called - %s" % prefix)
+        #if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        #    print("_load_from_state_dict Called - %s" % prefix)
 
     @staticmethod
     def default_blocking_factors(S):
