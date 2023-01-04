@@ -136,6 +136,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         print("Custom block sizes can only be used for ext_tpp and cnn_tpp test_modules")
         exit()
 
+    if test_module == 'cnn_tpp' and use_hardcoded_tunings:
+        print("Error: use_hardcoded_tunings does not make sense for test_module = cnn_tpp, aborting ...")
+        exit()
+
     opt_has_physical_padding = False
 
     torch.manual_seed(0)
@@ -322,8 +326,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     #    print("i y1 y2 = ", -i-1, y1.view(-1)[-i-1].item(), y2.view(-1)[-i-1].item())
 
     # Very loose tolerances to check only obvious errors
-    rtol=1.5e-1
-    atol=1e+0
+    if opt_dtype == torch.bfloat16:
+        rtol=1.5e-1
+        atol=1e+0
+    else:
+        rtol=1.0e-3
+        atol=1.0e-3
 
     # Output (fwd)
     validation_check_fwd_failed = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", outW, output_hw_padding, zero_rim_for_opt = True, rtol=rtol, atol=atol)
@@ -415,10 +423,6 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         validation_check_bwd_w_failed = not compare_weight_grads( opt_conv.weight.grad, torch_conv.weight.grad, "W Grad", rtol=rtol, atol=atol)
 
         validation_checks_failed = validation_check_fwd_failed or validation_check_bwd_d_failed or validation_check_bwd_bias_failed or validation_check_bwd_w_failed
-        print("validation_check_fwd_failed      = ", validation_check_fwd_failed)
-        print("validation_check_bwd_d_failed    = ", validation_check_bwd_d_failed)
-        print("validation_check_bwd_bias_failed = ", validation_check_bwd_bias_failed, " and disabled_bwd_d = ", disabled_bwd_d)
-        print("validation_check_bwd_w_failed    = ", validation_check_bwd_w_failed)
 
         time_end = time.time()
         print("Validating tensors for backward took (s) ", time_end - time_start)
@@ -426,6 +430,11 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
         if validation_checks_failed:
             print("Validation FAILED")
+            print("Details:")
+            print("validation_check_fwd_failed      = ", validation_check_fwd_failed)
+            print("validation_check_bwd_d_failed    = ", validation_check_bwd_d_failed)
+            print("validation_check_bwd_bias_failed = ", validation_check_bwd_bias_failed, " and disabled_bwd_d = ", disabled_bwd_d)
+            print("validation_check_bwd_w_failed    = ", validation_check_bwd_w_failed)
         else:
             print("Validation PASSED")
     else:

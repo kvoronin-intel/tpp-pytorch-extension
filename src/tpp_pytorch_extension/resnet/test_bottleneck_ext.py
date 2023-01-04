@@ -43,6 +43,9 @@ parser.add_argument('--use-hardcoded-tunings', action="store_true", default=Fals
 
 parser.add_argument('--channel-block-size', type=int, default=None, dest='channel_block_size')
 
+parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_56thr.data', type=str,
+                    help='file to read test input data from', dest='test_data_file')
+
 #import pdb
 
 # When physical padding is on, rims can be nans
@@ -72,6 +75,10 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     if (stride == 1 and inc == outc * expansion) and has_downsample == True:
         print("Warning: For these stride, inc, outc and expansion has_downsample should be False (are you sure you want to have it as True) in Resnet")
+
+    if test_module == 'tpp_bottleneck' and use_hardcoded_tunings:
+        print("Error: use_hardcoded_tunings does not make sense for test_module = tpp_bottleneck, aborting ...")
+        exit()
 
     if has_downsample:
         if ref_module == 'pt_native':
@@ -271,7 +278,8 @@ def main():
     #with open("resnet50_bottleneck_test_data_28thr_saved.data") as f:
     #with open("resnet50_bottleneck_test_data_28thr.data") as f:
     #with open("resnet50_bottleneck_test_data_56thr_112.data") as f:
-    with open("resnet50_bottleneck_test_data_56thr.data") as f:
+    #with open("resnet50_bottleneck_test_data_56thr.data") as f:
+    with open(args.test_data_file) as f:
         contents = f.readlines()
         for line in contents:
             if line[0] == '#' or len(line) < 2:

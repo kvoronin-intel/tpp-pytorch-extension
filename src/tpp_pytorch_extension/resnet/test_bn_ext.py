@@ -46,7 +46,7 @@ parser.add_argument('--bc',  nargs='?', type=int)
 parser.add_argument('--tuning-string-ncp', default=None, type=str, help='tuning string for ncp loop')
 parser.add_argument('--tuning-string-cp', default=None, type=str, help='tuning string for cp loop')
 
-parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bottleneck_56thr.data', type=str,
+parser.add_argument('--test-data-file', default='resnet50_bn_test_data_56thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
 parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N, H, W, C, has_relu, has_eltwise, track_running_stats, pad_in, pad_out for the bn')
@@ -83,9 +83,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         tuning_string_cp  = None
         print("info: tuning strings are empty")
 
-
     #opt_padding = [0, 0, 0, 0]
-
     if opt_padding != None and len(opt_padding) != 4:
         print("Error: padding should have four elements [pad_h_in, pad_w_in, pad_h_out, pad_w_out]")
         exit()
@@ -130,16 +128,6 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
     #    bias_bf16 = bias.to(torch.bfloat16)
     #    bias      = bias_bf16.to(torch.float)
 
-    """
-    #x1 = torch.randn(N, C, H, W, requires_grad=True)
-    #n  = torch.distributions.Normal(torch.tensor([4.0]), torch.tensor([0.5]))
-    #x1 = n.sample((N,C,H,W), reguires_grad=True)
-    x1 = torch.randn(N, C, H, W, requires_grad=True) * 0.5 + 4.0
-    #print("x1 size = ", x1.size())
-    #exit()
-    x2 = x1.clone().detach().requires_grad_()
-    """
-
     #x = torch.randn(N, C, H, W, requires_grad=True)
     #x = torch.randn(N, C, H, W, requires_grad=True) * 0.5 + 4.0
     #x = torch.ones_like(x, requires_grad=True)
@@ -149,13 +137,7 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         x_bf16 = x.to(torch.bfloat16)
         x      = x_bf16.to(torch.float)
-    #print("x shape = ", x.shape)
 
-    """
-    if has_eltwise == True:
-        x1_add = torch.randn(N, C, H, W, requires_grad=True)
-        x2_add = x1_add.clone().detach().requires_grad_()
-    """
     x_add = torch.randn(N, C, H, W, requires_grad=True)
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         x_add_bf16 = x_add.to(torch.bfloat16)
@@ -226,9 +208,6 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
         xp_add.retain_grad()
     print("x2 (torch) size, xp size = ", x2.size(), xp.size())
     """
-
-    print("x1.shape = ", x1.shape)
-    print("x2.shape = ", x2.shape)
 
     #y1 = opt_conv(x1, x1_add)
     #y2 = relu(torch_conv(x2) + x2_add)
@@ -340,46 +319,70 @@ def run_test_bn(N, H, W, C, bc, opt_padding, has_relu, has_eltwise, track_runnin
     ref_weight_grad = torch_bn.weight.grad
     ref_bias_grad = torch_bn.bias.grad
     """
-    compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding)
+
+    # Very loose tolerances to check only obvious errors
+    if opt_dtype == torch.bfloat16:
+        rtol=5e-2 #1.5e-1
+        atol=1e-2 #1e+0
+    else: # not checked
+        rtol=1e-3 #1.5e-1
+        atol=1e-3 #1e+0
+
+    ignored_failures = 0
+
+    validation_check_x_grad_failed = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", W, input_hw_padding, rtol=rtol, atol=atol)
+    if x2.grad.norm(p=float('inf')) < 1e-10 and validation_check_x_grad_failed:
+        print("Warning: ignoring the failed tensor comparison results as the reference tensor is too small for x grad")
+        ignored_failures = ignored_failures + 1
+        validation_check_x_grad_failed = False
 
     # X_ADD gradient
     if has_eltwise == True:
-        compare_padded_tensors(x1_add.grad, x2_add.grad, "X ADD Grad", W, input_hw_padding)
+        validation_check_xadd_grad_failed = not compare_padded_tensors(x1_add.grad, x2_add.grad, "X ADD Grad", W, input_hw_padding, rtol=rtol, atol=atol)
+        if x2_add.grad.norm(p=float('inf')) < 1e-10 and validation_check_xadd_grad_failed:
+            print("Warning: ignoring the failed tensor comparison results as the reference tensor is too small for x add grad")
+            ignored_failures = ignored_failures + 1
+            validation_check_xadd_grad_failed = False
+    else:
+        validation_check_xadd_grad_failed = False
 
-    compare_weight_grads( opt_bn.weight.grad, torch_bn.weight.grad, "Weight Grad")
+    validation_check_weight_grad_failed = not compare_weight_grads( opt_bn.weight.grad, torch_bn.weight.grad, "Weight Grad", rtol=rtol, atol=atol)
 
-    """
-    # Weight gradient
-    print("W Allclose: ", opt_weight_grad.allclose(ref_weight_grad, rtol=1e-5, atol=1e-5))
-    #print("(opt_bn.weight.data - torch_bn.weight.data).abs().norm(inf)                          = ", (opt_bn.weight.data - torch_bn.weight.data).norm(p=float('inf')))
-    #print("(opt_bn.weight.data - original weight).abs().norm(inf)                               = ", (opt_bn.weight.data - weight).norm(p=float('inf')))
-    #print("opt_weight_grad size")
-    #print(opt_weight_grad.size())
-    #print("ref_weight_grad size")
-    #print(ref_weight_grad.size())
-    wgrad_rel_norm_diff = (opt_weight_grad - ref_weight_grad).norm(2) / ref_weight_grad.norm(2)
-    if wgrad_rel_norm_diff > 3.0e-6:
-        print("warning, wgrad_rel_norm-diff is too large, ", wgrad_rel_norm_diff)
-    print("(opt_weight_grad - ref_weight_grad).abs().norm(inf)               = ", (opt_weight_grad - ref_weight_grad).norm(p=float('inf')))
-    print("(opt_weight_grad - ref_weight_grad).abs().norm(2) / torch.w.grad  = ", (opt_weight_grad - ref_weight_grad).norm(2) / ref_weight_grad.norm(2))
-    #print("(opt_x_grad - ref_x_grad).abs().sum() / 64*3*7*7 = ", (opt_x_grad - ref_x_grad).reshape(-1).abs().sum()/((opt_x_grad - ref_x_grad).reshape(-1).size()))
-    """
+    if torch_bn.weight.grad.norm(p=float('inf')) < 1e-9 and validation_check_weight_grad_failed:
+        print("Warning: ignoring the failed tensor comparison results as the reference tensor is too small for weight grad")
+        ignored_failures = ignored_failures + 1
+        validation_check_weight_grad_failed = False
 
     # Bias
-    compare_padded_tensors(opt_bn.bias.grad, torch_bn.bias.grad, "Bias Grad")
+    validation_check_bias_grad_failed = not compare_padded_tensors(opt_bn.bias.grad, torch_bn.bias.grad, "Bias Grad", rtol=rtol, atol=atol)
 
     # Out (Y)
-    compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", W, output_hw_padding)
+    validation_check_out_failed = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", W, output_hw_padding, rtol=rtol, atol=atol)
 
     if track_running_stats == True:
-        print("(opt_bn.running_mean - torch_bn.running_mean).abs().norm(inf)                    = ", (opt_bn.running_mean - torch_bn.running_mean).norm(p=float('inf')))
-        print("(opt_bn.running_mean - torch_bn.running_mean).norm(2) / torch_bn.run_mean        = ", (opt_bn.running_mean - torch_bn.running_mean).norm(2) / torch_bn.running_mean.norm(2))
-        print("(opt_bn.running_var  - torch_bn.running_var ).abs().norm(inf)                    = ", (opt_bn.running_var  - torch_bn.running_var) .norm(p=float('inf')))
-        print("(opt_bn.running_var  - torch_bn.running_var ).norm(2) / torch_bn.run_var         = ", (opt_bn.running_var  - torch_bn.running_var ).norm(2) / torch_bn.running_var.norm(2))
-        #print("opt_bn.running_mean   = ", opt_bn.running_mean);
-        #print("opt_bn.running_var    = ", opt_bn.running_var);
-        #print("torch_bn.running_mean = ", torch_bn.running_mean);
-        #print("torch_bn.running_var  = ", torch_bn.running_var);
+        #print("(opt_bn.running_mean - torch_bn.running_mean).abs().norm(inf)                    = ", (opt_bn.running_mean - torch_bn.running_mean).norm(p=float('inf')))
+        #print("(opt_bn.running_mean - torch_bn.running_mean).norm(2) / torch_bn.run_mean        = ", (opt_bn.running_mean - torch_bn.running_mean).norm(2) / torch_bn.running_mean.norm(2))
+        #print("(opt_bn.running_var  - torch_bn.running_var ).abs().norm(inf)                    = ", (opt_bn.running_var  - torch_bn.running_var) .norm(p=float('inf')))
+        #print("(opt_bn.running_var  - torch_bn.running_var ).norm(2) / torch_bn.run_var         = ", (opt_bn.running_var  - torch_bn.running_var ).norm(2) / torch_bn.running_var.norm(2))
+        validation_check_runstats_failed = not compare_padded_tensors(opt_bn.running_mean, torch_bn.running_mean, "Run mean", rtol=rtol, atol=atol) or not compare_padded_tensors(opt_bn.running_var, torch_bn.running_var, "Run var", rtol=rtol, atol=atol)
+    else:
+        validation_check_runstats_failed = False
+
+    validation_checks_failed = validation_check_x_grad_failed or validation_check_xadd_grad_failed or validation_check_weight_grad_failed or validation_check_bias_grad_failed or validation_check_out_failed
+    if track_running_stats == True:
+        validation_checks_failed = validation_checks_failed or validation_check_runstats_failed
+
+    if validation_checks_failed:
+        print("Validation FAILED, ignored_failures = ", ignored_failures)
+        print("Details:")
+        print("validation_check_x_grad_failed      = ", validation_check_x_grad_failed)
+        print("validation_check_xadd_grad_failed   = ", validation_check_xadd_grad_failed)
+        print("validation_check_weight_grad_failed = ", validation_check_weight_grad_failed)
+        print("validation_check_bias_grad_failed   = ", validation_check_bias_grad_failed)
+        print("validation_check_out_failed         = ", validation_check_out_failed)
+        print("validation_check_runstats_failed    = ", validation_check_runstats_failed)
+    else:
+        print("Validation PASSED, ignored failures = ", ignored_failures)
 
     if perf_fwd:
 
@@ -492,7 +495,8 @@ def main():
 
     else:
         #with open("resnet50_bn_test_data_extended_new_28thr.data") as f:
-        with open("resnet50_bn_test_data_extended_new_56thr.data") as f:
+        #with open("resnet50_bn_test_data_extended_new_56thr.data") as f:
+        with open(args.test_data_file) as f:
             contents = f.readlines()
             for line in contents:
                 #print("line")
