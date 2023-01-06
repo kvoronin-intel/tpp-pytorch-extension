@@ -4592,23 +4592,15 @@ class SplitSGDExtTPP {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
         //meqn_push_arg(my_eqn0, N, 1, ld, 3, 0, LIBXSMM_DATATYPE_BF16);
 
-        eqn_out_arg_shape.m    = N;                              /* grad_f32 */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = ld;
-        eqn_out_arg_shape.type = LIBXSMM_DATATYPE_F32;
-
         debug_print_eqn_tree(my_eqn0);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn0, eqn_out_arg_shape );
-        //func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn0);
+        func = meqn_dispatch( N, 1, &ld, LIBXSMM_DATATYPE_F32, my_eqn0); /* output is grad_f32 */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP splitsgd weight_decay equation (eqn0) failed. Bailing...!\n");
           exit(-1);
         }
       } else if (eqn_no == 1) { /* momentum update step */
-        //libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + m (pre-multiplied with momentum outside the eqn), all in fp32 */
         libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + (momentum * m), all in fp32 */
 
-#if 1
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
@@ -4650,44 +4642,9 @@ class SplitSGDExtTPP {
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-#else
-        ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
-        op_metadata.eqn_idx      = my_eqn1;
-        op_metadata.op_arg_pos   = -1;
-        libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
-
-        arg_metadata.eqn_idx     = my_eqn1;
-        arg_metadata.in_arg_pos  = 0;
-        arg_shape.m    = N;                                      /* grad */
-        arg_shape.n    = 1;
-        arg_shape.ld   = ld;
-        arg_shape.type = LIBXSMM_DATATYPE_F32;
-        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-
-        arg_metadata.eqn_idx     = my_eqn1;
-        arg_metadata.in_arg_pos  = 1;
-        arg_shape.m    = N;                                      /* (1 - dampening) (broadcast) */
-        arg_shape.n    = 1;
-        arg_shape.ld   = ld;
-        arg_shape.type = LIBXSMM_DATATYPE_F32;
-        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-
-        arg_metadata.eqn_idx     = my_eqn1;
-        arg_metadata.in_arg_pos  = 2;
-        arg_shape.m    = N;                                      /* m */
-        arg_shape.n    = 1;
-        arg_shape.ld   = ld;
-        arg_shape.type = LIBXSMM_DATATYPE_F32;
-        libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-#endif
-
-        eqn_out_arg_shape.m    = N;                              /* m */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = ld;
-        eqn_out_arg_shape.type = LIBXSMM_DATATYPE_F32;
 
         debug_print_eqn_tree(my_eqn1);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn1, eqn_out_arg_shape );
+        func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_F32, my_eqn1); /* output is m */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP splitsgd momentum equation (eqn1) failed. Bailing...!\n");
           exit(-1);
@@ -4742,13 +4699,8 @@ class SplitSGDExtTPP {
         arg_shape.type = LIBXSMM_DATATYPE_I16;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-        eqn_out_arg_shape.m    = N;                              /* d */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = ld;
-        eqn_out_arg_shape.type = LIBXSMM_DATATYPE_I16;
-
         debug_print_eqn_tree(my_eqn2);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn2, eqn_out_arg_shape );
+        func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2); /* output is d (split) */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP splitsgd lr update equation (eqn2) failed. Bailing...!\n");
           exit(-1);
@@ -4944,13 +4896,8 @@ class SGDExtTPP {
         arg_shape.type = datatype_in;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-        eqn_out_arg_shape.m    = N;                              /* grad */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = ld;
-        eqn_out_arg_shape.type = datatype_out;
-
         debug_print_eqn_tree(my_eqn0);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn0, eqn_out_arg_shape );
+        func = meqn_dispatch(N, 1, &ld, datatype_out, my_eqn0); /* output is grad */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP sgd weight_decay equation (eqn0) failed. Bailing...!\n");
           exit(-1);
@@ -5000,13 +4947,8 @@ class SGDExtTPP {
         arg_shape.type = LIBXSMM_DATATYPE_F32;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-        eqn_out_arg_shape.m    = N;                              /* m */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = ld;
-        eqn_out_arg_shape.type = LIBXSMM_DATATYPE_F32;
-
         debug_print_eqn_tree(my_eqn1);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn1, eqn_out_arg_shape );
+        func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_F32, my_eqn1); /* output is m */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP sgd momentum equation (eqn1) failed. Bailing...!\n");
           exit(-1);
@@ -5043,13 +4985,8 @@ class SGDExtTPP {
         arg_shape.type = datatype_in;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-        eqn_out_arg_shape.m    = N;                              /* d */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = ld;
-        eqn_out_arg_shape.type = datatype_out;
-
         debug_print_eqn_tree(my_eqn2);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn2, eqn_out_arg_shape );
+        func = meqn_dispatch(N, 1, &ld, datatype_out, my_eqn2); /* output is d */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP sgd lr update equation (eqn2) failed. Bailing...!\n");
           exit(-1);
@@ -6379,15 +6316,8 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
     }
 
-    eqn_out_arg_shape.m    = m;                                 /* y = [HW, bc] */
-    eqn_out_arg_shape.n    = n;
-    eqn_out_arg_shape.ld   = ldo;
-    eqn_out_arg_shape.type = datatype_out;
-
-//    libxsmm_matrix_eqn_tree_print( my_eqn10 );
-//    libxsmm_matrix_eqn_rpn_print ( my_eqn10 );
     debug_print_eqn_tree(my_eqn10);
-    auto func10 = libxsmm_dispatch_matrix_eqn_v2( my_eqn10, eqn_out_arg_shape );
+    auto func10 = meqn_dispatch(m, n, &ldo, datatype_out, my_eqn10); /* output is y = [HW, bc] */
     if ( func10 == NULL) {
       fprintf( stderr, "JIT for TPP fwd func10 (eqn10) failed. Bailing...!\n");
       exit(-1);
@@ -6515,15 +6445,8 @@ class BatchNormBwdWTPP {
         arg_shape.type = datatype_comp;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-        eqn_out_arg_shape.m    = m;                                 /* dgamma [bc] */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = tmp_ld2;
-        eqn_out_arg_shape.type = datatype_comp;
-
-        /* libxsmm_matrix_eqn_tree_print( my_eqn11 ); */
-        /* libxsmm_matrix_eqn_rpn_print ( my_eqn11 ); */
         debug_print_eqn_tree(my_eqn11);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn11, eqn_out_arg_shape );
+        func = meqn_dispatch(m, 1, &tmp_ld2, datatype_comp, my_eqn11); /* output is dgamma [bc] */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP bwd dgamma_func (eqn11) failed. Bailing...!\n");
           exit(-1);
@@ -6558,16 +6481,8 @@ class BatchNormBwdWTPP {
         arg_shape.type = datatype_comp;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-        eqn_out_arg_shape.m    = m;                              /* dbeta [bc] */
-        eqn_out_arg_shape.n    = 1;
-        eqn_out_arg_shape.ld   = tmp_ld2;
-        eqn_out_arg_shape.type = datatype_comp;
-
-        /* libxsmm_matrix_eqn_tree_print( my_eqn12 ); */
-        /* libxsmm_matrix_eqn_rpn_print ( my_eqn12 ); */
-
         debug_print_eqn_tree(my_eqn12);
-        func = libxsmm_dispatch_matrix_eqn_v2( my_eqn12, eqn_out_arg_shape );
+        func = meqn_dispatch(m, 1, &tmp_ld2, datatype_comp, my_eqn12); /* output is dbeta [bc] */
         if ( func == NULL) {
           fprintf( stderr, "JIT for TPP bwd dbeta_func (eqn12) failed. Bailing...!\n");
           exit(-1);
@@ -6803,16 +6718,8 @@ class BatchNormBwdDTPP : public BaseTPP {
     arg_shape.type = datatype_comp;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
 
-    eqn_out_arg_shape.m    = m;                                 /* din [HW, bc] */
-    eqn_out_arg_shape.n    = n;
-    eqn_out_arg_shape.ld   = ld;
-    eqn_out_arg_shape.type = datatype_out;
-
-    /* libxsmm_matrix_eqn_tree_print( my_eqn16 ); */
-    /* libxsmm_matrix_eqn_rpn_print ( my_eqn16 ); */
-
     debug_print_eqn_tree(my_eqn16);
-    auto func = libxsmm_dispatch_matrix_eqn_v2( my_eqn16, eqn_out_arg_shape );
+    auto func = meqn_dispatch(m, n, &ld, datatype_out, my_eqn16); /* output is din [HW, bc] */
     if ( func == NULL) {
       fprintf( stderr, "JIT for TPP bwd din_func (eqn16) failed. Bailing...!\n");
       exit(-1);
