@@ -1,6 +1,7 @@
 #!/bin/bash
 
 echo "This is by no means a full test suite but if something fails here, it should be a concern"
+echo "The test is intended to be run from "
 echo "The tests passed for now should be checked manually, via `grep ntests <log_of_the_script_run>`"
 
 today=$(date +%F)
