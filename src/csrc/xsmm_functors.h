@@ -4556,41 +4556,97 @@ class SplitSGDExtTPP {
         //meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_PACK);
 
         /* This is the tensor with lo bits  */
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = N;                                      /* lo */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_I16;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
+  // This "singular" type dictates that the arg is a regular tensor (and not a
+  // set of tensors)
+  libxsmm_matrix_arg_attributes arg_singular_attr =
+      libxsmm_create_matrix_arg_attributes(
+          LIBXSMM_MATRIX_ARG_TYPE_SINGULAR,
+          LIBXSMM_MATRIX_ARG_SET_TYPE_NONE,
+          0,
+          0);
+  // Arg metadata include equation id and pos in arg array at runtime
+  libxsmm_matrix_eqn_arg_metadata arg_metadata =
+      libxsmm_create_matrix_eqn_arg_metadata(idx, in_pos);
+  libxsmm_meqn_arg_shape arg_shape =
+      libxsmm_create_meqn_arg_shape(m, n, ld, dtype);
+  return libxsmm_matrix_eqn_push_back_arg_v2(
+      arg_metadata, arg_shape, arg_singular_attr);
+}
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-        //meqn_push_arg(my_eqn0, N, 1, ld, 0, 0, LIBXSMM_DATATYPE_I16);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_I16); /* lo */
         /* This is the tensor with hi bits  */
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = N;                                      /* hi */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_I16;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-        //meqn_push_arg(my_eqn0, N, 1, ld, 1, 0, LIBXSMM_DATATYPE_I16);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_I16); /*  hi */
         /* This is the scalar learning rate */
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = N;                                      /* weight_decay (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-        //meqn_push_arg(my_eqn0, 1, 1, 1, 2, 0, LIBXSMM_DATATYPE_F32);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* weight_decay (broadcast) */
         /* This is the "gradient" weights   */
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = N;                                      /* grad */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_BF16;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
-        //meqn_push_arg(my_eqn0, N, 1, ld, 3, 0, LIBXSMM_DATATYPE_BF16);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 3, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_BF16); /* grad */
 
         debug_print_eqn_tree(my_eqn0);
         func = meqn_dispatch( N, 1, &ld, LIBXSMM_DATATYPE_F32, my_eqn0); /* output is grad_f32 */
@@ -4606,42 +4662,86 @@ class SplitSGDExtTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = N;                                      /* grad */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* grad */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = N;                                      /* (1 - dampening) (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (1 - dampening) (broadcast) */
 
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_DATATYPE_F32, binary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = N;                                      /* momentum (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* momentum (broadcast) */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = N;                                      /* m */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 3, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* m */
 
         debug_print_eqn_tree(my_eqn1);
         func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_F32, my_eqn1); /* output is m */
@@ -4662,42 +4762,86 @@ class SplitSGDExtTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = N;                                      /* m */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* m */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = N;                                      /* (- lr) (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (- lr) (broadcast) */
 
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
         op_metadata.eqn_idx      = my_eqn2;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_PACK, LIBXSMM_DATATYPE_F32, binary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = N;                                      /* d, lo */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_I16;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_I16); /* d, lo */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = N;                                      /* d, hi */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_I16;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 3, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_I16); /* d, lo */
 
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_I16, my_eqn2); /* output is d (split) */
@@ -4872,29 +5016,62 @@ class SGDExtTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = N;                                      /* d */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = datatype_in;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 0, 0 /* offs_in_pos */, datatype_in); /* d */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = N;                                      /* weight_decay (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* weight_decay (broadcast) */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn0;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = N;                                      /* grad */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = datatype_in;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn0, N, 1, ld, 2, 0 /* offs_in_pos */, datatype_in); /* grad */
 
         debug_print_eqn_tree(my_eqn0);
         func = meqn_dispatch(N, 1, &ld, datatype_out, my_eqn0); /* output is grad */
@@ -4910,42 +5087,86 @@ class SGDExtTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = N;                                      /* grad */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = datatype_in;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 0, 0 /* offs_in_pos */, datatype_in); /* grad */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = N;                                      /* (1 - dampening) (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (1 - dampening) (broadcast) */
 
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, datatype_comp, binary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = N;                                      /* momentum (broadcast) */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* momentum (broadcast) */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn1;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = N;                                      /* m */
         arg_shape.n    = 1;
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
+inline int meqn_push_arg(
+    const libxsmm_blasint idx,
+    const libxsmm_blasint m,
+    const libxsmm_blasint n,
+    const libxsmm_blasint ld,
+    const libxsmm_blasint in_pos,
+    const libxsmm_blasint offs_in_pos,
+    const libxsmm_datatype dtype) {
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn1, N, 1, ld, 3, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* m */
 
         debug_print_eqn_tree(my_eqn1);
         func = meqn_dispatch(N, 1, &ld, LIBXSMM_DATATYPE_F32, my_eqn1); /* output is m */
@@ -4961,6 +5182,7 @@ class SGDExtTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = N;                                      /* m */
@@ -4968,7 +5190,10 @@ class SGDExtTPP {
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* m */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = N;                                      /* (- lr) (broadcast) */
@@ -4976,7 +5201,10 @@ class SGDExtTPP {
         arg_shape.ld   = ld;
         arg_shape.type = LIBXSMM_DATATYPE_F32;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (- lr) (broadcast) */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn2;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = N;                                      /* d */
@@ -4984,6 +5212,8 @@ class SGDExtTPP {
         arg_shape.ld   = ld;
         arg_shape.type = datatype_in;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn2, N, 1, ld, 2, 0 /* offs_in_pos */, datatype_in); /* d */
 
         debug_print_eqn_tree(my_eqn2);
         func = meqn_dispatch(N, 1, &ld, datatype_out, my_eqn2); /* output is d */
@@ -6240,6 +6470,7 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 3;
     arg_shape.m    = m;                                      /* gamma = [bc] */
@@ -6247,31 +6478,27 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     arg_shape.ld   = tmp_ld2;
     arg_shape.type = datatype_comp;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn10, m, 1, tmp_ld2, 3, 0 /* offs_in_pos */, datatype_comp); /* gamma = [bc] */
 
     ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
     op_metadata.eqn_idx      = my_eqn10;
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
-    /* FIXME: incorrect condition but will work for a quick experiment */
-
-    if (m == 448 && n == 14 && !bcast_already_done) {
-      unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL;
-      op_metadata.eqn_idx      = my_eqn10;
-      op_metadata.op_arg_pos   = -1;
-
-      libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_comp, unary_flags);
-    }
-
+#if 0
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 1;
-    arg_shape.m    = (m == 448 && n == 14 && !bcast_already_done ? 32 : m);                                      /* s = [bc] */
+    arg_shape.m    = m;//(m == 448 && n == 14 && !bcast_already_done ? 32 : m);                                      /* s = [bc] */
     arg_shape.n    = 1;
-    arg_shape.ld   = (m == 448 && n == 14 && !bcast_already_done ? ldi : tmp_ld); // tmp_ld;
+    arg_shape.ld   = tmp_ld; //(m == 448 && n == 14 && !bcast_already_done ? ldi : tmp_ld); // tmp_ld;
     arg_shape.type = datatype_comp;
 //    printf("arg shape for s: %d %d %d \n", arg_shape.m, arg_shape.n, arg_shape.ld);
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn10, m, 1, tmp_ld, 1, 0 /* offs_in_pos */, datatype_comp); /* s = [bc] */
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 0;
     arg_shape.m    = m;                                      /* x = [HW, bc] */
@@ -6280,24 +6507,22 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     arg_shape.type = datatype_in;
 //    printf("arg shape for x: %d %d %d \n", arg_shape.m, arg_shape.n, arg_shape.ld);
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn10, m, n, ldi, 0, 0 /* offs_in_pos */, datatype_in); /* x = [HW, bc] */
 
-    if (m == 448 && n == 14 && !bcast_already_done) {
-      unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL;
-      op_metadata.eqn_idx      = my_eqn10;
-      op_metadata.op_arg_pos   = -1;
-
-      libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_comp, unary_flags);
-    }
-
+#if 0
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 2;
-    arg_shape.m    = (m == 448 && n == 14 && !bcast_already_done ? 32 : m);//m;                                      /* b = [bc] */
+    arg_shape.m    = m;//(m == 448 && n == 14 && !bcast_already_done ? 32 : m);//m;                                      /* b = [bc] */
     arg_shape.n    = 1;
-    arg_shape.ld   = (m == 448 && n == 14 && !bcast_already_done ? ldi : tmp_ld); // tmp_ld;
+    arg_shape.ld   = tmp_ld; //(m == 448 && n == 14 && !bcast_already_done ? ldi : tmp_ld); // tmp_ld;
     arg_shape.type = datatype_comp;
 //    printf("arg shape for x: %d %d %d \n", arg_shape.m, arg_shape.n, arg_shape.ld);
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn10, m, 1, tmp_ld, 2, 0 /* offs_in_pos */, datatype_comp); /* b = [bc] */
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn10;
     arg_metadata.in_arg_pos  = 4;
     arg_shape.m    = m;                                      /* beta = [bc] */
@@ -6305,8 +6530,11 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     arg_shape.ld   = tmp_ld2;
     arg_shape.type = datatype_comp;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn10, m, 1, tmp_ld2, 4, 0 /* offs_in_pos */, datatype_comp); /* beta = [bc] */
 
     if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
+#if 0
       arg_metadata.eqn_idx     = my_eqn10;
       arg_metadata.in_arg_pos  = 5;
       arg_shape.m    = m;                                      /* inp_add = [HW, bc] */
@@ -6314,6 +6542,8 @@ class BatchNormFwdScaleTPP : public BaseTPP {
       arg_shape.ld   = ldi;
       arg_shape.type = datatype_in;
       libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+      meqn_push_arg(my_eqn10, m, n, ldi, 5, 0 /* offs_in_pos */, datatype_in); /* inp_add = [HW, bc] */
     }
 
     debug_print_eqn_tree(my_eqn10);
@@ -6405,6 +6635,7 @@ class BatchNormBwdWTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn11;
         arg_metadata.in_arg_pos  = 0;
         arg_shape.m    = m;                                      /* inp [HW, bc] */
@@ -6412,7 +6643,10 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = ld;
         arg_shape.type = datatype_in;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn11, m, n, ld, 0, 0 /* offs_in_pos */, datatype_in); /* inp = [HW, bc] */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn11;
         arg_metadata.in_arg_pos  = 1;
         arg_shape.m    = m;                                      /* a [bc] */
@@ -6420,7 +6654,10 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = tmp_ld2;
         arg_shape.type = datatype_comp;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn11, m, 1, tmp_ld2, 1, 0 /* offs_in_pos */, datatype_comp); /* a = [bc] */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn11;
         arg_metadata.in_arg_pos  = 2;
         arg_shape.m    = m;                                      /* b [bc] */
@@ -6428,7 +6665,10 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = tmp_ld2;
         arg_shape.type = datatype_comp;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn11, m, 1, tmp_ld2, 2, 0 /* offs_in_pos */, datatype_comp); /* b = [bc] */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn11;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = m;                                      /* dout [HW, bc] */
@@ -6436,7 +6676,10 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = ld;
         arg_shape.type = datatype_out;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn11, m, n, ld, 3, 0 /* offs_in_pos */, datatype_out); /* dout = [HW, bc] */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn11;
         arg_metadata.in_arg_pos  = 4;
         arg_shape.m    = m;                                      /* dgamma [bc] */
@@ -6444,6 +6687,8 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = tmp_ld2;
         arg_shape.type = datatype_comp;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn11, m, 1, tmp_ld2, 4, 0 /* offs_in_pos */, datatype_comp); /* dgamma = [bc] */
 
         debug_print_eqn_tree(my_eqn11);
         func = meqn_dispatch(m, 1, &tmp_ld2, datatype_comp, my_eqn11); /* output is dgamma [bc] */
@@ -6465,6 +6710,7 @@ class BatchNormBwdWTPP {
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, datatype_comp, unary_flags); /* [HW, bc] -> [bc] */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn12;
         arg_metadata.in_arg_pos  = 3;
         arg_shape.m    = m;                                      /* dout [HW, bc] */
@@ -6472,7 +6718,10 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = ld;
         arg_shape.type = datatype_out;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn12, m, n, ld, 3, 0 /* offs_in_pos */, datatype_out); /* dout = [HW, bc] */
 
+#if 0
         arg_metadata.eqn_idx     = my_eqn12;
         arg_metadata.in_arg_pos  = 5;
         arg_shape.m    = m;                                      /* dbeta [bc] */
@@ -6480,6 +6729,8 @@ class BatchNormBwdWTPP {
         arg_shape.ld   = tmp_ld2;
         arg_shape.type = datatype_comp;
         libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+        meqn_push_arg(my_eqn12, m, 1, tmp_ld2, 5, 0 /* offs_in_pos */, datatype_comp); /* dbeta = [bc] */
 
         debug_print_eqn_tree(my_eqn12);
         func = meqn_dispatch(m, 1, &tmp_ld2, datatype_comp, my_eqn12); /* output is dbeta [bc] */
@@ -6673,6 +6924,7 @@ class BatchNormBwdDTPP : public BaseTPP {
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn16;
     arg_metadata.in_arg_pos  = 1;
     arg_shape.m    = m;                                      /* a [bc] */
@@ -6680,7 +6932,10 @@ class BatchNormBwdDTPP : public BaseTPP {
     arg_shape.ld   = tmp_ld2;
     arg_shape.type = datatype_comp;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn16, m, 1, tmp_ld2, 1, 0 /* offs_in_pos */, datatype_comp); /* a = [bc] */
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn16;
     arg_metadata.in_arg_pos  = 3;
     arg_shape.m    = m;                                      /* dout [HW, bc] */
@@ -6688,12 +6943,15 @@ class BatchNormBwdDTPP : public BaseTPP {
     arg_shape.ld   = ld;
     arg_shape.type = datatype_out;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn16, m, n, ld, 3, 0 /* offs_in_pos */, datatype_out); /* dout = [HW, bc] */
 
     ternary_flags               = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
     op_metadata.eqn_idx      = my_eqn16;
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn16;
     arg_metadata.in_arg_pos  = 0;
     arg_shape.m    = m;                                      /* inp [HW, bc] */
@@ -6701,7 +6959,10 @@ class BatchNormBwdDTPP : public BaseTPP {
     arg_shape.ld   = ld;
     arg_shape.type = datatype_in;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn16, m, n, ld, 0, 0 /* offs_in_pos */, datatype_in); /* inp = [HW, bc] */
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn16;
     arg_metadata.in_arg_pos  = 2;
     arg_shape.m    = m;                                      /* b [bc] */
@@ -6709,7 +6970,10 @@ class BatchNormBwdDTPP : public BaseTPP {
     arg_shape.ld   = tmp_ld2;
     arg_shape.type = datatype_comp;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn16, m, 1, tmp_ld2, 2, 0 /* offs_in_pos */, datatype_comp); /* b = [bc] */
 
+#if 0
     arg_metadata.eqn_idx     = my_eqn16;
     arg_metadata.in_arg_pos  = 7;
     arg_shape.m    = m;                                      /* c [bc] */
@@ -6717,6 +6981,8 @@ class BatchNormBwdDTPP : public BaseTPP {
     arg_shape.ld   = tmp_ld2;
     arg_shape.type = datatype_comp;
     libxsmm_matrix_eqn_push_back_arg_v2(arg_metadata, arg_shape, arg_singular_attr);
+#endif
+    meqn_push_arg(my_eqn16, m, 1, tmp_ld2, 7, 0 /* offs_in_pos */, datatype_comp); /* c = [bc] */
 
     debug_print_eqn_tree(my_eqn16);
     auto func = meqn_dispatch(m, n, &ld, datatype_out, my_eqn16); /* output is din [HW, bc] */
