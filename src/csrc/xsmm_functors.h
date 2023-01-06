@@ -4544,16 +4544,22 @@ class SplitSGDExtTPP {
       if (eqn_no == 0) { /* weight decay step */
         libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();   /* grad_f32 = (d * weight_decay + grad_bf16) with d in split format */
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1;
         op_metadata.eqn_idx      = my_eqn0;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn0, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1, LIBXSMM_DATATYPE_F32);
 
+#if 0
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
         op_metadata.eqn_idx      = my_eqn0;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_PACK, LIBXSMM_DATATYPE_F32, binary_flags);
         //meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_PACK);
+#endif
+        meqn_push_binary_op(my_eqn0, LIBXSMM_MELTW_TYPE_BINARY_PACK);
 
         /* This is the tensor with lo bits  */
         meqn_push_arg(my_eqn0, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_I16); /* lo */
@@ -4576,19 +4582,25 @@ class SplitSGDExtTPP {
       } else if (eqn_no == 1) { /* momentum update step */
         libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + (momentum * m), all in fp32 */
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn1, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
 
         meqn_push_arg(my_eqn1, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* grad */
 
         meqn_push_arg(my_eqn1, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (1 - dampening) (broadcast) */
 
+#if 0
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_DATATYPE_F32, binary_flags);
+#endif
+        meqn_push_binary_op(my_eqn1, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0);
 
         meqn_push_arg(my_eqn1, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* momentum (broadcast) */
 
@@ -4603,24 +4615,38 @@ class SplitSGDExtTPP {
       } else if (eqn_no == 2) { /* lr update step */
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();   /* d = m * (-lr) + d, with d in split format and rest as fp32 */
 
+#if 0
         unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_NONE;
         op_metadata.eqn_idx      = my_eqn2;
         op_metadata.op_arg_pos   = -1;
+inline int meqn_push_unary_op(
+    const libxsmm_blasint idx,
+    const libxsmm_meltw_unary_type type,
+    const libxsmm_bitfield flags = LIBXSMM_MELTW_FLAG_UNARY_NONE,
+    const libxsmm_datatype dtype = LIBXSMM_DATATYPE_F32) {
         libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS, LIBXSMM_DATATYPE_BF16, unary_flags);
+#endif
+        meqn_push_unary_op(my_eqn2, LIBXSMM_MELTW_TYPE_UNARY_UNPACK_TO_BLOCKS, LIBXSMM_MELTW_FLAG_UNARY_NONE, LIBXSMM_DATATYPE_BF16);
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn2;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_DATATYPE_F32, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn2, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT);
 
         meqn_push_arg(my_eqn2, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* m */
 
         meqn_push_arg(my_eqn2, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (- lr) (broadcast) */
 
+#if 0
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
         op_metadata.eqn_idx      = my_eqn2;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_PACK, LIBXSMM_DATATYPE_F32, binary_flags);
+#endif
+        meqn_push_binary_op(my_eqn2, LIBXSMM_MELTW_TYPE_BINARY_PACK);
 
         meqn_push_arg(my_eqn2, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_I16); /* d, lo */
 
@@ -4794,10 +4820,13 @@ class SGDExtTPP {
       if (eqn_no == 0) { /* weight decay step */
         libxsmm_blasint my_eqn0 = libxsmm_matrix_eqn_create();   /* grad = (d * (-weight_decay) + grad), tensors in T, scalars fp32 */
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1;
         op_metadata.eqn_idx      = my_eqn0;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn0, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1, datatype_comp);
 
         meqn_push_arg(my_eqn0, N, 1, ld, 0, 0 /* offs_in_pos */, datatype_in); /* d */
 
@@ -4814,19 +4843,25 @@ class SGDExtTPP {
       } else if (eqn_no == 1) { /* momentum update step */
         libxsmm_blasint my_eqn1 = libxsmm_matrix_eqn_create();   /* m =  (1 - dampening) * grad + (momentum * m), grad in T, m in fp32, scalars fp32 */
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn1, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT, datatype_comp);
 
         meqn_push_arg(my_eqn1, N, 1, ld, 0, 0 /* offs_in_pos */, datatype_in); /* grad */
 
         meqn_push_arg(my_eqn1, N, 1, ld, 1, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* (1 - dampening) (broadcast) */
 
+#if 0
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0;
         op_metadata.eqn_idx      = my_eqn1;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, datatype_comp, binary_flags);
+#endif
+        meqn_push_binary_op(my_eqn1, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_MELTW_FLAG_BINARY_BCAST_SCALAR_IN_0, datatype_comp);
 
         meqn_push_arg(my_eqn1, N, 1, ld, 2, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* momentum (broadcast) */
 
@@ -4841,10 +4876,13 @@ class SGDExtTPP {
       } else if (eqn_no == 2) { /* lr update step */
         libxsmm_blasint my_eqn2 = libxsmm_matrix_eqn_create();   /* d = m * (-lr) + d, d in T, m in fp32, scalars fp32 */
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn2;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn2, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, LIBXSMM_MELTW_FLAG_TERNARY_BCAST_SCALAR_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT, datatype_comp);
 
         meqn_push_arg(my_eqn2, N, 1, ld, 0, 0 /* offs_in_pos */, LIBXSMM_DATATYPE_F32); /* m */
 
@@ -6080,39 +6118,68 @@ class BatchNormFwdScaleTPP : public BaseTPP {
 //    printf("m = %d n = %d ldi = %d ldo = %d bcast_already_done %d tmp_ld = %d \n", m, n, ldi, ldo, bcast_already_done, tmp_ld);
 
     if (fuse_type == 1 || fuse_type == 3 || fuse_type == 4 || fuse_type == 5) {
+#if 0
       unary_flags              = ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE);
       op_metadata.eqn_idx      = my_eqn10;
       op_metadata.op_arg_pos   = -1;
 
-#ifdef __x86_64__
+#  ifdef __x86_64__
       libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_RELU, datatype_out, unary_flags);
 
       if (datatype_out == LIBXSMM_DATATYPE_BF16)
         libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, datatype_out, LIBXSMM_MELTW_FLAG_UNARY_NONE);
-#else
+#  else
 #  warning "On GVT3 (ARM with neov1) bf16 relu produces incorrect relu masks so one has to do fp32 relu (which is less efficient)"
       libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_RELU, datatype_comp, unary_flags);
+#  endif
 #endif
+#ifdef __x86_64__
+      meqn_push_unary_op(my_eqn10, LIBXSMM_MELTW_TYPE_UNARY_RELU,
+                          ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE),
+                          datatype_out);
+
+      if (datatype_out == LIBXSMM_DATATYPE_BF16)
+        meqn_push_unary_op(my_eqn10, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, LIBXSMM_MELTW_FLAG_UNARY_NONE, datatype_out);
+#else
+#  warning "On GVT3 (ARM with neov1) bf16 relu produces incorrect relu masks so one has to do fp32 relu (which is less efficient)"
+      meqn_push_unary_op(my_eqn10, LIBXSMM_MELTW_TYPE_UNARY_RELU,
+                          ( (fuse_type == 4 || fuse_type == 5) ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT : LIBXSMM_MELTW_FLAG_UNARY_NONE),
+                          datatype_comp);
+#endif
+
     }
 
     if (fuse_type == 2 || fuse_type == 3 || fuse_type == 5) {
+#if 0
       binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
       op_metadata.eqn_idx      = my_eqn10;
       op_metadata.op_arg_pos   = -1;
       libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_ADD, datatype_comp, binary_flags);
+#endif
+      meqn_push_binary_op(my_eqn10, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_NONE, datatype_comp);
     }
 
+#if 0
     ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
     op_metadata.eqn_idx      = my_eqn10;
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+    meqn_push_ternary_op(my_eqn10, LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+                          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
+                          datatype_comp);
 
     meqn_push_arg(my_eqn10, m, 1, tmp_ld2, 3, 0 /* offs_in_pos */, datatype_comp); /* gamma = [bc] */
 
+#if 0
     ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
     op_metadata.eqn_idx      = my_eqn10;
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+    meqn_push_ternary_op(my_eqn10, LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+                          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
+                          datatype_comp);
 
     meqn_push_arg(my_eqn10, m, 1, tmp_ld, 1, 0 /* offs_in_pos */, datatype_comp); /* s = [bc] */
 
@@ -6195,25 +6262,39 @@ class BatchNormBwdWTPP {
         /* dgamma function  */
         auto my_eqn11 = libxsmm_matrix_eqn_create();                          /* dgamma = ((inp *a + b) * dout) + dgamma */
 
+#if 0
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
         op_metadata.eqn_idx      = my_eqn11;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_ADD, datatype_comp, binary_flags);
+#endif
+        meqn_push_binary_op(my_eqn11, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_NONE, datatype_comp);
 
+#if 0
         unary_flags              = LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS;
         op_metadata.eqn_idx      = my_eqn11;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, datatype_comp, unary_flags);
+#endif
+        meqn_push_unary_op(my_eqn11, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS, datatype_comp);
 
+#if 0
         binary_flags             = LIBXSMM_MELTW_FLAG_BINARY_NONE;
         op_metadata.eqn_idx      = my_eqn11;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_MUL, datatype_comp, binary_flags);
+#endif
+        meqn_push_binary_op(my_eqn11, LIBXSMM_MELTW_TYPE_BINARY_MUL, LIBXSMM_MELTW_FLAG_BINARY_NONE, datatype_comp);
 
+#if 0
         ternary_flags            = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
         op_metadata.eqn_idx      = my_eqn11;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+        meqn_push_ternary_op(my_eqn11, LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+                              LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
+                              datatype_comp);
 
         meqn_push_arg(my_eqn11, m, n, ld, 0, 0 /* offs_in_pos */, datatype_in); /* inp = [HW, bc] */
 
@@ -6235,15 +6316,21 @@ class BatchNormBwdWTPP {
         /* dbeta function  */
         auto my_eqn12 = libxsmm_matrix_eqn_create();                         /* dbeta [bc] = dout [HW, bc] + dbeta [bc] */
 
+#if 0
         binary_flags                = LIBXSMM_MELTW_FLAG_BINARY_NONE;
         op_metadata.eqn_idx      = my_eqn12;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_binary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_BINARY_ADD, datatype_comp, binary_flags); /* dbeta_tmp [HW, bc] */
+#endif
+        meqn_push_binary_op(my_eqn12, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_NONE, datatype_comp);
 
+#if 0
         unary_flags                 = LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS;
         op_metadata.eqn_idx      = my_eqn12;
         op_metadata.op_arg_pos   = -1;
         libxsmm_matrix_eqn_push_back_unary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, datatype_comp, unary_flags); /* [HW, bc] -> [bc] */
+#endif
+        meqn_push_unary_op(my_eqn12, LIBXSMM_MELTW_TYPE_UNARY_REDUCE_X_OP_ADD, LIBXSMM_MELTW_FLAG_UNARY_REDUCE_COLS, datatype_comp);
 
         meqn_push_arg(my_eqn12, m, n, ld, 3, 0 /* offs_in_pos */, datatype_out); /* dout = [HW, bc] */
 
@@ -6436,19 +6523,29 @@ class BatchNormBwdDTPP : public BaseTPP {
     /* din long equation */
     libxsmm_blasint my_eqn16 = libxsmm_matrix_eqn_create();                          /* din = a * dout + (b * inp + c) */
 
+#if 0
     ternary_flags               = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
     op_metadata.eqn_idx      = my_eqn16;
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+    meqn_push_ternary_op(my_eqn16, LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+                          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_0 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
+                          datatype_comp);
 
     meqn_push_arg(my_eqn16, m, 1, tmp_ld2, 1, 0 /* offs_in_pos */, datatype_comp); /* a = [bc] */
 
     meqn_push_arg(my_eqn16, m, n, ld, 3, 0 /* offs_in_pos */, datatype_out); /* dout = [HW, bc] */
 
+#if 0
     ternary_flags               = LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 | LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT;
     op_metadata.eqn_idx      = my_eqn16;
     op_metadata.op_arg_pos   = -1;
     libxsmm_matrix_eqn_push_back_ternary_op_v2(op_metadata, LIBXSMM_MELTW_TYPE_TERNARY_MULADD, datatype_comp, ternary_flags);
+#endif
+    meqn_push_ternary_op(my_eqn16, LIBXSMM_MELTW_TYPE_TERNARY_MULADD,
+                          LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_1 | LIBXSMM_MELTW_FLAG_TERNARY_BCAST_COL_IN_2 |LIBXSMM_MELTW_FLAG_TERNARY_REUSE_IN_2_AS_OUT,
+                          datatype_comp);
 
     meqn_push_arg(my_eqn16, m, n, ld, 0, 0 /* offs_in_pos */, datatype_in); /* inp = [HW, bc] */
 
