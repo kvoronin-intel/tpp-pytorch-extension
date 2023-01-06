@@ -5891,7 +5891,6 @@ class BatchNormFwdScaleTPP : public BaseTPP {
   int n = 0;
   int ldi = 0;
   int ldo = 0;
-  int bcast_already_done = 0;
   typedef enum libxsmm_dnn_bn_fuse {
     LIBXSMM_DNN_BN_FUSE_NONE = 0,
     LIBXSMM_DNN_BN_FUSE_RELU = 1,
@@ -5923,8 +5922,7 @@ class BatchNormFwdScaleTPP : public BaseTPP {
   BatchNormFwdScaleTPP() {
     initialized = false;
   }
-  BatchNormFwdScaleTPP(int M, int N, int ldi, int ldo, bool relu, bool eltwise) : BatchNormFwdScaleTPP(M,N,ldi,ldo,relu,eltwise,0) {}
-#if 0
+  BatchNormFwdScaleTPP(int M, int N, int ldi, int ldo, bool relu, bool eltwise)
   : m(M), n(N), ldi(ldi), ldo(ldo) {
 //    printf("m n ldi ldo = %d %d %d %d\n", m, n, ldi, ldo);
     if (ldi != m || ldo != m) {
@@ -5936,21 +5934,8 @@ class BatchNormFwdScaleTPP : public BaseTPP {
     kernel = (libxsmm_matrix_eqn_function)get_kernel();
     initialized = true;
   }
-#endif
-  BatchNormFwdScaleTPP(int M, int N, int ldi, int ldo, bool relu, bool eltwise, int bcast_already_done) : m(M), n(N), ldi(ldi), ldo(ldo), bcast_already_done(bcast_already_done) {
-//    printf("m n ldi ldo = %d %d %d %d bcast_already_done = %d\n", m, n, ldi, ldo, bcast_already_done);
-    if (ldi != m || ldo != m) {
-      //printf("Case ldi or ldo != m  is not implemented in BatchNormFwdScaleTPP \n");
-      //exit(-1);
-//      printf("m n ldi ldo = %d %d %d %d\n", m, n, ldi, ldo);
-    }
-    fuse_type = set_fuse_type(relu, eltwise);
-    kernel = (libxsmm_matrix_eqn_function)get_kernel();
-    initialized = true;
-  }
-  BatchNormFwdScaleTPP(int M, int N, bool relu, bool eltwise) : BatchNormFwdScaleTPP(M,N,M,M, relu, eltwise, 0) {
-//    printf("m n (no ldi ldo) = %d %d \n", m, n);
-  }
+  BatchNormFwdScaleTPP(int M, int N, bool relu, bool eltwise) : BatchNormFwdScaleTPP(M, N, M, M, relu, eltwise) {}
+
   void operator()(Tin* inp, float* s, float* b, float *gamma, float *beta, Tin *inp_add, Tout* out, unsigned char* relumask) {
     if (!initialized)
       return;
@@ -5983,7 +5968,7 @@ class BatchNormFwdScaleTPP : public BaseTPP {
  protected:
   std::string hash_str() override {
     char hash[200];
-    snprintf(hash, 200, "batchnorm_fwd_scale_ti%d_to%d_m%d_n%d_ldi%d_ldo%d_bcast%d_fuse%d", XsmmDtype<Tin>(), XsmmDtype<Tout>(), m, n, ldi, ldo, bcast_already_done, (int)fuse_type);
+    snprintf(hash, 200, "batchnorm_fwd_scale_ti%d_to%d_m%d_n%d_ldi%d_ldo%d_fuse%d", XsmmDtype<Tin>(), XsmmDtype<Tout>(), m, n, ldi, ldo, (int)fuse_type);
     return std::string(hash);
   }
   void* build_kernel() override {

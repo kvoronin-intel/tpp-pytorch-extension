@@ -55,16 +55,6 @@ if (0 == env_prec_str) {
 }
 */
 
-int bcast_upfront = 0;
-/*
-const char* const env_prec_str2 = getenv("BCAST_UPFRONT");
-if (0 == env_prec_str2) {
-  bcast_upfront = 0;
-} else {
-  bcast_upfront = atoi(env_prec_str2);
-}
-*/
-
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 at::Tensor t_IA, t_W, t_B, t_M, t_V;
 if (eltwise) {
@@ -172,10 +162,6 @@ std::cout << "ZERO_OUTPUT_UPFRONT is enabled (with full H-W-bc processing withou
 else
 std::cout << "ZERO_OUTPUT_UPFRONT is not enabled (with full H-W-bc processing without any blocking)" << std::endl;
 
-if (bcast_upfront)
-std::cout << "BCAST_UPFRONT is enabled (with full H-W-bc processing without any blocking)" << std::endl;
-else
-std::cout << "BCAST_UPFRONT is not enabled (with full H-W-bc processing without any blocking)" << std::endl;
 #endif
 
 {
@@ -212,35 +198,13 @@ std::cout << "BCAST_UPFRONT is not enabled (with full H-W-bc processing without 
   auto zero_wp_tpp = SCOPEIT(SetZeroTPP<T>(pad_w_out, bc, bc), EW_ZERO);          /* pad_w_out, bc because of row-major for unary */
 
   
-  SCOPEIT_DECL(SetZeroTPP<T>)               zero_upfront_tpp;
-//  SCOPEIT_DECL(UnaryTPP)                    bcast_upfront_tpp;
-  SCOPEIT_DECL(CpyBiasTPP<float,float>)     bcast_upfront_tpp;
   SCOPEIT_DECL(BatchNormFwdScaleTPP<T,T>)   normalize_tpp;
-
-if (zero_output_upfront)
-  zero_upfront_tpp = SCOPEIT(SetZeroTPP<T>(ofhp*ofwp*bc), EW_ZERO);
-
 
 #ifdef VERBOSE
   printf("JITTING normalize_tpp\n");
 #endif
 
-if (zero_output_upfront) {
-if (bcast_upfront) {
-  //bcast_upfront_tpp = SCOPEIT(UnaryTPP<T>(bc, W, bc, bc*W, ofhp*ofwp*bc, dt,dt,dt, XsmmDtype<T>, XsmmDtype<T>, XsmmDtype<T>, LIBXSMM_MELTW_FLAG_UNARY_BCAST_COL, LIBXSMM_MELTW_TYPE_UNARY_IDENTITY, EW_ZERO);
-  //printf("bcast_upfront arguments\n");
-  bcast_upfront_tpp = SCOPEIT((CpyBiasTPP<float,float>(W, bc)), EW_ZERO);
-  //printf("constructor arguments: %d %d %d %d %d %d\n", bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise);
-  normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise, 1)), NORMALIZE);
-} else {
-  //printf("normalize_tpp constructor call needs to be changed to work for ZERO_OUTPUT_UPFRONT\n");
-  //exit(-1);
-  //printf("constructor arguments: %d %d %d %d %d %d\n", bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise);
-  normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc * W, H, bc * ifwp, bc * ofwp, relu, eltwise)), NORMALIZE);
-}
-} else {
   normalize_tpp = SCOPEIT((BatchNormFwdScaleTPP<T,T>(bc, spatial_block_size, relu, eltwise)), NORMALIZE);
-}
 
 #ifdef VERBOSE
   printf("JITTING dbg_copy_tpp\n");
@@ -504,47 +468,7 @@ if (bcast_upfront) {
           // while debugging
 #endif
 
-//#ifdef BCAST_UPFRONT
-if (bcast_upfront) {
-          bcast_upfront_tpp(&s[0], &s_bcast[0]);
-          bcast_upfront_tpp(&b[0], &b_bcast[0]);
-          bcast_upfront_tpp(gamma[cp], &gamma_bcast[0]);
-          bcast_upfront_tpp(beta[cp], &beta_bcast[0]);
-#if 0
-          for (int l = 0; l < W; l++) {
-            for (int k = 0; k < bc; k++) {
-              s_bcast[l*bc + k] = s[k];
-              b_bcast[l*bc + k] = b[k];
-              gamma_bcast[l*bc + k] = gamma[cp][k];
-              beta_bcast [l*bc + k] = beta [cp][k];
-            }
-          }
-#endif // for #if 0
-
-}
-
-//#endif // for #if 0
-
 //#if 0
-
-if (zero_output_upfront) {
-//#ifdef ZERO_OUTPUT_UPFRONT
-          zero_upfront_tpp(out[n][cp][0][0]);
-//#ifdef BCAST_UPFRONT
-if (bcast_upfront) {
-          normalize_tpp(inp[n][cp][0][0], &s_bcast[0], &b_bcast[0], &gamma_bcast[0], &beta_bcast[0],
-                          eltwise ? inp_add[n][cp][0][0] : NULL,
-                          out_shifted[n][cp][0][0],
-                          relu ? relumask_shifted[n][cp][0][0] : NULL);
-} else { // #else
-          normalize_tpp(inp[n][cp][0][0], &s[0], &b[0], gamma[cp], beta[cp],
-                          eltwise ? inp_add[n][cp][0][0] : NULL,
-                          out_shifted[n][cp][0][0],
-                          relu ? relumask_shifted[n][cp][0][0] : NULL);
-} //#endif
-
-} else { //#else
-
           if (!use_hw_blocking) {
 
             if (pad_h_out != 0) {
@@ -616,8 +540,6 @@ if (bcast_upfront) {
             }
 //#endif
           } /* if-else for the presence of padding */
-}
-//#endif /* for ZERO_OUTPUT_UPFRONT */
 
 //#endif // for #if 0
         },
