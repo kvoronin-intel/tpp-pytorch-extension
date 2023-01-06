@@ -126,10 +126,22 @@ template <typename T>
 inline T* pt_get_data_ptr(at::Tensor t) {
   return t.data_ptr<T>();
 }
+template <typename T>
+inline T* pt_get_data_ptr(at::Tensor t, unsigned long offset_in_T) {
+  return t.data_ptr<T>() + offset_in_T;
+}
+template <typename T, typename Tbase>
+inline T* pt_get_data_ptr(at::Tensor t, unsigned long offset_in_Tbase) {
+  return reinterpret_cast<T*>(t.data_ptr<Tbase>() + offset_in_Tbase);
+}
 #ifndef PYTORCH_SUPPORTS_BFLOAT8
 template <>
 inline at::BFloat8* pt_get_data_ptr<at::BFloat8>(at::Tensor t) {
   return (at::BFloat8*)t.data_ptr<uint8_t>();
+}
+template <>
+inline at::BFloat8* pt_get_data_ptr<at::BFloat8>(at::Tensor t, unsigned long offset_in_T) {
+  return (at::BFloat8*)(t.data_ptr<uint8_t>() + offset_in_T);
 }
 #endif
 typedef int64_t index_t;
