@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "This is by no means a full test suite but if something fails here, it should be a concern"
-echo "The #tests passed for now should be checked manually, via `grep ntests <log_of_the_script_run>`
+echo "The tests passed for now should be checked manually, via `grep ntests <log_of_the_script_run>`"
 
 today=$(date +%F)
 
@@ -70,7 +70,6 @@ test_error=$(func.run_test 52 "conv_fp32" "./my_run_conv_ext_test_clone.sh --tes
 echo -e "test_error = $test_error\n"
 test_error=$(func.run_test 53 "bn_fp32" "./my_run_bn_ext_test_clone.sh --test-module ext_tpp --bc 32 --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
-
 
 echo "TPP CNN modules"
 
