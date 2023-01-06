@@ -1634,13 +1634,9 @@ class SplitSGD_bf16fb_enhanced(torch.optim.SGD):
             lr = group["lr"]
 
             if momentum != 0 and self.with_fp32_momentum:
-                #optim_cpp.fused_sgd_v2(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
-                #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None)
                 optim_cpp.fused_sgd_v3(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
                                        weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step)
             elif momentum != 0 and self.with_bf16_momentum:
-                #optim_cpp.fused_sgd_v0(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
-                #                    weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step, None)
                 optim_cpp.fused_sgd_v1(fp._flat_w, fp._flat_g, fp._flat_m, fp._flat_wl, fp._offsets, fp._block_sizes, fp._block2param,
                                        weight_decay, momentum, dampening, nesterov, lr, fp.block_size, self._step)
         # end of loop over fp in self.state['flat_params']
