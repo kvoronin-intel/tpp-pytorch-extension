@@ -5,3 +5,4 @@ __pycache__
 build
 tests/*.pt
 tests/*.pth.tar
+tests/resnet/*.log

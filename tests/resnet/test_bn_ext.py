@@ -7,7 +7,7 @@ import numpy as np
 
 import tpp_pytorch_extension
 from tpp_pytorch_extension._C import _batchnorm as batchnorm_cpp
-import batchnorm as batchnorm_py
+from tpp_pytorch_extension.resnet import batchnorm as batchnorm_py
 
 import pcl_cgbp
 import pcl_cgbp_cpp

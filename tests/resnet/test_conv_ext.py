@@ -5,7 +5,7 @@ import torch
 
 import tpp_pytorch_extension
 from tpp_pytorch_extension._C import _conv as conv_cpp
-import conv as conv_py
+from tpp_pytorch_extension.resnet import conv as conv_py
 
 import pcl_cgbp
 import pcl_cgbp_cpp

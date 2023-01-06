@@ -1,7 +1,6 @@
 #!/bin/bash
 
 echo "This is by no means a full test suite but if something fails here, it should be a concern"
-echo "The test is intended to be run from "
 echo "The tests passed for now should be checked manually, via `grep ntests <log_of_the_script_run>`"
 
 today=$(date +%F)
@@ -58,37 +57,37 @@ export OMP_NUM_THREADS=56
 # TPP PT extension modules
 echo "TPP PT extension modules"
 
-test_error=$(func.run_test 16 "btlnk_bf16" "./my_run_bottleneck_ext_test_clone.sh --test-module ext_bottleneck --use-physical-3x3-padding --use-hardcoded-tunings --use-bf16-opt --channel-block-size 32 --use-bf16-opt --test-data-file resnet50_bottleneck_test_data_56thr.data")
+test_error=$(func.run_test 16 "btlnk_bf16" "python -u test_bottleneck_ext.py --test-module ext_bottleneck --use-physical-3x3-padding --use-hardcoded-tunings --use-bf16-opt --channel-block-size 32 --use-bf16-opt --test-data-file resnet50_bottleneck_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 52 "conv_bf16" "./my_run_conv_ext_test_clone.sh --test-module ext_tpp --use-bf16-opt --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
+test_error=$(func.run_test 52 "conv_bf16" "python -u test_conv_ext.py --test-module ext_tpp --use-bf16-opt --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 53 "bn_bf16" "./my_run_bn_ext_test_clone.sh --test-module ext_tpp --bc 32 --use-bf16-opt --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
+test_error=$(func.run_test 53 "bn_bf16" "python -u test_bn_ext.py --test-module ext_tpp --bc 32 --use-bf16-opt --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
 
-test_error=$(func.run_test 16 "btlnk_fp32" "./my_run_bottleneck_ext_test_clone.sh --test-module ext_bottleneck --use-physical-3x3-padding --use-hardcoded-tunings --use-bf16-opt --channel-block-size 32 --test-data-file resnet50_bottleneck_test_data_56thr.data")
+test_error=$(func.run_test 16 "btlnk_fp32" "python -u test_bottleneck_ext.py --test-module ext_bottleneck --use-physical-3x3-padding --use-hardcoded-tunings --use-bf16-opt --channel-block-size 32 --test-data-file resnet50_bottleneck_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 52 "conv_fp32" "./my_run_conv_ext_test_clone.sh --test-module ext_tpp --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
+test_error=$(func.run_test 52 "conv_fp32" "python -u test_conv_ext.py --test-module ext_tpp --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 53 "bn_fp32" "./my_run_bn_ext_test_clone.sh --test-module ext_tpp --bc 32 --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
+test_error=$(func.run_test 53 "bn_fp32" "python -u test_bn_ext.py --test-module ext_tpp --bc 32 --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
 
 echo "TPP CNN modules"
 
-test_error=$(func.run_test 16 "btlnk_bf16_cnn" "./my_run_bottleneck_ext_test_clone.sh --test-module tpp_bottleneck --use-physical-3x3-padding --use-bf16-opt --channel-block-size 32 --use-bf16-opt --test-data-file resnet50_bottleneck_test_data_56thr.data")
+test_error=$(func.run_test 16 "btlnk_bf16_cnn" "python -u test_bottleneck_ext.py --test-module tpp_bottleneck --use-physical-3x3-padding --use-bf16-opt --channel-block-size 32 --use-bf16-opt --test-data-file resnet50_bottleneck_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
 #exit
-test_error=$(func.run_test 52 "conv_bf16_cnn" "./my_run_conv_ext_test_clone.sh --test-module cnn_tpp --use-bf16-opt --bc 32 --bk 32 --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
+test_error=$(func.run_test 52 "conv_bf16_cnn" "python -u test_conv_ext.py --test-module cnn_tpp --use-bf16-opt --bc 32 --bk 32 --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 53 "bn_bf16_cnn" "./my_run_bn_ext_test_clone.sh --test-module cnn_tpp --bc 32 --use-bf16-opt --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
+test_error=$(func.run_test 53 "bn_bf16_cnn" "python -u test_bn_ext.py --test-module cnn_tpp --bc 32 --use-bf16-opt --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
 
 #exit
 
-test_error=$(func.run_test 16 "btlnk_fp32_cnn" "./my_run_bottleneck_ext_test_clone.sh --test-module tpp_bottleneck --use-physical-3x3-padding --use-bf16-opt --channel-block-size 32 --test-data-file resnet50_bottleneck_test_data_56thr.data")
+test_error=$(func.run_test 16 "btlnk_fp32_cnn" "python -u test_bottleneck_ext.py --test-module tpp_bottleneck --use-physical-3x3-padding --use-bf16-opt --channel-block-size 32 --test-data-file resnet50_bottleneck_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 52 "conv_fp32_cnn" "./my_run_conv_ext_test_clone.sh --test-module cnn_tpp --bc 32 --bk 32 --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
+test_error=$(func.run_test 52 "conv_fp32_cnn" "python -u test_conv_ext.py --test-module cnn_tpp --bc 32 --bk 32 --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
 echo -e "test_error = $test_error\n"
-test_error=$(func.run_test 53 "bn_fp32_cnn" "./my_run_bn_ext_test_clone.sh --test-module cnn_tpp --bc 32 --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
+test_error=$(func.run_test 53 "bn_fp32_cnn" "python -u test_bn_ext.py --test-module cnn_tpp --bc 32 --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
 
 #echo "test_error = $test_error"
