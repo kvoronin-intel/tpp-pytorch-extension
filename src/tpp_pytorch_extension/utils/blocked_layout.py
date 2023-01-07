@@ -206,9 +206,6 @@ class BlockedTensor(object):
         elif attr == "view":
             return getattr(self.unblocked_tensor(), attr)
         # elif hasattr(self._t, attr): return getattr(self._t, attr)
-        elif attr == "retain_grad":
-            return getattr(self.unblocked_tensor(), attr)
-        # elif hasattr(self._t, attr): return getattr(self._t, attr)
         elif attr == "grad":
             return self._t.grad
         else:
