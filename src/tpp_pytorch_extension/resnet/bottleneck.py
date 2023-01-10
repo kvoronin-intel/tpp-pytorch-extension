@@ -256,6 +256,64 @@ class Bottleneck_base(nn.Module):
         else:
             return out
 
+#output = BottleneckInferenceApplyBNTPP.apply(self.config, self.training, l_tuning_params_fwd, l_tuning_strings_fwd, tuning_timings_fwd, *inputs)
+class BottleneckInferenceApplyBNTPP(Function):
+    @staticmethod
+    def forward(ctx, config, tuning_params, tuning_strings, tuning_timings, *inputs ):
+
+        #print("dbg: in bottleneck inference bn apply tpp forward")
+        time_start = time.time()
+
+        print("dbg bottleneck inference function: len(inputs) = ", len(inputs))
+
+        (input,
+         c1w, c2w, c3w, c4w,
+         c1b, c2b, c3b, c4b ) = inputs
+
+        if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
+            output = bottleneck_cpp.bottleneck_bn_inf(config, inputs)
+        else:
+            if tuning_timings is None:
+                tuning_timings = np.zeros(16, dtype=np.float32)
+            output = bottleneck_cpp.bottleneck_bn_inf_ext(config, inputs, tuning_params, tuning_strings, tuning_timings)
+        #print("dbg: bottleneck_forward_new called")
+
+
+        time_btlnk_fwd = time.time() - time_start
+
+        print("time_btlnk_inf (C K H W stride) = ", config.inplanes, config.planes, config.H, config.W, config.stride, time_btlnk_fwd)
+        #exit()
+
+        """
+        print("perfdebug: checking for bottleneck in bwd with cfg C K H W stride: ", config.inplanes, config.planes, config.H, config.W, config.stride)
+        print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.inplanes) + "," + str(config.planes)   + "," + str(config.H) + "," + str(config.W) + "," + str(1) + "," + str(1) + "," + str(1)             + "," + str(0) + "," + str(0) + "," + str(tuning_timings[0]) + "," + str(1.0))
+        print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H) + "," + str(config.W) + "," + str(3) + "," + str(3) + "," + str(config.stride) + "," + str(1) + "," + str(1) + "," + str(tuning_timings[1]) + "," + str(1.0))
+        print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + str(1) + "," + str(1) + "," + str(1)             + "," + str(0) + "," + str(0) + "," + str(tuning_timings[2]) + "," + str(1.0))
+        if config.has_residual_conv:
+            print("PERFDUMP,FP,resnetconv,"  + str(config.N) + "," + str(config.N) + "," + str(config.inplanes) + "," + str(4*config.planes) + "," + str(config.H) + "," + str(config.W) + "," + str(1) + "," + str(1) + "," + str(config.stride) + "," + str(0) + "," + str(0) + "," + str(tuning_timings[3]) + "," + str(1.0))
+
+        print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H)                  + "," + str(config.W)                  + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(1) + "," + str(tuning_timings[4]) + "," + str(1.0) + ',' + str(1) + ',' + str(0) + ',' + str(training))
+        print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(config.planes)   + "," + str(config.planes)   + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + "na" + "," + "na" + "," + "na" + "," + str(1) + "," + str(0) + "," + str(tuning_timings[5]) + "," + str(1.0) + ',' + str(1) + ',' + str(0) + ',' + str(training))
+        print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(4*config.planes) + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride) + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(0) + "," + str(tuning_timings[6]) + "," + str(1.0) + ',' + str(1) + ',' + str(1) + ',' + str(training))
+        if config.has_residual_conv:
+            print("PERFDUMP,FP,resnetbn,"    + str(config.N) + "," + str(config.N) + "," + str(4*config.planes) + "," + str(4*config.planes) + "," + str(config.H // config.stride) + "," + str(config.W // config.stride)                  + "," + "na" + "," + "na" + "," + "na" + "," + str(0) + "," + str(0) + "," + str(tuning_timings[7]) + "," + str(1.0) + ',' + str(0) + ',' + str(0) + ',' + str(training))
+        """
+        #print("time: conv = ", config.inplanes, config.planes, config.H, config.W, 1, 1, tuning_timings[0], "(c1)")
+        #print("time: conv = ", config.planes, config.planes, config.H, config.W, 1, config.stride, tuning_timings[1], "(c2)")
+        #print("time: conv = ", config.planes, 4*config.planes, config.H, config.W, 1, 1, tuning_timings[2], "(c3)")
+        #print("time: conv = ", config.inplanes, 4*config.planes, config.H, config.W, 1, config.stride, tuning_timings[3], "(c4)")
+        #print("time: b1 = ", tuning_timings[4])
+        #print("time: b2 = ", tuning_timings[5])
+        #print("time: b3 = ", tuning_timings[6])
+        #print("time: b4 = ", tuning_timings[7])
+        #print("time: c1b1 = ", tuning_timings[8])
+        #print("time: c2b2 = ", tuning_timings[9])
+        #print("time: c3b3 = ", tuning_timings[10])
+        #print("time: c4b4 = ", tuning_timings[11])
+
+        return output
+
+
 class BottleneckApplyBNTPP(Function):
     @staticmethod
     def forward(ctx, config, training, tuning_params, tuning_strings, tuning_timings_fwd, tuning_params_d, tuning_strings_d, tuning_params_w, tuning_strings_w, tuning_timings_bwd, *inputs ):
@@ -732,6 +790,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         self.use_bf16 = True if self.dtype == torch.bfloat16 else False
         self.use_physical_3x3_padding = use_physical_3x3_padding
         self.use_groupnorm = use_groupnorm
+        self.inference = False
 
         #self.tuning_params  = None
         #self.tuning_strings = None
@@ -788,6 +847,9 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         self.tuning_strings_d   = None
         self.tuning_params_w    = None
         self.tuning_strings_w   = None
+
+        self.tuning_params_inf  = None
+        self.tuning_strings_inf = None
 
         # was hardcoded for 56 threads on SPR but extended to max_threads available
         max_nthreads = torch.get_num_threads() #omp.get_num_threads
@@ -1183,7 +1245,8 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                     #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
                     self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
 
-
+    def enable_inference_mode(self):
+        self.inference = True
 
     def maybe_block(self):
         for m in self.modules():
@@ -1209,12 +1272,17 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
 
         #print("in btlnk forward(), use_hardcoded_tunings, self.tuning_params_fwd tuning_params_fwd = ", self.use_hardcoded_tunings, self.tuning_params_fwd, tuning_params)
 
-        l_tuning_params_fwd  = tuning_params_fwd if tuning_params_fwd is not None else self.tuning_params_fwd
-        l_tuning_strings_fwd = tuning_strings_fwd if tuning_strings_fwd is not None else self.tuning_strings_fwd
-        l_tuning_params_d    = tuning_params_d if tuning_params_d is not None else self.tuning_params_d
-        l_tuning_strings_d   = tuning_strings_d if tuning_strings_d is not None else self.tuning_strings_d
-        l_tuning_params_w    = tuning_params_w if tuning_params_w is not None else self.tuning_params_w
-        l_tuning_strings_w   = tuning_strings_w if tuning_strings_w is not None else self.tuning_strings_w
+        if self.inference:
+            print("Warning: hardcoded tuning parameters are for training, not for the inference")
+            l_tuning_params_fwd  = tuning_params_fwd if tuning_params_fwd is not None else self.tuning_params_inf
+            l_tuning_strings_fwd = tuning_strings_fwd if tuning_strings_fwd is not None else self.tuning_strings_inf
+        else:
+            l_tuning_params_fwd  = tuning_params_fwd if tuning_params_fwd is not None else self.tuning_params_fwd
+            l_tuning_strings_fwd = tuning_strings_fwd if tuning_strings_fwd is not None else self.tuning_strings_fwd
+            l_tuning_params_d    = tuning_params_d if tuning_params_d is not None else self.tuning_params_d
+            l_tuning_strings_d   = tuning_strings_d if tuning_strings_d is not None else self.tuning_strings_d
+            l_tuning_params_w    = tuning_params_w if tuning_params_w is not None else self.tuning_params_w
+            l_tuning_strings_w   = tuning_strings_w if tuning_strings_w is not None else self.tuning_strings_w
 
         #print("in btlnk forward(), l_tuning_params_fwd = ", l_tuning_params_fwd)
 
@@ -1255,11 +1323,11 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                       print("BottleneckTPP Create BN-powered handle: ", N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.dtype, self.preset_blocksizes)
                 if self.preset_blocksizes:
                     self.config = bottleneck_cpp.bottleneck_bn_setup_fused_fwd_tuner(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
-                                                                 1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1,
+                                                                 1 if self.use_physical_3x3_padding else 0, 1 if self.inference else 0, 0 if self.dtype == torch.float else 1,
                                                                  self.bc_conv1, self.bc_conv2, self.bc_conv3, self.bk_conv3, 1 if self.avoid_fmas_in_rim else 0)
                 else:
                     self.config = bottleneck_cpp.bottleneck_bn_setup(N, self.inplanes, self.H, self.W, self.planes, self.stride, self.norm_eps, self.bn_momentum, self.bn_track_running_stats, self.expansion,
-                                                                 1 if self.use_physical_3x3_padding else 0, 0 if self.dtype == torch.float else 1)
+                                                                 1 if self.use_physical_3x3_padding else 0, 1 if self.inference else 0, 0 if self.dtype == torch.float else 1)
                 #self.xsmm_handle = BottleneckBNHandleTPP(N, self.inplanes, self.H, self.W, self.planes, self.stride,
                 #                                         self.norm_eps, self.bn_momentum, 1 if self.bn_track_running_stats else 0,
                 #                                         self.expansion, self.use_physical_3x3_padding, self.dtype)
@@ -1291,54 +1359,76 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         #attrs = vars(self.bn1)
         #print(', '.join("{}: {}".format(item[0], item[1]) for item in attrs.items()))
 
-        if not self.use_groupnorm and not self.training and self.bn_track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
-            if self.has_residual_conv == True:
-                inputs = [blocked_input,
-                          self.conv1.weight, self.conv2.weight, self.conv3.weight, self.downsample1.weight,
-                          self.bn1.weight, self.bn2.weight, self.bn3.weight, self.downsample2.weight,
-                          self.bn1.bias, self.bn2.bias, self.bn3.bias, self.downsample2.bias,
-                          self.bn1.running_mean, self.bn2.running_mean, self.bn3.running_mean, self.downsample2.running_mean,
-                          self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.downsample2.running_var]
-                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
-                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
+        print("dbg bottleneck-py: self.inference = ", self.inference)
+
+        if self.inference:
+            if self.use_groupnorm:
+                print("use_groupnorm not implemented in the bottleneck in extensions")
+                exit()
             else:
-                inputs = [blocked_input,
-                          self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
-                          self.bn1.weight, self.bn2.weight, self.bn3.weight, self.dummy_tensor,
-                          self.bn1.bias, self.bn2.bias, self.bn3.bias, self.dummy_tensor,
-                          self.bn1.running_mean, self.bn2.running_mean, self.bn3.running_mean, self.dummy_tensor,
-                          self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.dummy_tensor]
-                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
-                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
-        else:
-            if self.has_residual_conv == True:
-                inputs = [blocked_input,
-                          self.conv1.weight, self.conv2.weight, self.conv3.weight, self.downsample1.weight,
-                          self.bn1.weight, self.bn2.weight, self.bn3.weight, self.downsample2.weight,
-                          self.bn1.bias, self.bn2.bias, self.bn3.bias, self.downsample2.bias,
-                          self.bn1.mean, self.bn2.mean, self.bn3.mean, self.downsample2.mean,
-                          self.bn1.var, self.bn2.var, self.bn3.var, self.downsample2.var]
-                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
-                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
+                if self.has_residual_conv == True:
+                    inputs = [blocked_input,
+                              self.conv1.weight, self.conv2.weight, self.conv3.weight, self.downsample1.weight,
+                              self.conv1.bias,   self.conv2.bias,   self.conv3.bias,   self.downsample1.bias]
+                else:
+                    inputs = [blocked_input,
+                              self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
+                              self.conv1.bias,   self.conv2.bias,   self.conv3.bias,   self.dummy_tensor]
+        else: # not inference
+            if not self.use_groupnorm and not self.training and self.bn_track_running_stats: # using during evaluation the running_mean and running_var computed during training beforehand
+                if self.has_residual_conv == True:
+                    inputs = [blocked_input,
+                              self.conv1.weight, self.conv2.weight, self.conv3.weight, self.downsample1.weight,
+                              self.bn1.weight, self.bn2.weight, self.bn3.weight, self.downsample2.weight,
+                              self.bn1.bias, self.bn2.bias, self.bn3.bias, self.downsample2.bias,
+                              self.bn1.running_mean, self.bn2.running_mean, self.bn3.running_mean, self.downsample2.running_mean,
+                              self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.downsample2.running_var]
+                              #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
+                              #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
+                else:
+                    inputs = [blocked_input,
+                              self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
+                              self.bn1.weight, self.bn2.weight, self.bn3.weight, self.dummy_tensor,
+                              self.bn1.bias, self.bn2.bias, self.bn3.bias, self.dummy_tensor,
+                              self.bn1.running_mean, self.bn2.running_mean, self.bn3.running_mean, self.dummy_tensor,
+                              self.bn1.running_var, self.bn2.running_var, self.bn3.running_var, self.dummy_tensor]
+                              #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
+                              #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
             else:
-                inputs = [blocked_input,
-                          self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
-                          self.bn1.weight, self.bn2.weight, self.bn3.weight, self.dummy_tensor,
-                          self.bn1.bias, self.bn2.bias, self.bn3.bias, self.dummy_tensor,
-                          self.bn1.mean, self.bn2.mean, self.bn3.mean, self.dummy_tensor,
-                          self.bn1.var, self.bn2.var, self.bn3.var, self.dummy_tensor]
-                          #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
-                          #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
+                if self.has_residual_conv == True:
+                    inputs = [blocked_input,
+                              self.conv1.weight, self.conv2.weight, self.conv3.weight, self.downsample1.weight,
+                              self.bn1.weight, self.bn2.weight, self.bn3.weight, self.downsample2.weight,
+                              self.bn1.bias, self.bn2.bias, self.bn3.bias, self.downsample2.bias,
+                              self.bn1.mean, self.bn2.mean, self.bn3.mean, self.downsample2.mean,
+                              self.bn1.var, self.bn2.var, self.bn3.var, self.downsample2.var]
+                              #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.conv4_scratch,
+                              #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.bn4_scratch ]
+                else:
+                    inputs = [blocked_input,
+                              self.conv1.weight, self.conv2.weight, self.conv3.weight, self.dummy_tensor,
+                              self.bn1.weight, self.bn2.weight, self.bn3.weight, self.dummy_tensor,
+                              self.bn1.bias, self.bn2.bias, self.bn3.bias, self.dummy_tensor,
+                              self.bn1.mean, self.bn2.mean, self.bn3.mean, self.dummy_tensor,
+                              self.bn1.var, self.bn2.var, self.bn3.var, self.dummy_tensor]
+                              #self.conv1_scratch, self.conv2_scratch, self.conv3_scratch, self.dummy_tensor,
+                              #self.bn1_scratch, self.bn2_scratch, self.bn3_scratch, self.dummy_tensor ]
         # Computations happen here
         #print("dbg: calling BottleneckApplyTPP inside BottleneckBNTPP")
-        if self.use_groupnorm:
-            output = BottleneckApplyGNTPP.apply(self.config, self.training, *inputs)
+        if self.inference:
+            if self.use_groupnorm:
+                print("use_groupnorm not implemented in the bottleneck in extensions")
+                exit()
+            else:
+                print("dbg bottleneck-py: len of inputs = ", len(inputs))
+                output = BottleneckInferenceApplyBNTPP.apply(self.config, l_tuning_params_fwd, l_tuning_strings_fwd, tuning_timings_fwd, *inputs)
         else:
-            #output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs, tuning_params=tuning_params, tuning_strings=tuning_strings)
-            #output = BottleneckApplyBNTPP.apply(self.config, self.training, *inputs, tuning_params, tuning_strings)
-            output = BottleneckApplyBNTPP.apply(self.config, self.training,
-                                                l_tuning_params_fwd, l_tuning_strings_fwd, tuning_timings_fwd,
-                                                l_tuning_params_d, l_tuning_strings_d, l_tuning_params_w, l_tuning_strings_w, tuning_timings_bwd, *inputs )
+            if self.use_groupnorm:
+                output = BottleneckApplyGNTPP.apply(self.config, self.training, *inputs)
+            else:
+                output = BottleneckApplyBNTPP.apply(self.config, self.training,
+                                                    l_tuning_params_fwd, l_tuning_strings_fwd, tuning_timings_fwd,
+                                                    l_tuning_params_d, l_tuning_strings_d, l_tuning_params_w, l_tuning_strings_w, tuning_timings_bwd, *inputs )
 
         #print("dbg: self.conv1_scratch numel after forward = ", self.conv1_scratch.numel())
         #print("dbg: self.bn1_scratch   numel after forward = ", self.bn1_scratch.numel())
@@ -1346,7 +1436,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         #print("dbg: called BottleneckApplyTPP inside BottleneckBNTPP")
         blocked_output = BlockedTensor(output, self.blocked_output_signature)
 
-        if not self.use_groupnorm and self.training and self.bn_track_running_stats:
+        if not self.use_groupnorm and self.training and self.bn_track_running_stats and not self.inference:
             #print("Updating running stats")
             #print("bn1.running_mean before = ", self.bn1.running_mean)
             self.bn1.running_mean = (1 - self.bn1.momentum) * self.bn1.running_mean + self.bn1.momentum * self.bn1.mean

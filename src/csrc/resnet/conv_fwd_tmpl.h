@@ -13,12 +13,14 @@ t_start = getTime();
 
 // ( input, weight) = inputs
 
-//#define VERBOSE
+#define VERBOSE
 
 #define NTIMES_CONV 1
 
 auto t_I  = inputs[0]; // [N][CP][H][W][bc]
 auto t_W  = inputs[1];
+std::vector<long> dummy_size{0};
+auto t_B  = (inputs.size() > 2 ? inputs[2] : at::zeros(dummy_size, t_I.options()));
 
 auto sizes = t_I.sizes();
 
@@ -277,14 +279,17 @@ printf("BS (vnni block size) = %d \n", BS);
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d   %d %d   %d %d %d %d %d %d  1000 %d %d \n",
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d  %d %d   %d %d %d %d %d %d  1000 %d %d  %d %d %d %d\n",
           (int)N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
           (int)N, ifh, ifw, cfg.C, cfg.K, R, S,
           stride_h, stride_w, pad_h, pad_w,
           bc, bk,
           h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
-          logical_padding, input_padding_copy);
+          logical_padding, input_padding_copy,
+          pad_h_in, pad_w_in, pad_h_out, pad_w_out);
 #endif
+
+  return t_O;
 
   auto input_pad_loop = ThreadedLoop<2>({
       LoopSpecs{0, N, n_step, true},

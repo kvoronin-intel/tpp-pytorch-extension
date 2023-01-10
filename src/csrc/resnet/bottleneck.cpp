@@ -106,6 +106,9 @@ extern std::vector<at::Tensor> batchnorm_bwd_ext(bool  relu, bool  eltwise, floa
                                                   std::string tuning_string_ncp, std::string tuning_string_cp, std::vector<at::Tensor> inputs);
 
 extern at::Tensor conv_fwd(conv_config cfg, const std::vector<at::Tensor>& inputs);
+extern at::Tensor conv_fwd_ext(conv_config cfg,
+                               const std::vector<at::Tensor>& inputs,
+                               std::vector<int> tuning_params, std::string tuning_string, pybind11::array_t<float>& tuning_timings);
 extern std::vector<at::Tensor> conv_bwd(conv_config cfg, const std::vector<at::Tensor>& inputs);
 
 extern std::vector<at::Tensor> conv_bwd_ext(conv_config cfg, const std::vector<at::Tensor>& inputs,
@@ -138,18 +141,26 @@ typedef struct bottleneck_bn_config {
   libxsmm_blasint conv1_kernel_size;
   libxsmm_blasint conv1_stride     ;
   libxsmm_blasint conv1_padding    ;
+  libxsmm_blasint conv1_padding_in ;
+  libxsmm_blasint conv1_padding_out;
 
   libxsmm_blasint conv2_kernel_size;
   libxsmm_blasint conv2_stride     ;
   libxsmm_blasint conv2_padding    ;
+  libxsmm_blasint conv2_padding_in ;
+  libxsmm_blasint conv2_padding_out;
 
   libxsmm_blasint conv3_kernel_size;
   libxsmm_blasint conv3_stride     ;
   libxsmm_blasint conv3_padding    ;
+  libxsmm_blasint conv3_padding_in ;
+  libxsmm_blasint conv3_padding_out;
 
   libxsmm_blasint conv4_kernel_size;
   libxsmm_blasint conv4_stride     ;
   libxsmm_blasint conv4_padding    ;
+  libxsmm_blasint conv4_padding_in ;
+  libxsmm_blasint conv4_padding_out;
 
   libxsmm_blasint bn1_fuse_type;
   libxsmm_blasint bn2_fuse_type;
@@ -164,8 +175,49 @@ typedef struct bottleneck_bn_config {
   conv_config     conv_preheat; /* (optionally used) */
 #endif
 
+  libxsmm_blasint batchnorms_are_folded;
+
   /* Note: batchnorms do not have configs in the extension code */
 } bottleneck_bn_config;
+
+at::Tensor bottleneck_bn_inf_ext(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs,
+    std::vector<int> tuning_params,
+    std::vector<std::string> tuning_strings,
+    pybind11::array_t<float>& tuning_timings) {
+  GlobalPass _gp(FWD);
+  if (inputs[0].dtype() == at::kFloat) {
+    typedef float T;
+#   include "folded_bottleneck_inf_tmpl.h"
+  } else {
+    typedef bfloat16 T;
+#   include "folded_bottleneck_inf_tmpl.h"
+  }
+}
+
+at::Tensor bottleneck_bn_inf(
+    bottleneck_bn_config cfg,
+    std::vector<at::Tensor> inputs) {
+  int h1_block = 1, w1_block = 1, h2_block = 1, w2_block = 1, h3_block = 1, w3_block = 1, h4_block = 1, w4_block = 1;
+  int c1_block = 1, k1_block = 1, c2_block = 1, k2_block = 1, c3_block = 1, k3_block = 1, c4_block = 1, k4_block = 1;
+  int h1_in_gemm = 1, h2_in_gemm = 1, h3_in_gemm = 1, h4_in_gemm = 1;
+  int pack_input_for_1x1_strided = 0;
+  int fuse_stats        = -1;
+  std::vector<int> default_tuning_params{h1_block, w1_block, h2_block, w2_block, h3_block, w3_block, h4_block, w4_block,
+                                         c1_block, k1_block, c2_block, k2_block, c3_block, k3_block, c4_block, k4_block,
+                                         h1_in_gemm, h2_in_gemm, h3_in_gemm, h4_in_gemm,
+                                         pack_input_for_1x1_strided,
+                                         fuse_stats};
+  pybind11::array_t<float> default_tuning_timings(16);
+  float *ptr = default_tuning_timings.mutable_data();
+  for (int i = 0; i < 16; i++)
+      ptr[i] = 0.0;
+  //char conv_fwd_loop_specs_str[256] = "Abcdefg";
+  std::vector<std::string> default_tuning_strings{"Abcdefg", "Abcdefg", "Abcdefg", "Abcdefg"};
+  return bottleneck_bn_inf_ext(cfg, inputs, default_tuning_params, default_tuning_strings, default_tuning_timings);
+}
+
 
 std::vector<at::Tensor> bottleneck_bn_fwd_ext(
     bottleneck_bn_config cfg,
@@ -458,7 +510,7 @@ std::vector<at::Tensor> bottleneck_bn_bwd(
 
 bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inplanes, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint planes, libxsmm_blasint stride,
                                          float eps, float bn_momentum, libxsmm_blasint bn_track_running_stats_int, libxsmm_blasint expansion,
-                                         libxsmm_blasint padding_3x3_type, libxsmm_blasint dtype_int )
+                                         libxsmm_blasint padding_3x3_type, libxsmm_blasint batchnorms_are_folded, libxsmm_blasint dtype_int )
 {
   bottleneck_bn_config res;
 
@@ -475,6 +527,7 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
   res.bn_track_running_stats_int = bn_track_running_stats_int;
   res.expansion = expansion;
   res.padding_3x3_type = padding_3x3_type;
+  res.batchnorms_are_folded = batchnorms_are_folded;
   res.dtype_int = dtype_int;
 
   res.has_residual_conv = ( (res.stride != 1 || res.inplanes != res.planes * expansion) ? 1 : 0);
@@ -485,86 +538,152 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
   else  /* physical padding around 3x3 convolutions */
     res.pad_size = 1;
 
-  res.conv1_kernel_size = 1;
-  res.conv1_stride      = 1;
-  res.conv1_padding     = 0;
-  res.conv1 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes, res.conv1_kernel_size, res.conv1_kernel_size,
-                             res.conv1_padding, res.conv1_padding, res.conv1_padding, res.conv1_padding, res.conv1_padding, res.conv1_padding,
-                             res.conv1_stride, res.dtype_int);
+  if (!res.batchnorms_are_folded) {
+    res.conv1_kernel_size = 1;
+    res.conv1_stride      = 1;
+    res.conv1_padding     = 0;
+    res.conv1_padding_in  = 0;
+    res.conv1_padding_out = 0;
+    res.conv1 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes, res.conv1_kernel_size, res.conv1_kernel_size,
+                               res.conv1_padding, res.conv1_padding, res.conv1_padding_in, res.conv1_padding_in, res.conv1_padding_out, res.conv1_padding_out,
+                               res.conv1_stride, res.dtype_int);
 
 #ifdef WITH_CACHE_PREHEAT
-  int res_conv_preheat_kernel_size = 1;
-  int res_conv_preheat_stride      = 1;
-  int res_conv_preheat_padding     = 0;
-  res.conv_preheat = conv_setup(res.N, res.inplanes, res.H, res.W, res.inplanes, res_conv_preheat_kernel_size, res_conv_preheat_kernel_size,
-                             res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding,
-                             res_conv_preheat_stride, res.dtype_int);
+    int res_conv_preheat_kernel_size = 1;
+    int res_conv_preheat_stride      = 1;
+    int res_conv_preheat_padding     = 0;
+    int res_conv_preheat_padding_in  = 0;
+    int res_conv_preheat_padding_out = 0;
+    res.conv_preheat = conv_setup(res.N, res.inplanes, res.H, res.W, res.inplanes, res_conv_preheat_kernel_size, res_conv_preheat_kernel_size,
+                               res_conv_preheat_padding, res_conv_preheat_padding, res_conv_preheat_padding_in, res_conv_preheat_padding_in, res_conv_preheat_padding_out, res_conv_preheat_padding_out,
+                               res_conv_preheat_stride, res.dtype_int);
 #endif
 
-  res.conv2_kernel_size = 3;
-  res.conv2_stride      = res.stride;
-  res.conv2_padding     = 1;
-  if (res.padding_3x3_type == 0)
-    res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
-                               res.conv2_padding, res.conv2_padding, 0, 0, 0, 0,
-                               res.conv2_stride, res.dtype_int);
-  else /* physical padding */
-    res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
-                               res.conv2_padding, res.conv2_padding, res.conv2_padding, res.conv2_padding, res.conv2_padding, res.conv2_padding,
-                               res.conv2_stride, res.dtype_int);
+    res.conv2_kernel_size = 3;
+    res.conv2_stride      = res.stride;
+    res.conv2_padding     = 1;
+    res.conv2_padding_in  = 1;
+    res.conv2_padding_out = 1;
+    if (res.padding_3x3_type == 0)
+      res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
+                                 res.conv2_padding, res.conv2_padding, 0, 0, 0, 0,
+                                 res.conv2_stride, res.dtype_int);
+    else /* physical padding */
+      res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
+                                 res.conv2_padding, res.conv2_padding, res.conv2_padding_in, res.conv2_padding_in, res.conv2_padding_out, res.conv2_padding_out,
+                                 res.conv2_stride, res.dtype_int);
 
-  libxsmm_blasint downsampled_H, downsampled_W;
-  if (res.stride != 1) {
-    downsampled_H = res.H / res.stride;
-    downsampled_W = res.W / res.stride;
-  } else {
-    downsampled_H = res.H;
-    downsampled_W = res.W;
-  }
+    libxsmm_blasint downsampled_H, downsampled_W;
+    if (res.stride != 1) {
+      downsampled_H = res.H / res.stride;
+      downsampled_W = res.W / res.stride;
+    } else {
+      downsampled_H = res.H;
+      downsampled_W = res.W;
+    }
 
-  res.conv3_kernel_size = 1;
-  res.conv3_stride      = 1;
-  res.conv3_padding     = 0;
-  res.conv3 = conv_setup(res.N, res.planes, downsampled_H, downsampled_W, res.planes * res.expansion, res.conv3_kernel_size, res.conv3_kernel_size,
-                             res.conv3_padding, res.conv3_padding, res.conv3_padding, res.conv3_padding, res.conv3_padding, res.conv3_padding,
-                             res.conv3_stride, res.dtype_int);
+    res.conv3_kernel_size = 1;
+    res.conv3_stride      = 1;
+    res.conv3_padding     = 0;
+    res.conv3_padding_in  = 0;
+    res.conv3_padding_out = 0;
+    res.conv3 = conv_setup(res.N, res.planes, downsampled_H, downsampled_W, res.planes * res.expansion, res.conv3_kernel_size, res.conv3_kernel_size,
+                               res.conv3_padding, res.conv3_padding, res.conv3_padding_in, res.conv3_padding_in, res.conv3_padding_out, res.conv3_padding_out,
+                               res.conv3_stride, res.dtype_int);
 #if 0
-  /* optionally output-padded batchnorm before 3x3 conv */
-  res.bn1_fuse_type = 4;
-  res.bn1   = bnorm_setup_new(res.N, res.planes, res.H, res.W, 0, 0, res.pad_size, res.pad_size, res.bn_eps, res.bn1_fuse_type, res.dtype_int);
+    /* optionally output-padded batchnorm before 3x3 conv */
+    res.bn1_fuse_type = 4;
+    res.bn1   = bnorm_setup_new(res.N, res.planes, res.H, res.W, 0, 0, res.pad_size, res.pad_size, res.bn_eps, res.bn1_fuse_type, res.dtype_int);
 
-  /* optionally input-padded batchnorm after 3x3 conv */
-  res.bn2_fuse_type = 4;
-  res.bn2   = bnorm_setup_new(res.N, res.planes, downsampled_H, downsampled_W, res.pad_size, res.pad_size, 0, 0, res.bn_eps, res.bn2_fuse_type, res.dtype_int);
+    /* optionally input-padded batchnorm after 3x3 conv */
+    res.bn2_fuse_type = 4;
+    res.bn2   = bnorm_setup_new(res.N, res.planes, downsampled_H, downsampled_W, res.pad_size, res.pad_size, 0, 0, res.bn_eps, res.bn2_fuse_type, res.dtype_int);
 
-  res.bn3_fuse_type = 5;
-  res.bn3   = bnorm_setup_new(res.N, res.planes * res.expansion, downsampled_H, downsampled_W, 0, 0, 0, 0, res.bn_eps, res.bn3_fuse_type, res.dtype_int);
+    res.bn3_fuse_type = 5;
+    res.bn3   = bnorm_setup_new(res.N, res.planes * res.expansion, downsampled_H, downsampled_W, 0, 0, 0, 0, res.bn_eps, res.bn3_fuse_type, res.dtype_int);
 #endif
 
-  if (res.has_residual_conv) {
-    res.conv4_kernel_size = 1;
-    res.conv4_stride      = res.stride;
-    res.conv4_padding     = 0;
-    res.conv4 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes * res.expansion, res.conv4_kernel_size, res.conv4_kernel_size,
-                               res.conv4_padding, res.conv4_padding, res.conv4_padding, res.conv4_padding, res.conv4_padding, res.conv4_padding,
-                               res.conv4_stride, res.dtype_int);
+    if (res.has_residual_conv) {
+      res.conv4_kernel_size = 1;
+      res.conv4_stride      = res.stride;
+      res.conv4_padding     = 0;
+      res.conv4_padding_in  = 0;
+      res.conv4_padding_out = 0;
+      res.conv4 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes * res.expansion, res.conv4_kernel_size, res.conv4_kernel_size,
+                                 res.conv4_padding, res.conv4_padding, res.conv4_padding_in, res.conv4_padding_in, res.conv4_padding_out, res.conv4_padding_out,
+                                 res.conv4_stride, res.dtype_int);
 #if 0
-    res.bn4_fuse_type = 0;
-    res.bn4   = bnorm_setup_new(res.N, res.planes * res.expansion, downsampled_H, downsampled_W, 0, 0, 0, 0, res.bn_eps, res.bn4_fuse_type, res.dtype_int);
+      res.bn4_fuse_type = 0;
+      res.bn4   = bnorm_setup_new(res.N, res.planes * res.expansion, downsampled_H, downsampled_W, 0, 0, 0, 0, res.bn_eps, res.bn4_fuse_type, res.dtype_int);
 #endif
-  }
+    }
+  } else { /* for if batchnorms are folded */
 
+    res.conv1_kernel_size = 1;
+    res.conv1_stride      = 1;
+    res.conv1_padding     = 1;
+    res.conv1_padding_in  = 0;
+    res.conv1_padding_out = 1;
+    res.conv1 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes, res.conv1_kernel_size, res.conv1_kernel_size,
+                               res.conv1_padding, res.conv1_padding, res.conv1_padding_in, res.conv1_padding_in, res.conv1_padding_out, res.conv1_padding_out,
+                               res.conv1_stride, res.dtype_int);
+
+    res.conv2_kernel_size = 3;
+    res.conv2_stride      = res.stride;
+    res.conv2_padding     = 1;
+    res.conv2_padding_in  = 1;
+    res.conv2_padding_out = 1;
+    if (res.padding_3x3_type == 0)
+      res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
+                                 res.conv2_padding, res.conv2_padding, 0, 0, 0, 0,
+                                 res.conv2_stride, res.dtype_int);
+    else /* physical padding */
+      res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
+                                 res.conv2_padding, res.conv2_padding, res.conv2_padding_in, res.conv2_padding_in, res.conv2_padding_out, res.conv2_padding_out,
+                                 res.conv2_stride, res.dtype_int);
+
+    libxsmm_blasint downsampled_H, downsampled_W;
+    if (res.stride != 1) {
+      downsampled_H = res.H / res.stride;
+      downsampled_W = res.W / res.stride;
+    } else {
+      downsampled_H = res.H;
+      downsampled_W = res.W;
+    }
+
+    res.conv3_kernel_size = 1;
+    res.conv3_stride      = 1;
+    res.conv3_padding     = 0;
+    res.conv3_padding_in  = 1;
+    res.conv3_padding_out = 0;
+    res.conv3 = conv_setup(res.N, res.planes, downsampled_H, downsampled_W, res.planes * res.expansion, res.conv3_kernel_size, res.conv3_kernel_size,
+                               res.conv3_padding, res.conv3_padding, res.conv3_padding_in, res.conv3_padding_in, res.conv3_padding_out, res.conv3_padding_out,
+                               res.conv3_stride, res.dtype_int);
+
+    if (res.has_residual_conv) {
+      res.conv4_kernel_size = 1;
+      res.conv4_stride      = res.stride;
+      res.conv4_padding     = 0;
+      res.conv4_padding_in  = 0;
+      res.conv4_padding_out = 0;
+      res.conv4 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes * res.expansion, res.conv4_kernel_size, res.conv4_kernel_size,
+                                 res.conv4_padding, res.conv4_padding, res.conv4_padding_in, res.conv4_padding_in, res.conv4_padding_out, res.conv4_padding_out,
+                                 res.conv4_stride, res.dtype_int);
+    }
+    //printf("Case res.batchnorms_are_folded = 1 has not been implemented in bottleneck_bn_setup()\n");
+    //exit(-1);
+  }
   return res;
 }
 
 bottleneck_bn_config bottleneck_bn_setup_fused_fwd_tuner(libxsmm_blasint N, libxsmm_blasint inplanes, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint planes, libxsmm_blasint stride,
                                                          float eps, float bn_momentum, libxsmm_blasint bn_track_running_stats_int, libxsmm_blasint expansion,
-                                                         libxsmm_blasint padding_3x3_type, libxsmm_blasint dtype_int,
+                                                         libxsmm_blasint padding_3x3_type, libxsmm_blasint batchnorms_are_folded, libxsmm_blasint dtype_int,
                                                          libxsmm_blasint bc_conv1, libxsmm_blasint bc_conv2, libxsmm_blasint bc_conv3, libxsmm_blasint bk_conv3,
-                                                         libxsmm_blasint avoid_fmas_in_rim_int  )
+                                                         libxsmm_blasint avoid_fmas_in_rim_int )
 {
   bottleneck_bn_config res = bottleneck_bn_setup(N, inplanes, H, W, planes, stride, eps, bn_momentum, bn_track_running_stats_int, expansion,
-                                                 padding_3x3_type, dtype_int);
+                                                 padding_3x3_type, batchnorms_are_folded, dtype_int);
 
   /* Manually overwriting fields which are needed for auto-tuning. This manipulation is only valid for the fused bottleneck */
 
@@ -780,5 +899,7 @@ REGISTER_SUBMODULE(_bottleneck, m) {
   m.def("bottleneck_bn_bwd_w_get_gflop_details", &bottleneck_bn_bwd_w_get_gflop_details, "Pcl BOTTLENECK BN bwd_w gflop counts for various components");
   m.def("bottleneck_pause_itt", &bottleneck_pause_itt, "Pcl BOTTLENECK pause itt");
   m.def("bottleneck_resume_itt", &bottleneck_resume_itt, "Pcl BOTTLENECK pause itt");
+  m.def("bottleneck_bn_inf_ext", &bottleneck_bn_inf_ext, "Pcl BOTTLENECK BN forward inference with tuning params");
+  m.def("bottleneck_bn_inf",     &bottleneck_bn_inf, "Pcl BOTTLENECK BN forward inference with default tuning params");
 }
 
