@@ -149,6 +149,24 @@ class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
       exit(1);
     }
   }
+
+  void config() {
+    func.config();
+  }
+
+  void release() {
+    func.release();
+  }
+
+ private:
+  tpp::BrgemmTPP<Tin, Tout> func;
+};
+
+template <typename Tin, typename Tout, int impl>
+class ScopedTPP<tpp::BrgemmOffsetTPP<Tin, Tout>, impl> {
+ public:
+  ScopedTPP() : func() {}
+  ScopedTPP(tpp::BrgemmOffsetTPP<Tin, Tout> func) : func(std::move(func)) {}
   void operator()(
       Tin* A,
       Tin* B,
@@ -177,8 +195,10 @@ class ScopedTPP<tpp::BrgemmTPP<Tin, Tout>, impl> {
   }
 
  private:
-  tpp::BrgemmTPP<Tin, Tout> func;
+  tpp::BrgemmOffsetTPP<Tin, Tout> func;
 };
+
+
 
 template <typename Tin, typename Tout, int impl>
 class ScopedTPP<tpp::BrgemmExtTPP<Tin, Tout>, impl> {

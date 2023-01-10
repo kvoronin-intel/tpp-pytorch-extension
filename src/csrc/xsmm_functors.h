@@ -1730,9 +1730,208 @@ class XformExtTPP {
 };
 
 template <typename Tin, typename Tout>
-class BrgemmTPP {
+class BrgemmBaseTPP {
  public:
-  BrgemmTPP() {}
+  BrgemmBaseTPP() {}
+  BrgemmBaseTPP(
+      long M,
+      long N,
+      long K,
+      bool reduce_offset,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint)
+      : M(M),
+        N(N),
+        K(K),
+        reduce_offset(reduce_offset),
+        str_a(str_a),
+        str_b(str_b),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        c_vnni(c_vnni),
+        unroll_hint(unroll_hint),
+        k_gemm_with_tc(this, 0),
+        k_cfg(this, 1),
+        k_rls(this, 2),
+        k_gemm_no_tc(this, 3) {}
+
+  void config() {
+    k_cfg(NULL);
+  }
+  void release() {
+    k_rls(NULL);
+  }
+
+  long flops() {
+    return 2L * M * N * K;
+  }
+
+  class BrgemmKernel : public BaseTPP {
+   public:
+    BrgemmKernel() {}
+    BrgemmKernel(BrgemmBaseTPP* p, int config) : p(p), config(config) {
+      auto dt_in = XsmmDtype<Tin>();
+      auto dt_out = XsmmDtype<Tout>();
+      long type = -1;
+      if (dt_in == LIBXSMM_DATATYPE_F32) {
+        TPP_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
+        type = 0;
+      } else if (dt_out == LIBXSMM_DATATYPE_F32) {
+        type = 1;
+      } else {
+        type = 2;
+      }
+      if (type != 0)
+        TPP_ASSERT(
+            p->a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
+      brgemm_type = type;
+      kernel.gemm = (libxsmm_gemmfunction)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_gemm_param* gemm_param) {
+      TPP_ASSERT(initialized, "Attempt to call uninitialized BrgemmKernel\n");
+      kernel.gemm(gemm_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[200];
+      snprintf(
+          hash,
+          200,
+          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_cv%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d",
+          p->M,
+          p->N,
+          p->K,
+          p->reduce_offset,
+          p->str_a,
+          p->str_b,
+          brgemm_type,
+          (int)p->beta,
+          p->a_trans,
+          p->c_vnni,
+          p->unroll_hint,
+          (long)p->lda,
+          (long)p->ldb,
+          (long)p->ldc,
+          config);
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      // float alpha = 1.0;
+      libxsmm_gemm_shape l_shape;
+      libxsmm_gemm_batch_reduce_config l_brconfig;
+      libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N');
+      libxsmm_bitfield l_prefetch_flags = 0;
+      libxsmm_xmmfunction l_test_jit = {NULL};
+
+      if (p->a_trans == 1)
+        l_flags |= LIBXSMM_GEMM_FLAG_TRANS_B;
+      if (brgemm_type != 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_A;
+      if (p->beta == 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+      if (p->c_vnni == 1)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_C;
+
+      // config = 0 - normal
+      // config = 1 - no tile release
+      // config = 2 - no tile config
+      // config = 3 - brgemm with no tile config or release
+      if (config == 1) {
+        l_flags |= LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG;
+      } else if (config == 2) {
+        l_flags |= LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG;
+      } else if (config == 3) {
+        l_flags |=
+            (LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG |
+             LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG);
+      }
+
+      /* setting update GEMM struct */
+      l_shape.m = p->N;
+      l_shape.n = p->M;
+      l_shape.k = p->K;
+      l_shape.lda = p->ldb;
+      l_shape.ldb = p->lda;
+      l_shape.ldc = p->ldc;
+      l_shape.a_in_type = XsmmDtype<Tin>();
+      l_shape.b_in_type = XsmmDtype<Tin>();
+      l_shape.out_type = XsmmDtype<Tout>();
+      l_shape.comp_type = LIBXSMM_DATATYPE_F32;
+
+      if (p->reduce_offset) {
+        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_OFFSET;
+        l_brconfig.br_stride_a_hint = 0;
+        l_brconfig.br_stride_b_hint = 0;
+      } else {
+        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_STRIDE;
+        l_brconfig.br_stride_a_hint = p->str_b * sizeof(Tin);
+        l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
+      }
+      l_brconfig.br_unroll_hint = p->unroll_hint;
+
+      l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
+          l_shape, l_flags, l_prefetch_flags, l_brconfig);
+
+      return (void*)l_test_jit.gemm;
+    }
+
+   private:
+    BrgemmBaseTPP* p;
+    int config;
+    libxsmm_xmmfunction kernel;
+    long brgemm_type = -1;
+  };
+
+ protected:
+  long M, N, K;
+ private:
+  bool reduce_offset;
+ protected:
+  long str_a, str_b;
+  libxsmm_blasint lda;
+  libxsmm_blasint ldb;
+  libxsmm_blasint ldc;
+  float beta;
+  int a_trans;
+  int c_vnni;
+ private:
+  long brgemm_type = -1;
+  int unroll_hint;
+ protected:
+  BrgemmKernel k_gemm_with_tc;
+  BrgemmKernel k_cfg;
+  BrgemmKernel k_rls;
+  BrgemmKernel k_gemm_no_tc;
+};
+
+template <typename Tin, typename Tout>
+class BrgemmTPP : public BrgemmBaseTPP<Tin,Tout> {
+ using BrgemmBaseTPP<Tin,Tout>::M;
+ using BrgemmBaseTPP<Tin,Tout>::N;
+ using BrgemmBaseTPP<Tin,Tout>::K;
+ using BrgemmBaseTPP<Tin,Tout>::str_a;
+ using BrgemmBaseTPP<Tin,Tout>::str_b;
+ using BrgemmBaseTPP<Tin,Tout>::lda;
+ using BrgemmBaseTPP<Tin,Tout>::ldb;
+ using BrgemmBaseTPP<Tin,Tout>::ldc;
+ using BrgemmBaseTPP<Tin,Tout>::beta;
+ using BrgemmBaseTPP<Tin,Tout>::a_trans;
+ using BrgemmBaseTPP<Tin,Tout>::k_gemm_with_tc;
+ using BrgemmBaseTPP<Tin,Tout>::k_gemm_no_tc;
+ public:
+  BrgemmTPP() : BrgemmBaseTPP<Tin,Tout>() {}
   BrgemmTPP(
       long M,
       long N,
@@ -1754,7 +1953,6 @@ class BrgemmTPP {
             beta,
             a_trans,
             unroll_hint) {}
-/*
   BrgemmTPP(
       long M,
       long N,
@@ -1773,127 +1971,13 @@ class BrgemmTPP {
             K,
             str_a,
             str_b,
-            lda,
-            ldb,
-            ldc,
-            beta,
-            a_trans,
-            false,
-            unroll_hint) {}
-*/
-  BrgemmTPP(
-      long M,
-      long N,
-      long K,
-      long str_a,
-      long str_b,
-      long lda,
-      long ldb,
-      long ldc,
-      float beta,
-      int a_trans,
-      int c_vnni,
-      int unroll_hint)
-      : M(M),
-        N(N),
-        K(K),
-        reduce_offset(false),
-        str_a(str_a),
-        str_b(str_b),
-        lda(lda),
-        ldb(ldb),
-        ldc(ldc),
-        beta(beta),
-        a_trans(a_trans),
-        c_vnni(c_vnni),
-        unroll_hint(unroll_hint),
-        streaming_stores(0),
-        k_gemm_with_tc(this, 0),
-        k_cfg(this, 1),
-        k_rls(this, 2),
-        k_gemm_no_tc(this, 3) {}
-  BrgemmTPP(
-      long M,
-      long N,
-      long K,
-      long lda,
-      long ldb,
-      long ldc,
-      float beta,
-      int a_trans,
-      int unroll_hint)
-      : BrgemmTPP(
-            M,
+            (a_trans == 0 ? K : M),
             N,
-            K,
-            lda,
-            ldb,
-            ldc,
+            N,
             beta,
             a_trans,
-            false,
+            0 /*c_vnni*/,
             unroll_hint) {}
-  BrgemmTPP(
-      long M,
-      long N,
-      long K,
-      long lda,
-      long ldb,
-      long ldc,
-      float beta,
-      int a_trans,
-      int c_vnni,
-      int unroll_hint)
-      : M(M),
-        N(N),
-        K(K),
-        reduce_offset(true),
-        str_a(0),
-        str_b(0),
-        lda(lda),
-        ldb(ldb),
-        ldc(ldc),
-        beta(beta),
-        a_trans(a_trans),
-        c_vnni(c_vnni),
-        unroll_hint(unroll_hint),
-        streaming_stores(0),
-        k_gemm_with_tc(this, 0),
-        k_cfg(this, 1),
-        k_rls(this, 2),
-        k_gemm_no_tc(this, 3) {}
-
-  BrgemmTPP(
-      long M,
-      long N,
-      long K,
-      long lda,
-      long ldb,
-      long ldc,
-      float beta,
-      int a_trans,
-      int c_vnni,
-      int unroll_hint,
-      int streaming_stores)
-      : M(M),
-        N(N),
-        K(K),
-        reduce_offset(true),
-        str_a(0),
-        str_b(0),
-        lda(lda),
-        ldb(ldb),
-        ldc(ldc),
-        beta(beta),
-        a_trans(a_trans),
-        c_vnni(c_vnni),
-        unroll_hint(unroll_hint),
-        streaming_stores(streaming_stores),
-        k_gemm_with_tc(this, 0),
-        k_cfg(this, 1),
-        k_rls(this, 2),
-        k_gemm_no_tc(this, 3) {}
-
   BrgemmTPP(
       long M,
       long N,
@@ -1906,9 +1990,11 @@ class BrgemmTPP {
       float beta,
       int a_trans,
       int c_vnni,
-      int unroll_hint,
-      int streaming_stores)
-      : M(M),
+      int unroll_hint)
+      : BrgemmBaseTPP<Tin,Tout>(M, N, K, false, str_a, str_b, lda, ldb, ldc, beta, a_trans, c_vnni, unroll_hint) {}
+/*
+      :
+        M(M),
         N(N),
         K(K),
         reduce_offset(false),
@@ -1921,18 +2007,13 @@ class BrgemmTPP {
         a_trans(a_trans),
         c_vnni(c_vnni),
         unroll_hint(unroll_hint),
-        streaming_stores(streaming_stores),
+        streaming_stores(0),
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
         k_rls(this, 2),
         k_gemm_no_tc(this, 3) {}
+*/
 
-  void config() {
-    k_cfg(NULL);
-  }
-  void release() {
-    k_rls(NULL);
-  }
   void operator()(
       Tin* A,
       Tin* B,
@@ -1951,29 +2032,7 @@ class BrgemmTPP {
       k_gemm_no_tc(&gemm_param);
     }
   }
-  void operator()(
-      Tin* A,
-      Tin* B,
-      Tout* C,
-      unsigned long long *A_offsets,
-      unsigned long long *B_offsets,
-      unsigned long long count,
-      bool no_tile_cfg = false) {
-    libxsmm_gemm_param gemm_param;
-    memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
-    gemm_param.op.tertiary = &count;
-    gemm_param.c.primary = (void*)C;
-    gemm_param.a.primary = (void*)B;
-    gemm_param.a.secondary = (void*)B_offsets;
-    gemm_param.b.primary = (void*)A;
-    gemm_param.b.secondary = (void*)A_offsets;
 
-    if (!no_tile_cfg) {
-      k_gemm_with_tc(&gemm_param);
-    } else {
-      k_gemm_no_tc(&gemm_param);
-    }
-  }
   void ref(
       Tin* A,
       Tin* B,
@@ -2017,6 +2076,98 @@ class BrgemmTPP {
       }
     }
   }
+};
+
+
+template <typename Tin, typename Tout>
+class BrgemmOffsetTPP : public BrgemmBaseTPP<Tin,Tout> {
+ using BrgemmBaseTPP<Tin,Tout>::M;
+ using BrgemmBaseTPP<Tin,Tout>::N;
+ using BrgemmBaseTPP<Tin,Tout>::K;
+ using BrgemmBaseTPP<Tin,Tout>::lda;
+ using BrgemmBaseTPP<Tin,Tout>::ldb;
+ using BrgemmBaseTPP<Tin,Tout>::ldc;
+ using BrgemmBaseTPP<Tin,Tout>::beta;
+ using BrgemmBaseTPP<Tin,Tout>::k_gemm_with_tc;
+ using BrgemmBaseTPP<Tin,Tout>::k_gemm_no_tc;
+ public:
+  BrgemmOffsetTPP() : BrgemmBaseTPP<Tin,Tout>() {}
+  BrgemmOffsetTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int unroll_hint)
+      : BrgemmOffsetTPP(
+            M,
+            N,
+            K,
+            lda,
+            ldb,
+            ldc,
+            beta,
+            a_trans,
+            false,
+            unroll_hint) {}
+  BrgemmOffsetTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint)
+      : BrgemmBaseTPP<Tin,Tout>(M, N, K, true, 0, 0, lda, ldb, ldc, beta, a_trans, c_vnni, unroll_hint) {}
+/*
+      : M(M),
+        N(N),
+        K(K),
+        reduce_offset(true),
+        str_a(0),
+        str_b(0),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        c_vnni(c_vnni),
+        unroll_hint(unroll_hint),
+        streaming_stores(0),
+        k_gemm_with_tc(this, 0),
+        k_cfg(this, 1),
+        k_rls(this, 2),
+        k_gemm_no_tc(this, 3) {}
+*/
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    libxsmm_gemm_param gemm_param;
+    memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
+    gemm_param.op.tertiary = &count;
+    gemm_param.c.primary = (void*)C;
+    gemm_param.a.primary = (void*)B;
+    gemm_param.a.secondary = (void*)B_offsets;
+    gemm_param.b.primary = (void*)A;
+    gemm_param.b.secondary = (void*)A_offsets;
+
+    if (!no_tile_cfg) {
+      k_gemm_with_tc(&gemm_param);
+    } else {
+      k_gemm_no_tc(&gemm_param);
+    }
+  }
 
   void ref(
       Tin* A,
@@ -2029,159 +2180,6 @@ class BrgemmTPP {
     printf("ref() not implemented for BrgemmTPP with offsets\n");
     exit(-1);
   }
-
-  long flops() {
-    return 2L * M * N * K;
-  }
-
-  class BrgemmKernel : public BaseTPP {
-   public:
-    BrgemmKernel() {}
-    BrgemmKernel(BrgemmTPP* p, int config) : p(p), config(config) {
-      auto dt_in = XsmmDtype<Tin>();
-      auto dt_out = XsmmDtype<Tout>();
-      long type = -1;
-      if (dt_in == LIBXSMM_DATATYPE_F32) {
-        TPP_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
-        type = 0;
-      } else if (dt_out == LIBXSMM_DATATYPE_F32) {
-        type = 1;
-      } else {
-        type = 2;
-      }
-      if (type != 0)
-        TPP_ASSERT(
-            p->a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
-      brgemm_type = type;
-      kernel.gemm = (libxsmm_gemmfunction)get_kernel();
-      initialized = true;
-    }
-    void operator()(libxsmm_gemm_param* gemm_param) {
-      if (!initialized)
-        return;
-      kernel.gemm(gemm_param);
-    }
-
-   protected:
-    std::string hash_str() override {
-      char hash[200];
-      snprintf(
-          hash,
-          200,
-          "brgemm_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_cv%d_uh%d_ss%d_ld_a%ld_b%ld_c%ld_cfg%d",
-          p->M,
-          p->N,
-          p->K,
-          p->reduce_offset,
-          p->str_a,
-          p->str_b,
-          brgemm_type,
-          (int)p->beta,
-          p->a_trans,
-          p->c_vnni,
-          p->unroll_hint,
-          p->streaming_stores,
-          (long)p->lda,
-          (long)p->ldb,
-          (long)p->ldc,
-          config);
-      return std::string(hash);
-    }
-    void* build_kernel() override {
-      // float alpha = 1.0;
-      libxsmm_gemm_shape l_shape;
-      libxsmm_gemm_batch_reduce_config l_brconfig;
-      libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N');
-      libxsmm_bitfield l_prefetch_flags = 0;
-      libxsmm_xmmfunction l_test_jit = {NULL};
-
-      if (p->a_trans == 1)
-        l_flags |= LIBXSMM_GEMM_FLAG_TRANS_B;
-      if (brgemm_type != 0)
-        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_A;
-      if (p->beta == 0)
-        l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
-      if (p->c_vnni == 1)
-        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_C;
-
-      if (p->streaming_stores) {
-        printf("using LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT hint \n");
-        l_flags |= LIBXSMM_GEMM_FLAG_ALIGN_C_NTS_HINT;
-      }
-
-      // config = 0 - normal
-      // config = 1 - no tile release
-      // config = 2 - no tile config
-      // config = 3 - brgemm with no tile config or release
-      if (config == 1) {
-        l_flags |= LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG;
-      } else if (config == 2) {
-        l_flags |= LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG;
-      } else if (config == 3) {
-        l_flags |=
-            (LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG |
-             LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG);
-      }
-
-      /* setting update GEMM struct */
-      l_shape.m = p->N;
-      l_shape.n = p->M;
-      l_shape.k = p->K;
-      l_shape.lda = p->ldb;
-      l_shape.ldb = p->lda;
-      l_shape.ldc = p->ldc;
-      l_shape.a_in_type = XsmmDtype<Tin>();
-      l_shape.b_in_type = XsmmDtype<Tin>();
-      l_shape.out_type = XsmmDtype<Tout>();
-      l_shape.comp_type = LIBXSMM_DATATYPE_F32;
-
-      if (p->reduce_offset) {
-        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_OFFSET;
-        l_brconfig.br_stride_a_hint = 0;
-        l_brconfig.br_stride_b_hint = 0;
-      } else {
-        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_STRIDE;
-        l_brconfig.br_stride_a_hint = p->str_b * sizeof(Tin);
-        l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
-      }
-      l_brconfig.br_unroll_hint = p->unroll_hint;
-
-      //printf("l_shape = %d %d %d %d %d %d l_brconfig = %d %d %d %d l_flags %d l_prefetch_flags %d \n", l_shape.m, l_shape.n, l_shape.k, l_shape.lda, l_shape.ldb, l_shape.ldc,
-      //                                                            l_brconfig.br_type, l_brconfig.br_stride_a_hint, l_brconfig.br_stride_b_hint, l_brconfig.br_unroll_hint,
-      //                                                            l_flags,
-      //                                                            l_prefetch_flags);
-
-
-      l_test_jit.gemm = libxsmm_dispatch_brgemm_v2(
-          l_shape, l_flags, l_prefetch_flags, l_brconfig);
-
-      return (void*)l_test_jit.gemm;
-    }
-
-   private:
-    BrgemmTPP* p;
-    int config;
-    libxsmm_xmmfunction kernel;
-    long brgemm_type = -1;
-  };
-
- private:
-  long M, N, K;
-  bool reduce_offset;
-  long str_a, str_b;
-  libxsmm_blasint lda;
-  libxsmm_blasint ldb;
-  libxsmm_blasint ldc;
-  float beta;
-  int a_trans;
-  int c_vnni;
-  long brgemm_type = -1;
-  int unroll_hint;
-  int streaming_stores;
-  BrgemmKernel k_gemm_with_tc;
-  BrgemmKernel k_cfg;
-  BrgemmKernel k_rls;
-  BrgemmKernel k_gemm_no_tc;
 };
 
 template <typename Tin, typename Tout = Tin>

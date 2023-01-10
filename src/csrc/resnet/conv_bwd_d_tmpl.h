@@ -147,6 +147,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>)         brgemm_tpp, brgemm2_tpp;
+  SCOPEITGEMM_DECL(BrgemmOffsetTPP<T, T>)   brgemm_offset_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>)               zero_initial_pixels_tpp, zero_all_pixels_tpp, zero_bc_tpp;
 
   //auto l_unary_shape = libxsmm_create_meltw_unary_shape(bc*ifwp, 1, bc*ifwp, bc*ifwp, dtype, dtype, dtype);
@@ -182,7 +183,7 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
     //auto l_prefetch_flags = LIBXSMM_GEMM_PREFETCH_NONE;
     //auto l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_OFFSET, 0, 0, 0 );
     //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bk, bc, bc*stride_w, 1.0, 0, Kb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    brgemm_offset_tpp  = SCOPEITGEMM((BrgemmOffsetTPP<T,T>(gemm_n, gemm_m, gemm_k, bk, bc, bc*stride_w, 1.0, 0, Kb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     A_offsets = std::make_unique<unsigned long long[]>(Kb * R * S);
     B_offsets = std::make_unique<unsigned long long[]>(Kb * R * S);
@@ -318,12 +319,20 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
                 }
               }
 
-              brgemm_tpp(gradout  [i_n][i_k][i_h][i_w],
-                         weight_tr[i_c][i_k][i_r][i_s][0],
-                         dinp_off [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                         B_offsets.get(), A_offsets.get(),
-                         Kb_step * r_step * s_step,
-                         true);
+              if (R == 1 && S == 1) {
+                brgemm_tpp(gradout  [i_n][i_k][i_h][i_w],
+                           weight_tr[i_c][i_k][i_r][i_s][0],
+                           dinp_off [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                           Kb_step * r_step * s_step,
+                           true);
+              } else {
+                brgemm_offset_tpp(gradout   [i_n][i_k][i_h][i_w],
+                                   weight_tr[i_c][i_k][i_r][i_s][0],
+                                   dinp_off [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                                   B_offsets.get(), A_offsets.get(),
+                                   Kb_step * r_step * s_step,
+                                   true);
+              }
             } else { /* for non_1x1_with_strides == 0 */
               if (i_k == 0 && i_r == 0 && i_s == 0) {
                 if (stride_h != 1) {
@@ -357,6 +366,9 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
             if (i_k == 0 && i_r == 0 && i_s == 0) {
               zero_initial_pixels_tpp(dinp_off[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s]);
             }
+
+            bool no_tile_cfg = false;
+
             if (i_r == 0 && i_h == 0) {
               /* Do no FLOPS  */
             } else if (i_r == R-1 && i_h == ofh-1 ) {
@@ -366,24 +378,46 @@ auto t_WT          = at::empty(weight_tr_size, torch::TensorOptions().dtype(t_W.
                           weight_tr[i_c][i_k][i_r][i_s][0],
                           dinp_off [i_n][i_c][i_h][i_w + 1],
                           Kb_step,
-                          true);
+                          no_tile_cfg);
             } else if ( i_w + w_step == ofw  && i_s == S-1) {
               brgemm2_tpp(gradout  [i_n][i_k][i_h + i_r][i_w + i_s],
                           weight_tr[i_c][i_k][i_r][i_s][0],
                           dinp_off [i_n][i_c][i_h][i_w],
                           Kb_step,
-                          true);
+                          no_tile_cfg);
             } else {
               brgemm_tpp(gradout  [i_n][i_k][i_h + i_r][i_w + i_s],
                          weight_tr[i_c][i_k][i_r][i_s][0],
                          dinp_off [i_n][i_c][i_h][i_w],
                          Kb_step,
-                         true);
+                         no_tile_cfg);
             }
           } /* else-if for avoid_rim_fmas */
         },
-        [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
-        [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
+        [&]() {
+          if (sizeof(T) == 2)
+            if (avoid_rim_fmas == 0)
+              if (non_1x1_with_strides == 0) {
+                if (R == 1 && S == 1)
+                  brgemm_tpp.config();
+                else
+                  brgemm_offset_tpp.config();
+              } else {
+                brgemm_tpp.config();
+              }
+        },
+        [&]() {
+          if (sizeof(T) == 2)
+            if (avoid_rim_fmas == 0)
+              if (non_1x1_with_strides == 0) {
+                if (R == 1 && S == 1)
+                  brgemm_tpp.release();
+                else
+                  brgemm_offset_tpp.release();
+              } else {
+                brgemm_tpp.release();
+              }
+        });
 
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_bwd_d scope */

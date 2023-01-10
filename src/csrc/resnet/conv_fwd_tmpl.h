@@ -167,6 +167,7 @@ printf("BS (vnni block size) = %d \n", BS);
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
   SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm_1less_tpp, brgemm_2less_tpp; // 2less is added to enable 7x7 filters
+  SCOPEITGEMM_DECL(BrgemmOffsetTPP<T, T>) brgemm_offset_tpp;
   //SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm_2less_tpp; // 2less is added to enable 7x7 filters
   //SCOPEITGEMM_DECL_REF(BrgemmTPP<T, T>) brgemm_1less_tpp; // 2less is added to enable 7x7 filters
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
@@ -207,7 +208,7 @@ printf("BS (vnni block size) = %d \n", BS);
     brgemm_2less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-2, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
   } else {
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+    brgemm_offset_tpp  = SCOPEITGEMM((BrgemmOffsetTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
     B_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -354,30 +355,54 @@ printf("BS (vnni block size) = %d \n", BS);
               }
             }
 
-            if (pack_input == 0) {
-              if (input_padding_copy)
-                brgemm_tpp(padded_inp[i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                           weight    [i_k][i_c][i_r][i_s][0],
-                           output_off[i_n][i_k][i_h]                 [i_w],
-                           B_offsets.get(), A_offsets.get(),
+            if (R == 1 && S == 1) {
+              if (pack_input == 0) {
+                if (input_padding_copy)
+                  brgemm_tpp(padded_inp [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                             weight     [i_k][i_c][i_r][i_s][0],
+                             output_off [i_n][i_k][i_h]                 [i_w],
+                             Cb_step * r_step * s_step,
+                             true);
+                else
+                  brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                             weight    [i_k][i_c][i_r][i_s][0],
+                             output_off[i_n][i_k][i_h]                 [i_w],
+                             Cb_step * r_step * s_step,
+                             true);
+              } else {
+                DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+                brgemm_tpp(packed_inp [i_n][i_c][i_h][i_w],
+                           weight     [i_k][i_c][i_r][i_s][0],
+                           output_off [i_n][i_k][i_h]                 [i_w],
                            Cb_step * r_step * s_step,
                            true);
-              else
-                brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                           weight    [i_k][i_c][i_r][i_s][0],
-                           output_off[i_n][i_k][i_h]                 [i_w],
-                           B_offsets.get(), A_offsets.get(),
-                           Cb_step * r_step * s_step,
-                           true);
-            } else {
-              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
-              brgemm_tpp(packed_inp[i_n][i_c][i_h][i_w],
-                         weight    [i_k][i_c][i_r][i_s][0],
-                         output_off[i_n][i_k][i_h]                 [i_w],
-                         B_offsets.get(), A_offsets.get(),
-                         Cb_step * r_step * s_step,
-                         true);
-            }
+              }
+            } else { /* for offset-based brgemm */
+              if (pack_input == 0) {
+                if (input_padding_copy)
+                  brgemm_offset_tpp(padded_inp [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                                     weight    [i_k][i_c][i_r][i_s][0],
+                                     output_off[i_n][i_k][i_h]                 [i_w],
+                                     B_offsets.get(), A_offsets.get(),
+                                     Cb_step * r_step * s_step,
+                                     true);
+                else
+                  brgemm_offset_tpp(inp        [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                                     weight    [i_k][i_c][i_r][i_s][0],
+                                     output_off[i_n][i_k][i_h]                 [i_w],
+                                     B_offsets.get(), A_offsets.get(),
+                                     Cb_step * r_step * s_step,
+                                     true);
+              } else {
+                DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+                brgemm_offset_tpp(packed_inp [i_n][i_c][i_h][i_w],
+                                   weight    [i_k][i_c][i_r][i_s][0],
+                                   output_off[i_n][i_k][i_h]                 [i_w],
+                                   B_offsets.get(), A_offsets.get(),
+                                   Cb_step * r_step * s_step,
+                                   true);
+              }
+            } /* else-if over stride/offset based brgemm */
           } else { /* else for if cfg.avoid_fmas_in_rim == 0 */
             if (Cb_step != Cb || r_step != R || s_step != S) {
               if (i_c == 0 && i_r == 0 && i_s == 0) {
@@ -456,8 +481,22 @@ printf("BS (vnni block size) = %d \n", BS);
             } /* if-else if for the filter size (7x7 and 3x3) */
           } /* for if-else cfg.avoid_fmas_in_rim == 0 */
         },
-        [&]() {if (sizeof(T) == 2) if (cfg.avoid_fmas_in_rim == 0 && sizeof(T) == 2) brgemm_tpp.config();},
-        [&]() {if (sizeof(T) == 2) if (cfg.avoid_fmas_in_rim == 0 && sizeof(T) == 2) brgemm_tpp.release();});
+        [&]() {
+          if (sizeof(T) == 2)
+            if (cfg.avoid_fmas_in_rim == 0)
+              if (R == 1 && S == 1)
+                brgemm_tpp.config();
+              else
+                brgemm_offset_tpp.config();
+        },
+        [&]() {
+          if (sizeof(T) == 2)
+            if (cfg.avoid_fmas_in_rim == 0)
+              if (R == 1 && S == 1)
+                brgemm_tpp.release();
+              else
+                brgemm_offset_tpp.release();
+        });
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_fwd_scale scope */
 

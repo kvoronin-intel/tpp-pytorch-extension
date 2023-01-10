@@ -382,7 +382,8 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
 
   std::unique_ptr<unsigned long long[]> A_offsets, B_offsets;
 
-  SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm2_tpp;
+  SCOPEITGEMM_DECL(BrgemmTPP<T, T>)       brgemm_tpp, brgemm2_tpp;
+  SCOPEITGEMM_DECL(BrgemmOffsetTPP<T, T>) brgemm_offset_tpp;
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
 
@@ -406,24 +407,11 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   }
 #endif
 
-  int use_streaming_stores = 0;
-
-/*
-  if (sizeof(T) == 4) {
-    if (ofw >= 56 && Kb * bk == 256 && R == 1 && S == 1)
-      use_streaming_stores = 1;
-    if (ofw >= 56 && Cb * bk == 64 && Kb * bk == 64 && R == 1 && S == 1)
-      use_streaming_stores = 1;
-    if (ofw >= 56 && Cb * bk == 256 && Kb * bk == 64 && R == 1 && S == 1)
-      use_streaming_stores = 1;
-  }
-*/
-
   if ((R == 1 && S == 1) || (avoid_fmas_in_rim == 1)) {
     //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, 1.0, 0, 0)));//, BRGEMM);
     if (pack_input == 0) {
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
-      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores)));//, BRGEMM);
+      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
       //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     } else {
       if (avoid_fmas_in_rim) {
@@ -442,16 +430,16 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
       //l_brconfig = libxsmm_create_gemm_batch_reduce_config( LIBXSMM_GEMM_BATCH_REDUCE_STRIDE, R*S*bc*bk*sizeof(DType), bc*ofh*ofw*sizeof(DType), Cb_step );
       //brgemm_kernel.gemm      = libxsmm_dispatch_brgemm_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig );
       //printf("brgemm_tpp\n");
-      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores)));//, BRGEMM);
+      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
       //brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     }
 
     //printf("brgemm2_tpp\n");
-    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores)));//, BRGEMM);
+    brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     //brgemm2_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
   } else {
-    brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/, use_streaming_stores )));//, BRGEMM);
+    brgemm_offset_tpp  = SCOPEITGEMM((BrgemmOffsetTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
     //brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, /* no strides due to reduce_offset */ bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/ )));//, BRGEMM);
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -490,7 +478,6 @@ std::cout << "Setting up the conv in conv/bn fusion" << std::endl;
   std::cout << "avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "pack_input = " << pack_input << std::endl;
   std::cout << "shuffle_accesses = " << shuffle_accesses << std::endl;
-  std::cout << "use_streaming_stores = " << use_streaming_stores << std::endl;
 #endif
 
   auto conv_loop = ThreadedLoop<7>({
@@ -691,25 +678,45 @@ for (int i = 0; i < NTIMES_CONV; i++) {
               }
             }
 
-            if (pack_input == 0) {
-              //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
-              brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
-                         weight    [i_k][i_c][i_r][i_s][0],
-                         output_off[i_n][i_k][i_h]                 [i_w],
-                         B_offsets.get(), A_offsets.get(),
-                         Cb_step * r_step * s_step,
-                         true);
+            if (R == 1 && S == 1) {
+              if (pack_input == 0) {
+                //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
+                brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                           weight    [i_k][i_c][i_r][i_s][0],
+                           output_off[i_n][i_k][i_h]                 [i_w],
+                           Cb_step * r_step * s_step,
+                           true);
+              } else {
+                //DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+                DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+                //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), packed_input_libxsmm, i_n, i_c, i_h, i_w, 0, Cb, ofh, ofw, bc);
+                brgemm_tpp(packed_inp[i_n][i_c][i_h][i_w],
+                           weight    [i_k][i_c][i_r][i_s][0],
+                           output_off[i_n][i_k][i_h]                 [i_w],
+                           Cb_step * r_step * s_step,
+                           true);
+              }
             } else {
-              //DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
-              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
-              //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), packed_input_libxsmm, i_n, i_c, i_h, i_w, 0, Cb, ofh, ofw, bc);
-              brgemm_tpp(packed_inp[i_n][i_c][i_h][i_w],
-                         weight    [i_k][i_c][i_r][i_s][0],
-                         output_off[i_n][i_k][i_h]                 [i_w],
-                         B_offsets.get(), A_offsets.get(),
-                         Cb_step * r_step * s_step,
-                         true);
-            }
+              if (pack_input == 0) {
+                //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), input_libxsmm, i_n, i_c, i_h * stride_h + i_r, i_w * stride_w + i_s, 0, Cb, ifhp, ifwp, bc);
+                brgemm_offset_tpp(inp        [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
+                                   weight    [i_k][i_c][i_r][i_s][0],
+                                   output_off[i_n][i_k][i_h]                 [i_w],
+                                   B_offsets.get(), A_offsets.get(),
+                                   Cb_step * r_step * s_step,
+                                   true);
+              } else {
+                //DECL_VLA_PTR_PT_EXT_CAST(T, unsigned char,    scratch,   [Kb][Cb][R][S][bc][bk], t_scratch_experimental, 0);
+                DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+                //gemm_param.b.primary = LIBXSMM_ACCESS_RAW(5, sizeof(DType), packed_input_libxsmm, i_n, i_c, i_h, i_w, 0, Cb, ofh, ofw, bc);
+                brgemm_offset_tpp(packed_inp [i_n][i_c][i_h][i_w],
+                                   weight    [i_k][i_c][i_r][i_s][0],
+                                   output_off[i_n][i_k][i_h]                 [i_w],
+                                   B_offsets.get(), A_offsets.get(),
+                                   Cb_step * r_step * s_step,
+                                   true);
+              }
+            } /* if-else over stride/offset brgemm */
 
 #ifndef NO_BATCHNORM
             /* Computing local stats */
@@ -745,6 +752,8 @@ for (int i = 0; i < NTIMES_CONV; i++) {
               }
             }
 
+            bool no_tile_cfg = false;
+
             if (i_r == 0 && i_h == 0) {
               /* Do no FLOPS  */
             } else if (i_r == R - r_step && i_h == ofh - h_step ) {
@@ -754,19 +763,19 @@ for (int i = 0; i < NTIMES_CONV; i++) {
                           weight    [i_k][i_c][i_r][i_s][0],
                           output_off[i_n][i_k][i_h]                 [i_w + 1],
                           Cb_step,
-                          true);
+                          no_tile_cfg);
             } else if ( i_w + w_step == ofw  && i_s == S - s_step) {
               brgemm2_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
                           weight    [i_k][i_c][i_r][i_s][0],
                           output_off[i_n][i_k][i_h]                 [i_w],
                           Cb_step,
-                          true);
+                          no_tile_cfg);
             } else {
               brgemm_tpp(inp       [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s],
                          weight    [i_k][i_c][i_r][i_s][0],
                          output_off[i_n][i_k][i_h]                 [i_w],
                          Cb_step,
-                         true);
+                         no_tile_cfg);
             }
 
 #ifndef NO_BATCHNORM
@@ -790,8 +799,22 @@ for (int i = 0; i < NTIMES_CONV; i++) {
 #endif /* #ifndef NO_BATCHNORM */
           } /* for if-else avoid_fmas_in_rim == 0 */
         },
-        [&]() {if (sizeof(T) == 2) brgemm_tpp.config();},
-        [&]() {if (sizeof(T) == 2) brgemm_tpp.release();});
+        [&]() {
+          if (sizeof(T) == 2)
+            if (avoid_fmas_in_rim == 0)
+              if (R == 1 && S == 1)
+                brgemm_tpp.config();
+              else
+                brgemm_offset_tpp.config();
+        },
+        [&]() {
+          if (sizeof(T) == 2)
+            if (avoid_fmas_in_rim == 0)
+              if (R == 1 && S == 1)
+                brgemm_tpp.release();
+              else
+                brgemm_offset_tpp.release();
+        });
     } /* end of the fusedbtlnk_conv_fwd scope with recorded parallel for */
   } /* end of the dummy scope */
 } /* end of the NTIMES_CONV loop */
