@@ -46,6 +46,8 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
 
 parser.add_argument('--use-hardcoded-tunings', action="store_true", default=False, dest='use_hardcoded_tunings')
 
+parser.add_argument("--with-bias", action="store_true", default=False, help='if true, enables bias in the conv', dest='with_bias')
+
 #import pdb
 
 global_counter = 0
@@ -65,6 +67,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     global global_counter
 
     channel_block_sizes = [bc, bk]
+
+    if has_bias and with_bwd and test_module == 'ext_tpp':
+        print("Error: TPP PT extension module for conv supports bias only for fwd, but with_bwd = ", with_bwd)
+        exit()
 
     if tuning_params is not None and test_module != 'ext_tpp':
         print("Custom tuning params can only be used for ext_tpp test_module")
@@ -327,7 +333,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
     # Very loose tolerances to check only obvious errors
     if opt_dtype == torch.bfloat16:
-        rtol=1.5e-1
+        rtol=1.2e-1
         atol=1e+0
     else:
         rtol=1.0e-3
@@ -666,7 +672,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
         #print("Error: perf_bwd_w = True is not supported")
         #exit()
-
+    exit()
     return
 
 def main():
@@ -693,23 +699,21 @@ def main():
         padding = R // 2
         groups=1
         dilation=1
-        has_bias = False
         padding_mode='zeros'
-        run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+        run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, padding_mode, opt_dtype, ref_dtype,
                       args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
                       args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings)
     else:
         with open(args.test_data_file) as f:
             contents = f.readlines()
             for line in contents:
-                [N, H, W, inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
+                [N, H, W, inc, outc, R, stride, padding, dilation, groups, padding_mode] = list(line.split(" "))
                 #[inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode] = list(line.split(" "))
                 string_list = list(line.strip().split(" "))
-                has_bias=False if has_bias.strip() == 'False' else True
                 padding_mode=padding_mode.strip()
                 integer_map = map(int, string_list[:10])
                 [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
-                run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+                run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, padding_mode, opt_dtype, ref_dtype,
                               args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
                               args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings)
     exit()

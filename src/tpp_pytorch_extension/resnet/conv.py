@@ -175,7 +175,11 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
         #print("dbg: in TPPConv2dTPP constructor self.low_prec_vnni_blocking = ", self.low_prec_vnni_blocking)
 
         if self.use_bf16 and self.C_pad%self.low_prec_vnni_blocking != 0:
-          self.C_pad = self.C_pad + (self.low_prec_vnni_blocking - self.C_pad)
+            self.C_pad = self.C_pad + (self.low_prec_vnni_blocking - self.C_pad)
+
+        if padding_mode != 'zeros':
+            print("Error: the dummy argument padding_mode must be `zeros` in TPPConv2dTPP")
+            exit()
 
         #super(XsmmConv2dTPP, self).__init__()
         #nn_Conv2d.__init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
