@@ -3,6 +3,8 @@
 export OMP_NUM_THREADS=56
 
 echo "Warning: The tuning paramaters used for tests below can be out-dated. To update them, one needs to dump the strings from one resnet training iteration (with VERBOSE)"
+echo "Outdated tuning parameters/strings! Exiting"
+exit
 
 niters=1000
 niters_warmup=100
