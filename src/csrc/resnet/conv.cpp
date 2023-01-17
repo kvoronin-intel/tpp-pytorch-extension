@@ -346,7 +346,7 @@ std::vector<at::Tensor> conv_bwd(
 
 conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
                               libxsmm_blasint pad_h, libxsmm_blasint pad_w, libxsmm_blasint pad_h_in, libxsmm_blasint pad_w_in, libxsmm_blasint pad_h_out, libxsmm_blasint pad_w_out,
-                              libxsmm_blasint stride, int dtype_int )
+                              libxsmm_blasint stride, int fuse_type_int, int dtype_int )
 {
   conv_config res;
 
@@ -365,7 +365,15 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
                                                                                           N, H, W, C, K, R, S,
                                                                                           pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, bc, bk); */
 
-  libxsmm_dnn_conv_eltwise_fuse fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_NONE; /* FIXME: to be changed later? */
+  libxsmm_dnn_conv_eltwise_fuse fuse_type;
+  if (fuse_type_int == 0)
+    fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_NONE;
+  else if (fuse_type_int == 1)
+    fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS;
+  else {
+    printf("Error: unsupported fuse_type_int = %d passed in conv_setup()\n", fuse_type_int);
+    exit(-1);
+  }
 
   libxsmm_datatype cnn_dtype_in  = (dtype_int == 0 ? LIBXSMM_DATATYPE_F32 : LIBXSMM_DATATYPE_BF16);
   libxsmm_datatype cnn_dtype_out = cnn_dtype_in;
@@ -398,10 +406,10 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
 
 conv_config conv_setup_preset(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
                               libxsmm_blasint pad_h, libxsmm_blasint pad_w, libxsmm_blasint pad_h_in, libxsmm_blasint pad_w_in, libxsmm_blasint pad_h_out, libxsmm_blasint pad_w_out,
-                              libxsmm_blasint stride, int dtype_int,
+                              libxsmm_blasint stride, int fuse_type_int, int dtype_int,
                               libxsmm_blasint bc, libxsmm_blasint bk) //, libxsmm_blasint avoid_fmas_in_rim )
 {
-  conv_config res = conv_setup(N, C, H, W, K, R, S, pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, dtype_int );
+  conv_config res = conv_setup(N, C, H, W, K, R, S, pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out, stride, fuse_type_int, dtype_int );
 
   res.bc = bc;
   res.bk = bk;

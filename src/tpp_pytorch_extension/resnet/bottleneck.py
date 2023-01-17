@@ -1245,6 +1245,11 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                     #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
                     self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
 
+        print("dbg WARNING: using hardcoded tunings for training fwd as inf for debugging purposes")
+        #exit()
+        self.tuning_params_inf  = self.tuning_params_fwd
+        self.tuning_strings_inf = self.tuning_strings_fwd
+
     def enable_inference_mode(self):
         self.inference = True
 

@@ -164,11 +164,11 @@ typedef struct conv_config {
 
 extern conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
                               libxsmm_blasint pad_h, libxsmm_blasint pad_w, libxsmm_blasint pad_h_in, libxsmm_blasint pad_w_in, libxsmm_blasint pad_h_out, libxsmm_blasint pad_w_out,
-                              libxsmm_blasint stride, int dtype_int );
+                              libxsmm_blasint stride, int fuse_type_int, int dtype_int );
 
 extern conv_config conv_setup_preset(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, libxsmm_blasint W, libxsmm_blasint K, libxsmm_blasint R, libxsmm_blasint S,
                                      libxsmm_blasint pad_h, libxsmm_blasint pad_w, libxsmm_blasint pad_h_in, libxsmm_blasint pad_w_in, libxsmm_blasint pad_h_out, libxsmm_blasint pad_w_out,
                                      libxsmm_blasint stride, int dtype_int,
-                                     libxsmm_blasint bc, libxsmm_blasint bk );
+                                     libxsmm_blasint bc, int fuse_type_int, libxsmm_blasint bk );
 
 #endif /* CONV_SETUP_EXTERNAL_H */

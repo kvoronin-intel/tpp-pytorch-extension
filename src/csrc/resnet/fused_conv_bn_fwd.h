@@ -23,7 +23,7 @@ t_start = getTime();
 
 //#define NO_BATCHNORM
 
-//#define VERBOSE
+#define VERBOSE
 
 
 #ifdef BATCHNORM_SCALE_REVERSE_ORDER

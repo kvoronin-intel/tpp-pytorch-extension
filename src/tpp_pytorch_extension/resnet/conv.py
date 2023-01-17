@@ -343,12 +343,12 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
             if self.preset_blocksizes:
                 self.config = conv_cpp.conv_setup_preset(self.N, self.C_pad, self.H, self.W, self.K, self.R, self.S,
                                                          self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
-                                                         self.stride, 0 if self.dtype == torch.float else 1,
+                                                         self.stride, 1 if self.bias is not None else 0, 0 if self.dtype == torch.float else 1,
                                                          self.bc, self.bk) #, self.avoid_fmas_in_rim)
             else:
                 self.config = conv_cpp.conv_setup(self.N, self.C_pad, self.H, self.W, self.K, self.R, self.S,
                                                   self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
-                                                  self.stride, 0 if self.dtype == torch.float else 1)
+                                                  self.stride, 1 if self.bias is not None else 0, 0 if self.dtype == torch.float else 1)
 
         blocked_input = self.get_blocked_tensor(
             input,

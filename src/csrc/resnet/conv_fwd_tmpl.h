@@ -263,6 +263,7 @@ printf("BS (vnni block size) = %d \n", BS);
   std::cout << "unused but internal avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "logical_padding = " << logical_padding << std::endl;
   std::cout << "input_padding_copy = " << input_padding_copy << std::endl;
+  std::cout << "zero_output_rim = " << cfg.zero_fwd_output_rim << std::endl;
 #endif
 
   /* FIXME: Fix this! */
@@ -279,14 +280,15 @@ printf("BS (vnni block size) = %d \n", BS);
 #endif
 
 #ifdef VERBOSE
-  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d  %d %d   %d %d %d %d %d %d  1000 %d %d  %d %d %d %d\n",
+  printf("parlooper fwd string: OMP_NUM_THREADS=%d USE_BF16=%d ./run_conv_fwd.sh %s   %d %d %d %d %d %d %d   %d %d %d %d  %d %d   %d %d %d %d %d %d  1000 %d %d  %d %d %d %d  %d %d\n",
           (int)N, (sizeof(T) == 2 ? 1 : 0), loop_specs_str,
           (int)N, ifh, ifw, cfg.C, cfg.K, R, S,
           stride_h, stride_w, pad_h, pad_w,
           bc, bk,
           h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
           logical_padding, input_padding_copy,
-          pad_h_in, pad_w_in, pad_h_out, pad_w_out);
+          pad_h_in, pad_w_in, pad_h_out, pad_w_out,
+          cfg.zero_fwd_output_rim, (cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS ? 1 : 0));
 #endif
 
   return t_O;
