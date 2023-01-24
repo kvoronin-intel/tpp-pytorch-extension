@@ -57,9 +57,15 @@ export OMP_NUM_THREADS=56
 # TPP PT extension modules
 echo "TPP PT extension modules"
 
+#gdb --args python -u test_conv_ext.py --test-module ext_tpp --use-bf16-opt --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bias --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data
+#python -u test_conv_ext.py --test-module ext_tpp --use-bf16-opt --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bias --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data
+#exit
+
 test_error=$(func.run_test 16 "btlnk_bf16" "python -u test_bottleneck_ext.py --test-module ext_bottleneck --use-physical-3x3-padding --use-hardcoded-tunings --use-bf16-opt --channel-block-size 32 --use-bf16-opt --test-data-file resnet50_bottleneck_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
 test_error=$(func.run_test 52 "conv_bf16" "python -u test_conv_ext.py --test-module ext_tpp --use-bf16-opt --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
+echo -e "test_error = $test_error\n"
+test_error=$(func.run_test 52 "conv_bias_bf16" "python -u test_conv_ext.py --test-module ext_tpp --use-bf16-opt --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bias --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
 echo -e "test_error = $test_error\n"
 test_error=$(func.run_test 53 "bn_bf16" "python -u test_bn_ext.py --test-module ext_tpp --bc 32 --use-bf16-opt --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
@@ -68,8 +74,12 @@ test_error=$(func.run_test 16 "btlnk_fp32" "python -u test_bottleneck_ext.py --t
 echo -e "test_error = $test_error\n"
 test_error=$(func.run_test 52 "conv_fp32" "python -u test_conv_ext.py --test-module ext_tpp --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bwd --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
 echo -e "test_error = $test_error\n"
+test_error=$(func.run_test 52 "conv_bias_fp32" "python -u test_conv_ext.py --test-module ext_tpp --bc 32 --bk 32 --use-hardcoded-tunings --niters 1  --niters-warmup 0  --with-bias --test-data-file resnet50_conv_test_data_for_bottleneck_56thr.data")
+echo -e "test_error = $test_error\n"
 test_error=$(func.run_test 53 "bn_fp32" "python -u test_bn_ext.py --test-module ext_tpp --bc 32 --niters 1  --niters-warmup 0  --test-data-file resnet50_bn_test_data_56thr.data")
 echo -e "test_error = $test_error\n"
+
+exit
 
 echo "TPP CNN modules"
 

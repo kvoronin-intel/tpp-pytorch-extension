@@ -32,11 +32,19 @@ class TPPConvTPP(Function):
                 tuning_timings_fwd = np.zeros(16, dtype=np.float32)
             output = conv_cpp.conv_fwd_ext(param_struct, inputs, tuning_params_fwd, tuning_string_fwd, tuning_timings_fwd)
 
+        #print("dbg: in TPPConvTPP param_struct.fuse_type = ", param_struct.fuse_type)
+
         #output = conv_cpp.conv_fwd(param_struct, inputs)
+        #if param_struct.fuse_type == 1 or param_struct.fuse_type == 3: # Cannot easily extract fuse_type from conv config because it is an enum
+        if len(inputs) == 3:
+            (input, weight, bias) = inputs
+            #ctx.save_for_backward(input, weight, bias)
+        else:
+            (input, weight) = inputs
+            #ctx.save_for_backward(input, weight)
 
-        ( input, weight) = inputs
+        ctx.save_for_backward(*inputs)
 
-        ctx.save_for_backward(input, weight)
         ctx.param_struct = param_struct
 
         ctx.tuning_params_d    = tuning_params_d
@@ -71,7 +79,14 @@ class TPPConvTPP(Function):
 
         inputs += ctx.saved_tensors
 
-        input, weight = ctx.saved_tensors
+        #if param_struct.fuse_type == 1 or param_struct.fuse_type == 3: # Cannot easily extract fuse_type from conv config because it is an enum
+        if len(ctx.saved_tensors) == 3:
+            input, weight, bias = ctx.saved_tensors
+            print("Error: fuse_type = 1 or 3 (bias fusion) is not supported in the backward() of TPPConvTPP")
+            exit()
+        else:
+            input, weight = ctx.saved_tensors
+
         grad_output, = grad_outs
         param_struct = ctx.param_struct
 
@@ -354,6 +369,9 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
                                                   self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
                                                   self.stride, 1 if self.bias is not None else 0, 0 if self.dtype == torch.float else 1)
 
+        if self.use_bf16 and self.bias is not None and self.bias.dtype != torch.bfloat16:
+            self.bias.data = self.bias.data.to(torch.bfloat16)
+
         blocked_input = self.get_blocked_tensor(
             input,
             self.blocked_input_signature,
@@ -362,7 +380,10 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
 
         #output_size = pcl_cgbp_cpp.get_conv_tensor_layout(self.xsmm_handle.handle, "output");
 
-        inputs = [blocked_input, self.weight]
+        if self.bias is not None:
+            inputs = [blocked_input, self.weight, self.bias]
+        else:
+            inputs = [blocked_input, self.weight]
 
         output = TPPConvTPP.apply(self.config, l_tuning_params_fwd, l_tuning_string_fwd, tuning_timings_fwd,
                                                  l_tuning_params_d, l_tuning_string_d, tuning_timings_d,

@@ -1808,7 +1808,8 @@ class BrgemmBaseTPP {
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
         k_rls(this, 2),
-        k_gemm_no_tc(this, 3) {}
+        k_gemm_no_tc(this, 3),
+        initialized(true) {}
 
   BrgemmBaseTPP(
       long M,
@@ -1853,7 +1854,8 @@ class BrgemmBaseTPP {
         k_ext_gemm_with_tc(this, 0),
         k_ext_cfg(this, 1),
         k_ext_rls(this, 2),
-        k_ext_gemm_no_tc(this, 3) {}
+        k_ext_gemm_no_tc(this, 3),
+        initialized(true) {}
 
   void config() {
     if (!is_gemm_ext)
@@ -2040,22 +2042,22 @@ class BrgemmBaseTPP {
           (long)p->ldb,
           (long)p->ldc,
           config,
-          p->argop_a->get_ldo(),
-          p->argop_a->get_type(),
-          p->argop_a->get_flags(),
+          (p->argop_a != NULL ? p->argop_a->get_ldo() : 0),
+          (p->argop_a != NULL ? p->argop_a->get_type() : 0),
+          (p->argop_a != NULL ? p->argop_a->get_flags() : 0),
           0 /* argop_a: store_ap */,
-          p->argop_b->get_ldo(),
-          p->argop_b->get_type(),
-          p->argop_b->get_flags(),
+          (p->argop_b != NULL ? p->argop_b->get_ldo() : 0),
+          (p->argop_b != NULL ? p->argop_b->get_type() : 0),
+          (p->argop_b != NULL ? p->argop_b->get_flags() : 0),
           0 /* argop_b: store_bp */,
-          p->argop_c->get_ldo(),
-          p->argop_c->get_type(),
-          p->argop_c->get_flags(),
+          (p->argop_c != NULL ? p->argop_c->get_ldo() : 0),
+          (p->argop_c != NULL ? p->argop_c->get_type() : 0),
+          (p->argop_c != NULL ? p->argop_c->get_flags() : 0),
           0 /* argop_c: store_cp */,
-          p->postop->get_ldo(),
-          p->postop->get_dt_in1(), /* assumes that dt_in1 == dt_in0 */
-          p->postop->get_type(),
-          p->postop->get_flags());
+          (p->postop != NULL ? p->postop->get_ldo() : 0),
+          (p->postop != NULL ? p->postop->get_dt_in1() : 0), /* assumes that dt_in1 == dt_in0 */
+          (p->postop != NULL ? p->postop->get_type() : 0),
+          (p->postop != NULL ? p->postop->get_flags() : 0));
       return std::string(hash);
     }
     void* build_kernel() override {
@@ -2197,6 +2199,7 @@ class BrgemmBaseTPP {
   BrgemmExtKernel k_ext_cfg;
   BrgemmExtKernel k_ext_rls;
   BrgemmExtKernel k_ext_gemm_no_tc;
+  bool initialized = false;
 };
 
 
@@ -2214,6 +2217,7 @@ class BrgemmTPP : public BrgemmBaseTPP<Tin,Tout> {
  using BrgemmBaseTPP<Tin,Tout>::a_trans;
  using BrgemmBaseTPP<Tin,Tout>::k_gemm_with_tc;
  using BrgemmBaseTPP<Tin,Tout>::k_gemm_no_tc;
+ using BrgemmBaseTPP<Tin,Tout>::initialized;
  public:
   BrgemmTPP() : BrgemmBaseTPP<Tin,Tout>() {}
   BrgemmTPP(
@@ -2283,6 +2287,8 @@ class BrgemmTPP : public BrgemmBaseTPP<Tin,Tout> {
       Tout* C,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    TPP_ASSERT(initialized, "Error: not initialized");
+
     libxsmm_gemm_param gemm_param;
     memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
     gemm_param.op.tertiary = &count;
@@ -2356,6 +2362,7 @@ class BrgemmExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
  using BrgemmBaseTPP<Tin,Tout>::has_postop;
  using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_with_tc;
  using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_no_tc;
+ using BrgemmBaseTPP<Tin,Tout>::initialized;
  public:
   BrgemmExtConvTPP() : BrgemmBaseTPP<Tin,Tout>() {}
   BrgemmExtConvTPP(
@@ -2472,6 +2479,7 @@ class BrgemmExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
       Tout* C,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    TPP_ASSERT(initialized, "Error: not initialized");
     TPP_ASSERT(!has_postop, "Error: calling a brgemm with a postop but without an extra input argument for it\n");
 
     libxsmm_gemm_ext_param gemm_ext_param;
@@ -2494,6 +2502,7 @@ class BrgemmExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
       Tout* D,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    TPP_ASSERT(initialized, "Error: not initialized");
     TPP_ASSERT(has_postop, "Error: calling a brgemm without postop with an extra input argument\n");
 
     libxsmm_gemm_ext_param gemm_ext_param;
@@ -2541,6 +2550,7 @@ class BrgemmOffsetTPP : public BrgemmBaseTPP<Tin,Tout> {
  using BrgemmBaseTPP<Tin,Tout>::beta;
  using BrgemmBaseTPP<Tin,Tout>::k_gemm_with_tc;
  using BrgemmBaseTPP<Tin,Tout>::k_gemm_no_tc;
+ using BrgemmBaseTPP<Tin,Tout>::initialized;
  public:
   BrgemmOffsetTPP() : BrgemmBaseTPP<Tin,Tout>() {}
   BrgemmOffsetTPP(
@@ -2584,6 +2594,8 @@ class BrgemmOffsetTPP : public BrgemmBaseTPP<Tin,Tout> {
       unsigned long long *B_offsets,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    TPP_ASSERT(initialized, "Error: not initialized");
+
     libxsmm_gemm_param gemm_param;
     memset(&gemm_param, 0, sizeof(libxsmm_gemm_param));
     gemm_param.op.tertiary = &count;
@@ -2627,6 +2639,7 @@ class BrgemmOffsetExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
  using BrgemmBaseTPP<Tin,Tout>::has_postop;
  using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_with_tc;
  using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_no_tc;
+ using BrgemmBaseTPP<Tin,Tout>::initialized;
  public:
   BrgemmOffsetExtConvTPP() : BrgemmBaseTPP<Tin,Tout>() {}
 
@@ -2685,6 +2698,7 @@ class BrgemmOffsetExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
       unsigned long long *B_offsets,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    TPP_ASSERT(initialized, "Error: not initialized");
     TPP_ASSERT(!has_postop, "Error: calling a brgemm (offset-based) with a postop but without an extra input argument for it\n");
 
     libxsmm_gemm_ext_param gemm_ext_param;
@@ -2711,6 +2725,7 @@ class BrgemmOffsetExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
       unsigned long long *B_offsets,
       unsigned long long count,
       bool no_tile_cfg = false) {
+    TPP_ASSERT(initialized, "Error: not initialized");
     TPP_ASSERT(has_postop, "Error: calling a brgemm (offset-based) without postop with an extra input argument\n");
 
     libxsmm_gemm_ext_param gemm_ext_param;

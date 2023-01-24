@@ -225,21 +225,29 @@ printf("BS (vnni block size) = %d \n", BS);
     }
 
   } else if (R == 1 && S == 1) {
+    if (with_bias || with_relu) {
+      if (with_bias) {
+        //auto l_binary_shape = libxsmm_create_meltw_binary_shape(bk, w_gemm_pixels, bk, bk, bk, dtype, dtype, dtype, LIBXSMM_DATATYPE_F32);
+        //colbias_add_kernel = libxsmm_dispatch_meltw_binary_v2( LIBXSMM_MELTW_TYPE_BINARY_ADD, l_binary_shape, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_1);
+        brgemm_addbias_tpp = AddBiasConvTPP<T>(w_gemm_pixels, bk, bk); /* gemm_n, bk because of the row-major for binary */
+      }
+      if (with_relu)
+        brgemm_relu_tpp = ReLUFwdConvTPP<T,T>(gemm_n, bk, bk, bk, false /* bm */); /* gemm_n, bk because of the row-major for unary */
+    }
+
     if (pack_input == 0) {
       brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
+
+      if (with_bias || with_relu) {
+        brgemm_ext_tpp = SCOPEITGEMM((BrgemmExtConvTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/,
+                                      NULL, NULL, (with_relu ? &brgemm_relu_tpp : NULL), (with_bias ? &brgemm_addbias_tpp : NULL))));
+      }
     } else {
       input_pack_tpp = SCOPEIT(CpyTPP<T>(w_gemm_pixels, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
 
       brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
       if (with_bias || with_relu) {
-        if (with_bias) {
-          //auto l_binary_shape = libxsmm_create_meltw_binary_shape(bk, w_gemm_pixels, bk, bk, bk, dtype, dtype, dtype, LIBXSMM_DATATYPE_F32);
-          //colbias_add_kernel = libxsmm_dispatch_meltw_binary_v2( LIBXSMM_MELTW_TYPE_BINARY_ADD, l_binary_shape, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_1);
-          brgemm_addbias_tpp = AddBiasConvTPP<T>(w_gemm_pixels, bk, bk); /* gemm_n, bk because of the row-major for binary */
-        }
-        if (with_relu)
-          brgemm_relu_tpp = ReLUFwdConvTPP<T,T>(gemm_n, bk, bk, bk, false /* bm */); /* gemm_n, bk because of the row-major for unary */
         brgemm_ext_tpp = SCOPEITGEMM((BrgemmExtConvTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/,
                                       NULL, NULL, (with_relu ? &brgemm_relu_tpp : NULL), (with_bias ? &brgemm_addbias_tpp : NULL))));
       }
