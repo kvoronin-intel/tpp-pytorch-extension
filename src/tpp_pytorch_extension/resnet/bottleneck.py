@@ -264,11 +264,14 @@ class BottleneckInferenceApplyBNTPP(Function):
         #print("dbg: in bottleneck inference bn apply tpp forward")
         time_start = time.time()
 
-        print("dbg bottleneck inference function: len(inputs) = ", len(inputs))
+        #print("dbg bottleneck inference function: len(inputs) = ", len(inputs))
 
         (input,
          c1w, c2w, c3w, c4w,
          c1b, c2b, c3b, c4b ) = inputs
+
+        #print("dbg: bottleneck inference function c1w.dtype = ", c1w.dtype)
+        #print("dbg: bottleneck inference function c1b.dtype = ", c1b.dtype)
 
         if tuning_params is None or tuning_strings is None or len(tuning_params) == 0 or len(tuning_strings) == 0:
             output = bottleneck_cpp.bottleneck_bn_inf(config, inputs)
@@ -1364,7 +1367,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
         #attrs = vars(self.bn1)
         #print(', '.join("{}: {}".format(item[0], item[1]) for item in attrs.items()))
 
-        print("dbg bottleneck-py: self.inference = ", self.inference)
+        #print("dbg bottleneck-py: self.inference = ", self.inference)
 
         if self.inference:
             if self.use_groupnorm:
@@ -1425,7 +1428,7 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                 print("use_groupnorm not implemented in the bottleneck in extensions")
                 exit()
             else:
-                print("dbg bottleneck-py: len of inputs = ", len(inputs))
+                #print("dbg bottleneck-py: len of inputs = ", len(inputs))
                 output = BottleneckInferenceApplyBNTPP.apply(self.config, l_tuning_params_fwd, l_tuning_strings_fwd, tuning_timings_fwd, *inputs)
         else:
             if self.use_groupnorm:

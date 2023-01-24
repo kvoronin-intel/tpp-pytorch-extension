@@ -198,7 +198,115 @@ class ScopedTPP<tpp::BrgemmOffsetTPP<Tin, Tout>, impl> {
   tpp::BrgemmOffsetTPP<Tin, Tout> func;
 };
 
+template <typename Tin, typename Tout, int impl>
+class ScopedTPP<tpp::BrgemmExtConvTPP<Tin, Tout>, impl> {
+ public:
+  ScopedTPP() : func() {}
+  ScopedTPP(tpp::BrgemmExtConvTPP<Tin, Tout> func) : func(std::move(func)) {}
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      long long unsigned int count,
+      bool no_tile_cfg = false) {
+    ScopedTimer _t(BRGEMM, func.flops() * count);
+    if (impl == 0) {
+      func(A, B, C, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
 
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      Tout* D,
+      long long unsigned int count,
+      bool no_tile_cfg = false) {
+    ScopedTimer _t(BRGEMM, func.flops() * count);
+    if (impl == 0) {
+      func(A, B, C, D, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, D, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
+
+  void config() {
+    func.config();
+  }
+
+  void release() {
+    func.release();
+  }
+
+ private:
+  tpp::BrgemmExtConvTPP<Tin, Tout> func;
+};
+
+template <typename Tin, typename Tout, int impl>
+class ScopedTPP<tpp::BrgemmOffsetExtConvTPP<Tin, Tout>, impl> {
+ public:
+  ScopedTPP() : func() {}
+  ScopedTPP(tpp::BrgemmOffsetExtConvTPP<Tin, Tout> func) : func(std::move(func)) {}
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      long long unsigned int count,
+      bool no_tile_cfg = false) {
+    ScopedTimer _t(BRGEMM, func.flops() * count);
+    if (impl == 0) {
+      func(A, B, C, A_offsets, B_offsets, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, A_offsets, B_offsets, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
+
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      Tout* D,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      long long unsigned int count,
+      bool no_tile_cfg = false) {
+    ScopedTimer _t(BRGEMM, func.flops() * count);
+    if (impl == 0) {
+      func(A, B, C, D, A_offsets, B_offsets, count, no_tile_cfg);
+    } else if (impl == 1) {
+      func.ref(A, B, C, D, A_offsets, B_offsets, count, no_tile_cfg);
+    } else {
+      printf("invalid impl requested\n");
+      exit(1);
+    }
+  }
+
+
+
+  void config() {
+    func.config();
+  }
+
+  void release() {
+    func.release();
+  }
+
+ private:
+  tpp::BrgemmOffsetExtConvTPP<Tin, Tout> func;
+};
 
 template <typename Tin, typename Tout, int impl>
 class ScopedTPP<tpp::BrgemmExtTPP<Tin, Tout>, impl> {

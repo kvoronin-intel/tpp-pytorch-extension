@@ -370,6 +370,10 @@ conv_config conv_setup(libxsmm_blasint N, libxsmm_blasint C, libxsmm_blasint H, 
     fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_NONE;
   else if (fuse_type_int == 1)
     fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS;
+  else if (fuse_type_int == 2)
+    fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_RELU;
+  else if (fuse_type_int == 3)
+    fuse_type = LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS_RELU;
   else {
     printf("Error: unsupported fuse_type_int = %d passed in conv_setup()\n", fuse_type_int);
     exit(-1);

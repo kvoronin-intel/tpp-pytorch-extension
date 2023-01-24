@@ -27,6 +27,7 @@ enum DebugTimer {
   OPTIM,
   EW_MEAN_VAR,
   NORMALIZE,
+  EW_UNARY,
   LAST_TIMER
 };
 
@@ -34,7 +35,7 @@ inline const char* DebugTimerName(int t) {
   const char* names[] = {
       "BRGEMM", "XPOSE",  "DROPOUT", "LYR_NRM", "SOFTMAX", "ACT",       "BIAS",
       "VNNI",   "COPY",   "ADD",     "SCALE",   "RCP",     "RSQRT",     "MUL",
-      "ZERO",   "REDUCE", "ROW_GT",  "ROW_ST",  "OPTIM", "MEAN_VAR", "NORMALIZE", "LAST_TIMER"};
+      "ZERO",   "REDUCE", "ROW_GT",  "ROW_ST",  "OPTIM", "MEAN_VAR", "NORMALIZE", "EW_UNARY", "LAST_TIMER"};
   return names[t];
 }
 

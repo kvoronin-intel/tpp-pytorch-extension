@@ -622,7 +622,7 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
     }
   } else { /* for if batchnorms are folded */
 
-    int fuse_type_int = 1; /* this means that convolutions have bias */
+    int fuse_type_int = 3; /* 0 for no usion, 1 for bias, 2 for relu, 3 for relu + bias (relu without mask) */
 
     res.conv1_kernel_size = 1;
     res.conv1_stride      = 1;

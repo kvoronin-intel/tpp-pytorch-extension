@@ -420,6 +420,10 @@ class UnaryTPP : public BaseTPP {
     kernel(&unary_param);
   }
 
+  const libxsmm_blasint get_ldo() const { return ldo;}
+  const libxsmm_meltw_unary_type get_type() const { return type;}
+  const libxsmm_bitfield get_flags() const { return flags;}
+
  protected:
   std::string hash_str() override {
     char hash[200];
@@ -520,6 +524,12 @@ class BinaryTPP : public BaseTPP {
     binary_param.out.primary = out;
     kernel(&binary_param);
   }
+
+  const libxsmm_blasint get_ldo() const { return ldo;}
+  const libxsmm_datatype get_dt_in0() const { return dt_in0;}
+  const libxsmm_datatype get_dt_in1() const { return dt_in1;}
+  const libxsmm_meltw_binary_type get_type() const { return type;}
+  const libxsmm_bitfield get_flags() const { return flags;}
 
  protected:
   std::string hash_str() override {
@@ -846,6 +856,40 @@ class AddBiasTPP {
   BinaryTPP kernel;
   ConvertTPP<T, float> cvt;
 };
+
+template <typename T>
+class AddBiasConvTPP : public BinaryTPP {
+  using BinaryTPP::rows;
+  using BinaryTPP::cols;
+  using BinaryTPP::ldo;
+ public:
+  AddBiasConvTPP() : BinaryTPP() {}
+  AddBiasConvTPP(int rows, int cols) : AddBiasConvTPP(rows, cols, cols) {}
+  AddBiasConvTPP(int rows, int cols, int ld)
+      : BinaryTPP(
+            rows,
+            cols,
+            ld,
+            ld,
+            XsmmDtype<T>(),
+            XsmmDtype<T>(),
+            LIBXSMM_DATATYPE_F32,
+            LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_0,
+            LIBXSMM_MELTW_TYPE_BINARY_ADD) {}
+  void operator()(T* in, T* out) {
+    BinaryTPP::operator()((void*)in, (void*)out, (void*)out);
+  }
+  void ref(T* in, T* out) {
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        float ftmp = out[r * ldo + c];
+        ftmp += (float)in[c];
+        out[r * ldo + c] = ftmp;
+      }
+    }
+  }
+};
+
 
 template <typename Tin, typename Tout = Tin>
 class AddTPP {
@@ -1760,16 +1804,69 @@ class BrgemmBaseTPP {
         a_trans(a_trans),
         c_vnni(c_vnni),
         unroll_hint(unroll_hint),
+        is_gemm_ext(false),
         k_gemm_with_tc(this, 0),
         k_cfg(this, 1),
         k_rls(this, 2),
         k_gemm_no_tc(this, 3) {}
 
+  BrgemmBaseTPP(
+      long M,
+      long N,
+      long K,
+      bool reduce_offset,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : M(M),
+        N(N),
+        K(K),
+        reduce_offset(reduce_offset),
+        str_a(str_a),
+        str_b(str_b),
+        lda(lda),
+        ldb(ldb),
+        ldc(ldc),
+        beta(beta),
+        a_trans(a_trans),
+        c_vnni(c_vnni),
+        unroll_hint(unroll_hint),
+        is_gemm_ext(true),
+        has_argop_a(argop_a == NULL ? false : true),
+        has_argop_b(argop_b == NULL ? false : true),
+        has_argop_c(argop_c == NULL ? false : true),
+        has_postop(postop == NULL ? false : true),
+        argop_a(argop_a),
+        argop_b(argop_b),
+        argop_c(argop_c),
+        postop(postop),
+        k_ext_gemm_with_tc(this, 0),
+        k_ext_cfg(this, 1),
+        k_ext_rls(this, 2),
+        k_ext_gemm_no_tc(this, 3) {}
+
   void config() {
-    k_cfg(NULL);
+    if (!is_gemm_ext)
+      k_cfg(NULL);
+    else
+      k_ext_cfg(NULL);
   }
   void release() {
-    k_rls(NULL);
+    if (!is_gemm_ext)
+      k_rls(NULL);
+    else
+      k_ext_rls(NULL);
+    //k_rls(NULL);
   }
 
   long flops() {
@@ -1894,6 +1991,178 @@ class BrgemmBaseTPP {
     long brgemm_type = -1;
   };
 
+  class BrgemmExtKernel : public BaseTPP {
+   public:
+    BrgemmExtKernel() {}
+    BrgemmExtKernel(BrgemmBaseTPP* p, int config) : p(p), config(config) {
+      auto dt_in = XsmmDtype<Tin>();
+      auto dt_out = XsmmDtype<Tout>();
+      long type = -1;
+      if (dt_in == LIBXSMM_DATATYPE_F32) {
+        TPP_ASSERT(dt_out == LIBXSMM_DATATYPE_F32, "BRGEMM Assert\n");
+        type = 0;
+      } else if (dt_out == LIBXSMM_DATATYPE_F32) {
+        type = 1;
+      } else {
+        type = 2;
+      }
+      if (type != 0)
+        TPP_ASSERT(
+            p->a_trans == 0, "A Transpose supported only for FP32 BRGEMM\n");
+      brgemm_type = type;
+      kernel.gemm_ext = (libxsmm_gemmfunction_ext)get_kernel();
+      initialized = true;
+    }
+    void operator()(libxsmm_gemm_ext_param* gemm_ext_param) {
+      TPP_ASSERT(initialized, "Attempt to call uninitialized BrgemmExtKernel\n");
+      kernel.gemm_ext(gemm_ext_param);
+    }
+
+   protected:
+    std::string hash_str() override {
+      char hash[400];
+      snprintf(
+          hash,
+          400,
+          "brgemmext_m%ld_n%ld_k%ld_offset%d_a%ld_b%ld_t%ld_beta%d_at%d_cv%d_uh%d_ld_a%ld_b%ld_c%ld_cfg%d_ap_ld%d_t%d_f%d_s%d_bp_ld%d_t%d_f%d_s%d_cp_ld%d_t%d_f%d_s%d_po_ld%d_dt%d_t%d_f%d",
+          p->M,
+          p->N,
+          p->K,
+          p->reduce_offset,
+          p->str_a,
+          p->str_b,
+          brgemm_type,
+          (int)p->beta,
+          p->a_trans,
+          p->c_vnni,
+          p->unroll_hint,
+          (long)p->lda,
+          (long)p->ldb,
+          (long)p->ldc,
+          config,
+          p->argop_a->get_ldo(),
+          p->argop_a->get_type(),
+          p->argop_a->get_flags(),
+          0 /* argop_a: store_ap */,
+          p->argop_b->get_ldo(),
+          p->argop_b->get_type(),
+          p->argop_b->get_flags(),
+          0 /* argop_b: store_bp */,
+          p->argop_c->get_ldo(),
+          p->argop_c->get_type(),
+          p->argop_c->get_flags(),
+          0 /* argop_c: store_cp */,
+          p->postop->get_ldo(),
+          p->postop->get_dt_in1(), /* assumes that dt_in1 == dt_in0 */
+          p->postop->get_type(),
+          p->postop->get_flags());
+      return std::string(hash);
+    }
+    void* build_kernel() override {
+      // float alpha = 1.0;
+      libxsmm_gemm_shape l_shape;
+      libxsmm_gemm_batch_reduce_config l_brconfig;
+      libxsmm_bitfield l_flags = LIBXSMM_GEMM_FLAGS('N', 'N');
+      libxsmm_bitfield l_prefetch_flags = 0;
+      libxsmm_xmmfunction l_test_jit = {NULL};
+
+      if (p->a_trans == 1)
+        l_flags |= LIBXSMM_GEMM_FLAG_TRANS_B;
+      if (brgemm_type != 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_A;
+      if (p->beta == 0)
+        l_flags |= LIBXSMM_GEMM_FLAG_BETA_0;
+      if (p->c_vnni == 1)
+        l_flags |= LIBXSMM_GEMM_FLAG_VNNI_C;
+
+      // config = 0 - normal
+      // config = 1 - no tile release
+      // config = 2 - no tile config
+      // config = 3 - brgemm with no tile config or release
+      if (config == 1) {
+        l_flags |= LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG;
+      } else if (config == 2) {
+        l_flags |= LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG;
+      } else if (config == 3) {
+        l_flags |=
+            (LIBXSMM_GEMM_FLAG_NO_SETUP_TILECONFIG |
+             LIBXSMM_GEMM_FLAG_NO_RESET_TILECONFIG);
+      }
+
+      /* setting update GEMM struct */
+      l_shape.m = p->N;
+      l_shape.n = p->M;
+      l_shape.k = p->K;
+      l_shape.lda = p->ldb;
+      l_shape.ldb = p->lda;
+      l_shape.ldc = p->ldc;
+      l_shape.a_in_type = XsmmDtype<Tin>();
+      l_shape.b_in_type = XsmmDtype<Tin>();
+      l_shape.out_type = XsmmDtype<Tout>();
+      l_shape.comp_type = LIBXSMM_DATATYPE_F32;
+
+      if (p->reduce_offset) {
+        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_OFFSET;
+        l_brconfig.br_stride_a_hint = 0;
+        l_brconfig.br_stride_b_hint = 0;
+      } else {
+        l_brconfig.br_type = LIBXSMM_GEMM_BATCH_REDUCE_STRIDE;
+        l_brconfig.br_stride_a_hint = p->str_b * sizeof(Tin);
+        l_brconfig.br_stride_b_hint = p->str_a * sizeof(Tin);
+      }
+      l_brconfig.br_unroll_hint = p->unroll_hint;
+
+      libxsmm_gemm_ext_unary_argops l_argops;
+      memset( &l_argops, 0, sizeof(libxsmm_gemm_ext_unary_argops) );
+
+      libxsmm_gemm_ext_binary_postops l_postops;
+      memset( &l_postops, 0, sizeof(libxsmm_gemm_ext_binary_postops) );
+
+      if (p->has_argop_a) {
+        TPP_ASSERT(false, "Error: argop for A is not supported in BrgemmExtKernel\n");
+      }
+      if (p->has_argop_b) {
+        TPP_ASSERT(false, "Error: argop for B is not supported in BrgemmExtKernel\n");
+      }
+      if (p->has_argop_c) {
+        TPP_ASSERT(false, "Error: argop for C is not supported in BrgemmExtKernel\n");
+        l_argops.cp_unary_type  = p->argop_c->get_type();//LIBXSMM_MELTW_TYPE_UNARY_RELU;
+        l_argops.ldcp           = p->argop_c->get_ldo();//l_shape.ldc;
+      }
+
+//200~LIBXSMM_API libxsmm_gemm_ext_unary_argops libxsmm_create_gemm_ext_unary_argops( const libxsmm_blasint ldap, const libxsmm_meltw_unary_type ap_unary_type, const libxsmm_bitfield ap_unary_flags, const libxsmm_bl
+//                                                                                const libxsmm_blasint ldbp, const libxsmm_meltw_unary_type bp_unary_type, const libxsmm_bitfield bp_unary_flags, const libxsmm_bl
+//                                                                                const libxsmm_blasint ldcp, const libxsmm_meltw_unary_type cp_unary_type, const libxsmm_bitfield cp_unary_flags, const libxsmm_bl
+//LIBXSMM_API libxsmm_gemm_ext_binary_postops libxsmm_create_gemm_ext_binary_postops( const libxsmm_blasint ldd, const libxsmm_datatype d_in_type, const libxsmm_meltw_binary_type d_binary_type, const libxsmm_bit201~
+
+      if (p->has_postop) {
+        TPP_ASSERT(p->postop->get_dt_in0() == p->postop->get_dt_in1(), "Error: postop dtype for input arguments differ which is not supported in BrgemmExtKernel\n");
+        l_postops = libxsmm_create_gemm_ext_binary_postops(p->postop->get_ldo(), p->postop->get_dt_in1(), p->postop->get_type(), p->postop->get_flags());//LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_0);
+      }
+
+/*
+      if (with_bias)
+        l_postops = libxsmm_create_gemm_ext_binary_postops(bk, dtype, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_0);
+      if (with_relu) {
+        l_argops.cp_unary_type  = LIBXSMM_MELTW_TYPE_UNARY_RELU;
+        l_argops.ldcp           = l_shape.ldc;
+      }
+*/
+
+      l_test_jit.gemm_ext = libxsmm_dispatch_brgemm_ext_v2(
+          l_shape, l_flags, l_prefetch_flags, l_brconfig, l_argops, l_postops);
+
+      return (void*)l_test_jit.gemm_ext;
+    }
+
+   private:
+    BrgemmBaseTPP* p;
+    int config;
+    libxsmm_xmmfunction kernel;
+    long brgemm_type = -1;
+  };
+
+
  protected:
   long M, N, K;
  private:
@@ -1914,7 +2183,22 @@ class BrgemmBaseTPP {
   BrgemmKernel k_cfg;
   BrgemmKernel k_rls;
   BrgemmKernel k_gemm_no_tc;
+ protected: /* FIXME, not sure about the correct specifiers */
+  bool   is_gemm_ext = false;
+  bool   has_argop_a = false;
+  bool   has_argop_b = false;
+  bool   has_argop_c = false;
+  bool   has_postop  = false;
+  UnaryTPP    *argop_a = NULL;
+  UnaryTPP    *argop_b = NULL;
+  UnaryTPP    *argop_c = NULL;
+  BinaryTPP   *postop  = NULL;
+  BrgemmExtKernel k_ext_gemm_with_tc;
+  BrgemmExtKernel k_ext_cfg;
+  BrgemmExtKernel k_ext_rls;
+  BrgemmExtKernel k_ext_gemm_no_tc;
 };
+
 
 template <typename Tin, typename Tout>
 class BrgemmTPP : public BrgemmBaseTPP<Tin,Tout> {
@@ -1992,27 +2276,6 @@ class BrgemmTPP : public BrgemmBaseTPP<Tin,Tout> {
       int c_vnni,
       int unroll_hint)
       : BrgemmBaseTPP<Tin,Tout>(M, N, K, false, str_a, str_b, lda, ldb, ldc, beta, a_trans, c_vnni, unroll_hint) {}
-/*
-      :
-        M(M),
-        N(N),
-        K(K),
-        reduce_offset(false),
-        str_a(str_a),
-        str_b(str_b),
-        lda(lda),
-        ldb(ldb),
-        ldc(ldc),
-        beta(beta),
-        a_trans(a_trans),
-        c_vnni(c_vnni),
-        unroll_hint(unroll_hint),
-        streaming_stores(0),
-        k_gemm_with_tc(this, 0),
-        k_cfg(this, 1),
-        k_rls(this, 2),
-        k_gemm_no_tc(this, 3) {}
-*/
 
   void operator()(
       Tin* A,
@@ -2078,6 +2341,194 @@ class BrgemmTPP : public BrgemmBaseTPP<Tin,Tout> {
   }
 };
 
+template <typename Tin, typename Tout>
+class BrgemmExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
+ using BrgemmBaseTPP<Tin,Tout>::M;
+ using BrgemmBaseTPP<Tin,Tout>::N;
+ using BrgemmBaseTPP<Tin,Tout>::K;
+ using BrgemmBaseTPP<Tin,Tout>::str_a;
+ using BrgemmBaseTPP<Tin,Tout>::str_b;
+ using BrgemmBaseTPP<Tin,Tout>::lda;
+ using BrgemmBaseTPP<Tin,Tout>::ldb;
+ using BrgemmBaseTPP<Tin,Tout>::ldc;
+ using BrgemmBaseTPP<Tin,Tout>::beta;
+ using BrgemmBaseTPP<Tin,Tout>::a_trans;
+ using BrgemmBaseTPP<Tin,Tout>::has_postop;
+ using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_with_tc;
+ using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_no_tc;
+ public:
+  BrgemmExtConvTPP() : BrgemmBaseTPP<Tin,Tout>() {}
+  BrgemmExtConvTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : BrgemmExtConvTPP(
+            M,
+            N,
+            K,
+            str_a,
+            str_b,
+            (a_trans == 0 ? K : M),
+            N,
+            N,
+            1.0 /*beta */,
+            0 /*a_trans */,
+            0 /*unroll_hint */,
+            argop_a,
+            argop_b,
+            argop_c,
+            postop) {}
+  BrgemmExtConvTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : BrgemmExtConvTPP(
+            M,
+            N,
+            K,
+            str_a,
+            str_b,
+            lda,
+            ldb,
+            ldc,
+            1.0 /*beta */,
+            0 /*a_trans */,
+            0 /*unroll_hint */,
+            argop_a,
+            argop_b,
+            argop_c,
+            postop) {}
+  BrgemmExtConvTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int unroll_hint,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : BrgemmExtConvTPP(
+            M,
+            N,
+            K,
+            str_a,
+            str_b,
+            (a_trans == 0 ? K : M),
+            N,
+            N,
+            beta,
+            a_trans,
+            0 /*c_vnni*/,
+            unroll_hint,
+            argop_a,
+            argop_b,
+            argop_c,
+            postop) {}
+  BrgemmExtConvTPP(
+      long M,
+      long N,
+      long K,
+      long str_a,
+      long str_b,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : BrgemmBaseTPP<Tin,Tout>(M, N, K, false, str_a, str_b, lda, ldb, ldc, beta, a_trans, c_vnni, unroll_hint,
+        argop_a, argop_b, argop_c, postop) {}
+
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(!has_postop, "Error: calling a brgemm with a postop but without an extra input argument for it\n");
+
+    libxsmm_gemm_ext_param gemm_ext_param;
+    memset(&gemm_ext_param, 0, sizeof(libxsmm_gemm_ext_param));
+    gemm_ext_param.op.tertiary = &count;
+    gemm_ext_param.c.primary = (void*)C;
+    gemm_ext_param.a.primary = (void*)B;
+    gemm_ext_param.b.primary = (void*)A;
+    if (!no_tile_cfg) {
+      k_ext_gemm_with_tc(&gemm_ext_param);
+    } else {
+      k_ext_gemm_no_tc(&gemm_ext_param);
+    }
+  }
+
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      Tout* D,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(has_postop, "Error: calling a brgemm without postop with an extra input argument\n");
+
+    libxsmm_gemm_ext_param gemm_ext_param;
+    memset(&gemm_ext_param, 0, sizeof(libxsmm_gemm_ext_param));
+    gemm_ext_param.op.tertiary = &count;
+    gemm_ext_param.c.primary = (void*)C;
+    gemm_ext_param.a.primary = (void*)B;
+    gemm_ext_param.b.primary = (void*)A;
+    if (has_postop)
+      gemm_ext_param.d.primary = (void*)D;
+    if (!no_tile_cfg) {
+      k_ext_gemm_with_tc(&gemm_ext_param);
+    } else {
+      k_ext_gemm_no_tc(&gemm_ext_param);
+    }
+  }
+
+  void ref(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(false, "ref() has not been implemented for BrgemmExtConvTPP\n");
+  }
+  void ref(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      Tout* D,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(false, "ref() has not been implemented for BrgemmExtConvTPP\n");
+  }
+};
 
 template <typename Tin, typename Tout>
 class BrgemmOffsetTPP : public BrgemmBaseTPP<Tin,Tout> {
@@ -2125,26 +2576,6 @@ class BrgemmOffsetTPP : public BrgemmBaseTPP<Tin,Tout> {
       int c_vnni,
       int unroll_hint)
       : BrgemmBaseTPP<Tin,Tout>(M, N, K, true, 0, 0, lda, ldb, ldc, beta, a_trans, c_vnni, unroll_hint) {}
-/*
-      : M(M),
-        N(N),
-        K(K),
-        reduce_offset(true),
-        str_a(0),
-        str_b(0),
-        lda(lda),
-        ldb(ldb),
-        ldc(ldc),
-        beta(beta),
-        a_trans(a_trans),
-        c_vnni(c_vnni),
-        unroll_hint(unroll_hint),
-        streaming_stores(0),
-        k_gemm_with_tc(this, 0),
-        k_cfg(this, 1),
-        k_rls(this, 2),
-        k_gemm_no_tc(this, 3) {}
-*/
   void operator()(
       Tin* A,
       Tin* B,
@@ -2177,10 +2608,153 @@ class BrgemmOffsetTPP : public BrgemmBaseTPP<Tin,Tout> {
       unsigned long long *B_offsets,
       unsigned long long count,
       bool no_tile_cfg = false) {
-    printf("ref() not implemented for BrgemmTPP with offsets\n");
+    printf("ref() not implemented for BrgemmOffsetTPP\n");
     exit(-1);
   }
 };
+
+
+template <typename Tin, typename Tout>
+class BrgemmOffsetExtConvTPP : public BrgemmBaseTPP<Tin,Tout> {
+ using BrgemmBaseTPP<Tin,Tout>::M;
+ using BrgemmBaseTPP<Tin,Tout>::N;
+ using BrgemmBaseTPP<Tin,Tout>::K;
+ using BrgemmBaseTPP<Tin,Tout>::lda;
+ using BrgemmBaseTPP<Tin,Tout>::ldb;
+ using BrgemmBaseTPP<Tin,Tout>::ldc;
+ using BrgemmBaseTPP<Tin,Tout>::beta;
+ using BrgemmBaseTPP<Tin,Tout>::a_trans;
+ using BrgemmBaseTPP<Tin,Tout>::has_postop;
+ using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_with_tc;
+ using BrgemmBaseTPP<Tin,Tout>::k_ext_gemm_no_tc;
+ public:
+  BrgemmOffsetExtConvTPP() : BrgemmBaseTPP<Tin,Tout>() {}
+
+  BrgemmOffsetExtConvTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int unroll_hint,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : BrgemmOffsetExtConvTPP(
+            M,
+            N,
+            K,
+            lda,
+            ldb,
+            ldc,
+            beta,
+            a_trans,
+            false,
+            unroll_hint,
+            argop_a,
+            argop_b,
+            argop_c,
+            postop) {}
+  BrgemmOffsetExtConvTPP(
+      long M,
+      long N,
+      long K,
+      long lda,
+      long ldb,
+      long ldc,
+      float beta,
+      int a_trans,
+      int c_vnni,
+      int unroll_hint,
+      UnaryTPP  *argop_a,
+      UnaryTPP  *argop_b,
+      UnaryTPP  *argop_c,
+      BinaryTPP *postop)
+      : BrgemmBaseTPP<Tin,Tout>(M, N, K, true, 0, 0, lda, ldb, ldc, beta, a_trans, c_vnni, unroll_hint,
+        argop_a, argop_b, argop_c, postop) {}
+
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(!has_postop, "Error: calling a brgemm (offset-based) with a postop but without an extra input argument for it\n");
+
+    libxsmm_gemm_ext_param gemm_ext_param;
+    memset(&gemm_ext_param, 0, sizeof(libxsmm_gemm_ext_param));
+    gemm_ext_param.op.tertiary = &count;
+    gemm_ext_param.c.primary = (void*)C;
+    gemm_ext_param.a.primary = (void*)B;
+    gemm_ext_param.b.primary = (void*)A;
+    gemm_ext_param.a.secondary = (void*)B_offsets;
+    gemm_ext_param.b.secondary = (void*)A_offsets;
+    if (!no_tile_cfg) {
+      k_ext_gemm_with_tc(&gemm_ext_param);
+    } else {
+      k_ext_gemm_no_tc(&gemm_ext_param);
+    }
+  }
+
+  void operator()(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      Tout* D,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(has_postop, "Error: calling a brgemm (offset-based) without postop with an extra input argument\n");
+
+    libxsmm_gemm_ext_param gemm_ext_param;
+    memset(&gemm_ext_param, 0, sizeof(libxsmm_gemm_ext_param));
+    gemm_ext_param.op.tertiary = &count;
+    gemm_ext_param.c.primary = (void*)C;
+    gemm_ext_param.a.primary = (void*)B;
+    gemm_ext_param.b.primary = (void*)A;
+    gemm_ext_param.a.secondary = (void*)B_offsets;
+    gemm_ext_param.b.secondary = (void*)A_offsets;
+    if (has_postop)
+      gemm_ext_param.d.primary = (void*)D;
+    if (!no_tile_cfg) {
+      k_ext_gemm_with_tc(&gemm_ext_param);
+    } else {
+      k_ext_gemm_no_tc(&gemm_ext_param);
+    }
+  }
+
+  void ref(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(false, "ref() has not been implemented for BrgemmOffsetExtConvTPP\n");
+  }
+  void ref(
+      Tin* A,
+      Tin* B,
+      Tout* C,
+      Tout* D,
+      unsigned long long *A_offsets,
+      unsigned long long *B_offsets,
+      unsigned long long count,
+      bool no_tile_cfg = false) {
+    TPP_ASSERT(false, "ref() has not been implemented for BrgemmOffsetExtConvTPP\n");
+  }
+};
+
+
+
 
 template <typename Tin, typename Tout = Tin>
 class GeluFwdTPP {
@@ -2336,7 +2910,11 @@ class ReLUFwdTPP {
             ldo,
             XsmmDtype<Tin>(),
             XsmmDtype<Tout>(),
+#ifdef __x86_64__
+            (XsmmDtype<Tin>() == LIBXSMM_DATATYPE_BF16 ? LIBXSMM_DATATYPE_BF16 : LIBXSMM_DATATYPE_F32),
+#else
             LIBXSMM_DATATYPE_F32,
+#endif
             bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT
                : LIBXSMM_MELTW_FLAG_UNARY_NONE,
             LIBXSMM_MELTW_TYPE_UNARY_RELU) {}
@@ -2354,6 +2932,38 @@ class ReLUFwdTPP {
   int ldo;
   UnaryTPP kernel;
 };
+
+template <typename Tin, typename Tout = Tin>
+class ReLUFwdConvTPP : public UnaryTPP {
+ public:
+  ReLUFwdConvTPP() : UnaryTPP() {}
+  ReLUFwdConvTPP(int N, bool bm) : ReLUFwdConvTPP(1, N, bm) {}
+  ReLUFwdConvTPP(int rows, int cols, bool bm)
+      : ReLUFwdConvTPP(rows, cols, cols, cols, bm) {}
+  ReLUFwdConvTPP(int rows, int cols, int ldi, int ldo, bool bm)
+      : UnaryTPP(
+            rows,
+            cols,
+            ldi,
+            ldo,
+            XsmmDtype<Tin>(),
+            XsmmDtype<Tout>(),
+#ifdef __x86_64__
+            (XsmmDtype<Tin>() == LIBXSMM_DATATYPE_BF16 ? LIBXSMM_DATATYPE_BF16 : LIBXSMM_DATATYPE_F32),
+#else
+            LIBXSMM_DATATYPE_F32,
+#endif
+            bm ? LIBXSMM_MELTW_FLAG_UNARY_BITMASK_2BYTEMULT
+               : LIBXSMM_MELTW_FLAG_UNARY_NONE,
+            LIBXSMM_MELTW_TYPE_UNARY_RELU) {}
+  void operator()(Tin* in, Tout* out, short* mask = NULL) {
+    UnaryTPP::operator()((void*)in, (void*)out, (void*)mask);
+  }
+  void ref(Tin* in, Tout* out, short* mask = NULL) {
+    UnaryTPP::operator()((void*)in, (void*)out, (void*)mask);
+  }
+};
+
 
 template <typename Tin, typename Tout = Tin>
 class ReLUBwdTPP {
