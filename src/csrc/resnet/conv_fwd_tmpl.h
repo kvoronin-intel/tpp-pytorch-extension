@@ -177,8 +177,6 @@ printf("BS (vnni block size) = %d \n", BS);
   SCOPEITGEMM_DECL(BrgemmOffsetTPP<T, T>) brgemm_offset_tpp;
   SCOPEITGEMM_DECL(BrgemmExtConvTPP<T, T>) brgemm_ext_tpp;
   SCOPEITGEMM_DECL(BrgemmOffsetExtConvTPP<T, T>) brgemm_offset_ext_tpp;
-  //SCOPEITGEMM_DECL(BrgemmTPP<T, T>) brgemm_tpp, brgemm_2less_tpp; // 2less is added to enable 7x7 filters
-  //SCOPEITGEMM_DECL_REF(BrgemmTPP<T, T>) brgemm_1less_tpp; // 2less is added to enable 7x7 filters
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_padded_hwbc_tpp;
@@ -476,17 +474,15 @@ printf("BS (vnni block size) = %d \n", BS);
             T *B = weight     [i_k][i_c][i_r][i_s][0];
             T *C = output_off [i_n][i_k][i_h][i_w];
 
-            if (R == 1 && S == 1) {
-              if (pack_input == 0) {
-                if (input_padding_copy)
-                  A = padded_inp [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s];
-                else
-                  A = inp        [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s];
-              }
-              else {
-                DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
-                A = packed_inp [i_n][i_c][i_h][i_w];
-              }
+            if (pack_input == 0) {
+              if (input_padding_copy)
+                A = padded_inp [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s];
+              else
+                A = inp        [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s];
+            }
+            else {
+              DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
+              A = packed_inp [i_n][i_c][i_h][i_w];
             }
 
             if (R == 1 && S == 1) {
