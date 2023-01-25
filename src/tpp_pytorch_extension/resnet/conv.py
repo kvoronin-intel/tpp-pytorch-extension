@@ -24,7 +24,6 @@ class TPPConvTPP(Function):
     @staticmethod
     def forward(ctx, param_struct, tuning_params_fwd, tuning_string_fwd, tuning_timings_fwd, tuning_params_d, tuning_string_d, tuning_timings_d, tuning_params_w, tuning_string_w, tuning_timings_w, *inputs):
 
-
         if tuning_params_fwd is None or tuning_string_fwd is None or len(tuning_params_fwd) == 0:
             output = conv_cpp.conv_fwd(param_struct, inputs)
         else:
@@ -176,25 +175,23 @@ class TPPConvTPP(Function):
 class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
     r"""PCL Conv2d module for using libxsmm Conv TPP"""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', dtype=torch.float,
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, relu=False, padding_mode='zeros', dtype=torch.float,
                  bc=None, bk=None, logical_padding=None, use_hardcoded_tunings=None):
-
-        self.C            = in_channels
-        self.C_pad        = in_channels
-
-        self.dtype        = dtype
-        self.use_bf16     = True if self.dtype == torch.bfloat16 else False
-
-        self.low_prec_vnni_blocking = get_vnni_blocking(dtype)
-
-        #print("dbg: in TPPConv2dTPP constructor self.low_prec_vnni_blocking = ", self.low_prec_vnni_blocking)
-
-        if self.use_bf16 and self.C_pad%self.low_prec_vnni_blocking != 0:
-            self.C_pad = self.C_pad + (self.low_prec_vnni_blocking - self.C_pad)
 
         if padding_mode != 'zeros':
             print("Error: the dummy argument padding_mode must be `zeros` in TPPConv2dTPP")
             exit()
+
+        self.dtype        = dtype
+        self.C            = in_channels
+        self.C_pad        = in_channels
+
+        self.use_bf16     = True if self.dtype == torch.bfloat16 else False
+
+        self.low_prec_vnni_blocking = get_vnni_blocking(dtype)
+
+        if self.use_bf16 and self.C_pad%self.low_prec_vnni_blocking != 0:
+            self.C_pad = self.C_pad + (self.low_prec_vnni_blocking - self.C_pad)
 
         #super(XsmmConv2dTPP, self).__init__()
         #nn_Conv2d.__init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device=None, dtype=dtype)
@@ -224,6 +221,8 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
 
         self.logical_padding = logical_padding if logical_padding is not None else False
         self.use_hardcoded_tunings = use_hardcoded_tunings
+
+        self.relu = relu
 
         """
         # extra hack for the first convolution in resnet-50 which requires a logical padding and hardcoded block sizes
@@ -358,16 +357,23 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
           self.N = N
 
         if self.config == None:
-            # only physical padding is supported for now
+            if self.bias is not None and self.relu:
+                fuse_type = 3
+            elif self.bias is not None:
+                fuse_type = 1
+            elif self.relu:
+                fuse_type = 2
+            else:
+                fuse_type = 0
             if self.preset_blocksizes:
                 self.config = conv_cpp.conv_setup_preset(self.N, self.C_pad, self.H, self.W, self.K, self.R, self.S,
                                                          self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
-                                                         self.stride, 1 if self.bias is not None else 0, 0 if self.dtype == torch.float else 1,
+                                                         self.stride, fuse_type, 0 if self.dtype == torch.float else 1,
                                                          self.bc, self.bk) #, self.avoid_fmas_in_rim)
             else:
                 self.config = conv_cpp.conv_setup(self.N, self.C_pad, self.H, self.W, self.K, self.R, self.S,
                                                   self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
-                                                  self.stride, 1 if self.bias is not None else 0, 0 if self.dtype == torch.float else 1)
+                                                  self.stride, fuse_type, 0 if self.dtype == torch.float else 1)
 
         if self.use_bf16 and self.bias is not None and self.bias.dtype != torch.bfloat16:
             self.bias.data = self.bias.data.to(torch.bfloat16)

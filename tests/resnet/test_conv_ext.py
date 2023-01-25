@@ -46,7 +46,9 @@ parser.add_argument("--preallocated-output", action="store_true", default=False,
 
 parser.add_argument('--use-hardcoded-tunings', action="store_true", default=False, dest='use_hardcoded_tunings')
 
-parser.add_argument("--with-bias", action="store_true", default=False, help='if true, enables bias in the conv', dest='with_bias')
+parser.add_argument("--with-bias", action="store_true", default=False, help='if true, enables bias in the conv (as a postop)', dest='with_bias')
+
+parser.add_argument("--with-relu", action="store_true", default=False, help='if true, enables relu (as an argop) in the conv', dest='with_relu')
 
 #import pdb
 
@@ -54,12 +56,12 @@ global_counter = 0
 
 #torch.autograd.set_detect_anomaly(True)
 
-def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, has_relu, padding_mode, opt_dtype, ref_dtype,
                   with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters, niters_warmup, preallocated_output,
                   logical_padding, use_hardcoded_tunings):
     time_start = time.time()
-    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output logical_padding use_hardcoded_tunings",
-            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode,
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias has_relu padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output logical_padding use_hardcoded_tunings",
+            N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, has_relu, padding_mode,
             opt_dtype, ref_dtype,
             with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters, niters_warmup,
             preallocated_output, logical_padding, use_hardcoded_tunings)
@@ -151,21 +153,29 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     torch.manual_seed(0)
     if test_module == 'cnn_tpp':
         print("info: testing TPP module from CNN (pcl_cgbp)")
-        opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk)
+        opt_conv = pcl_cgbp.XsmmConv2dTPP(inc, outc, R, stride, padding, dilation, groups, bias=has_bias,
+                                          padding_mode=padding_mode, dtype=opt_dtype, bc=bc, bk=bk)
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (tpp_pytorch_extension)")
         print("caution: TPP module from extensions only works with physical padding")
-        opt_conv = conv_py.TPPConv2dTPP(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, bc=bc, bk=bk, logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings)
+        opt_conv = conv_py.TPPConv2dTPP(inc, outc, R, stride, padding, dilation, groups, bias=has_bias, relu=has_relu,
+                                        padding_mode=padding_mode, dtype=opt_dtype, bc=bc, bk=bk,
+                                        logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings)
         opt_has_physical_padding = (not logical_padding) and (padding != 0)
     elif test_module == 'handlebased':
         print("info: testing handle-based module")
         if opt_dtype != torch.float:
             print("error: handlebased testing is only implemented for float")
             exit()
-        opt_conv = pcl_cgbp.XsmmConv2d(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode)
+        opt_conv = pcl_cgbp.XsmmConv2d(inc, outc, R, stride, padding, dilation, groups, bias=has_bias, padding_mode=padding_mode)
     else:
         print("test_module not supported, test_module = ", test_module)
         exit()
+
+    #if has_bias:
+    #    print("dbg: opt_conv.bias   dtype = ", opt_conv.bias.dtype)
+    #    print("dbg: opt_conv.weight dtype = ", opt_conv.weight.dtype)
+    #    exit()
 
     time_end = time.time()
     print("Setting up opt_conv module took (s) ", time_end - time_start)
@@ -183,7 +193,11 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         input_hw_padding  = [0, 0, 0, 0]
         output_hw_padding = [0, 0, 0, 0]
 
-    torch_conv = torch.nn.Conv2d(inc, outc, R, stride, padding, dilation, groups, has_bias, padding_mode, device=None, dtype=ref_dtype)
+    torch_conv = torch.nn.Conv2d(inc, outc, R, stride, padding, dilation, groups, bias=has_bias,
+                                  padding_mode=padding_mode, device=None, dtype=ref_dtype)
+
+    if has_relu:
+        torch_relu = torch.nn.ReLU()
 
     time_end = time.time()
     print("Setting up reference torch_conv module took (s) ", time_end - time_start)
@@ -193,6 +207,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
     weight = torch.randn([outc, inc//groups, R, R], requires_grad=True)
     #weight = torch.ones_like(weight)
+    #weight = torch.zeros_like(weight)
     if opt_dtype == torch.bfloat16 or ref_dtype == torch.bfloat16:
         weight_bf16 = weight.to(torch.bfloat16)
         weight      = weight_bf16.to(torch.float)
@@ -296,7 +311,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     print("First forward took (s) ", time_end - time_start)
     time_start = time.time()
 
-    y2 = torch_conv(x2)
+    if has_relu:
+        y2 = torch_relu(torch_conv(x2))
+    else:
+        y2 = torch_conv(x2)
 
     time_end = time.time()
     print("First reference forward took (s) ", time_end - time_start)
@@ -672,7 +690,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
         #print("Error: perf_bwd_w = True is not supported")
         #exit()
-    exit()
+    #exit()
     return
 
 def main():
@@ -700,7 +718,7 @@ def main():
         groups=1
         dilation=1
         padding_mode='zeros'
-        run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, padding_mode, opt_dtype, ref_dtype,
+        run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, args.with_relu, padding_mode, opt_dtype, ref_dtype,
                       args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
                       args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings)
     else:
@@ -713,7 +731,7 @@ def main():
                 padding_mode=padding_mode.strip()
                 integer_map = map(int, string_list[:10])
                 [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
-                run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, padding_mode, opt_dtype, ref_dtype,
+                run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, args.with_relu, padding_mode, opt_dtype, ref_dtype,
                               args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
                               args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings)
     exit()
@@ -736,7 +754,7 @@ def main():
     H=224
     W=224
 
-    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, padding_mode, opt_dtype, ref_dtype,
+    run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, has_relu, padding_mode, opt_dtype, ref_dtype,
                   args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module)
 
 if __name__ == "__main__":

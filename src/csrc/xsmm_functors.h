@@ -2127,7 +2127,7 @@ class BrgemmBaseTPP {
         TPP_ASSERT(false, "Error: argop for B is not supported in BrgemmExtKernel\n");
       }
       if (p->has_argop_c) {
-        TPP_ASSERT(false, "Error: argop for C is not supported in BrgemmExtKernel\n");
+        //TPP_ASSERT(false, "Error: argop for C is not supported in BrgemmExtKernel\n");
         l_argops.cp_unary_type  = p->argop_c->get_type();//LIBXSMM_MELTW_TYPE_UNARY_RELU;
         l_argops.ldcp           = p->argop_c->get_ldo();//l_shape.ldc;
       }
