@@ -70,6 +70,10 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
     channel_block_sizes = [bc, bk]
 
+    if has_relu and test_module != 'ext_tpp':
+        print("Error: Only ext_tpp module supports relu (as an argop for conv) but test_module = ", test_module)
+        exit()
+
     if has_bias and with_bwd and test_module == 'ext_tpp':
         print("Error: TPP PT extension module for conv supports bias only for fwd, but with_bwd = ", with_bwd)
         exit()
