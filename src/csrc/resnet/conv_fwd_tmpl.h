@@ -121,6 +121,45 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
 const int with_bias = (cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS || cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS_RELU ? 1 : 0);
 const int with_relu = (cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_RELU || cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS_RELU ? 1 : 0);
 
+//char loop_specs_str[256] = "Abcdefg";
+char loop_specs_str[256];
+std::strcpy(loop_specs_str, tuning_string.c_str());
+
+/* if there is parallelization over W, then zeroing rims (if requested) directly after brgemm will lead to multiple threads zeroing the same rim,
+   which can be avoided by doing zeroing of the rims in a separate loop after the convolution (with extra perf cost potentially)  */
+long avoid_racey_zeroing_in_rims = 0; /* by default, zeroing of the rims (if requested through zero_output_rims > 0) is done inside the conv loop */
+
+int has_W_parallelization = 0;
+for (size_t i = 0; i < strlen(loop_specs_str); i++) {
+  if (loop_specs_str[i] == 'E') {
+    has_W_parallelization++;
+    break;
+  }
+}
+
+if (has_W_parallelization && cfg.zero_fwd_output_rim && !avoid_racey_zeroing_in_rims) {
+#ifdef VERBOSE
+  printf("Warning: potentially racey zeroing of the rims will happen as zero_output_rims = %d,"
+         " has_W_parallelization = %d and avoid_racey_zeroing_in_rims = %d (0 is default)\n",
+         cfg.zero_fwd_output_rim, has_W_parallelization, avoid_racey_zeroing_in_rims);
+#endif
+}
+
+char zero_output_rims_loop_specs_str[256] = "abcd"; /* same parallelization over output as in the conv loop string except non-parallel W dimension*/
+if (has_W_parallelization) {
+  std::string tmp_nkhw_string;
+  for (size_t i = 0; i < strlen(loop_specs_str); i++) {
+    if (loop_specs_str[i] == 'A' || loop_specs_str[i] == 'a')
+      tmp_nkhw_string += loop_specs_str[i];
+    if (loop_specs_str[i] == 'C' || loop_specs_str[i] == 'c')
+      tmp_nkhw_string += loop_specs_str[i] - 1;
+    if (loop_specs_str[i] == 'D' || loop_specs_str[i] == 'd')
+      tmp_nkhw_string += 'c';
+    if (loop_specs_str[i] == 'E' || loop_specs_str[i] == 'e')
+      tmp_nkhw_string += loop_specs_str[i] - 1;
+  }
+  strcpy(zero_output_rims_loop_specs_str, tmp_nkhw_string.c_str());
+}
 
 /* in T */
 const long conv_fwd_pack_input_size         = (pack_input == 0 ? 0 : N*ofh*ofw*cfg.C);
@@ -179,6 +218,8 @@ printf("BS (vnni block size) = %d \n", BS);
   SCOPEITGEMM_DECL(BrgemmOffsetExtConvTPP<T, T>) brgemm_offset_ext_tpp;
   SCOPEIT_DECL(CpyTPP<T>)     input_pack_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>) zero_hwpad_tpp;
+  SCOPEIT_DECL(SetZeroTPP<T>) zero_wpad_tpp;
   SCOPEIT_DECL(SetZeroTPP<T>) zero_padded_hwbc_tpp;
   SCOPEIT_DECL(CpyTPP<T>)     copy_wbc_tpp;
 
@@ -198,6 +239,13 @@ printf("BS (vnni block size) = %d \n", BS);
 
   zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   zero_padded_hwbc_tpp = SCOPEIT(SetZeroTPP<T>(ifhp_physically_padded*ifwp_physically_padded*bc), EW_ZERO);
+  //l_unary_shape = libxsmm_create_meltw_unary_shape(pad_h_out*ofwp*bk, 1, pad_h_out*ofwp*bk, pad_h_out*ofwp*bk, dtype, dtype, dtype);
+  //zero_hwpad_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+  zero_hwpad_tpp = SCOPEIT(SetZeroTPP<T>(pad_h_out*ofwp*bk), EW_ZERO);
+  //l_unary_shape = libxsmm_create_meltw_unary_shape(pad_w_out*bk, 1, pad_w_out*bk, pad_w_out*bk, dtype, dtype, dtype);
+  //zero_wpad_kernel = libxsmm_dispatch_meltw_unary_v2(LIBXSMM_MELTW_TYPE_UNARY_XOR, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
+  zero_wpad_tpp = SCOPEIT(SetZeroTPP<T>(pad_w_out*bk), EW_ZERO);
+
   copy_wbc_tpp = SCOPEIT(CpyTPP<T>(1, ifw*bc, ifwp*bc, ifwp_physically_padded*bc), EW_COPY);
 
   if (cfg.avoid_fmas_in_rim == 1) {
@@ -376,16 +424,10 @@ printf("BS (vnni block size) = %d \n", BS);
   std::cout << "unused but internal avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "logical_padding = " << logical_padding << std::endl;
   std::cout << "input_padding_copy = " << input_padding_copy << std::endl;
-  std::cout << "zero_output_rim = " << cfg.zero_fwd_output_rim << std::endl;
+  std::cout << "zero_output_rims = " << cfg.zero_fwd_output_rim << std::endl;
+  std::cout << "avoid_racey_zeroing_in_rims = " << avoid_racey_zeroing_in_rims << std::endl;
+  std::cout << "has_W_parallelization = " << has_W_parallelization << std::endl;
 #endif
-
-  /* FIXME: Fix this! */
-  //char loop_specs_str[256] = "Abcdefg";
-  //char loop_specs_str[256] = "ABc";
-  //char loop_specs_str[256] = "aBC";
-
-  char loop_specs_str[256];
-  std::strcpy(loop_specs_str, tuning_string.c_str());
 
 #ifdef VERBOSE
   std::cout << "tuning_params = " << tuning_params << std::endl;
@@ -422,6 +464,13 @@ printf("BS (vnni block size) = %d \n", BS);
       LoopSpecs{0, S, s_step}},
       loop_specs_str);
 
+  auto zero_output_rims_loop = ThreadedLoop<4>({
+      LoopSpecs{0, N, n_step, true},
+      LoopSpecs{0, Kb, k_step, {k_block}},
+      LoopSpecs{0, ofh, h_step, {h_block}},
+      LoopSpecs{0, ofw, w_step}},
+      zero_output_rims_loop_specs_str);
+
 #ifdef TIMING
   t_conv_start = getTime();
 #endif
@@ -452,6 +501,7 @@ printf("BS (vnni block size) = %d \n", BS);
         [&](int* ind) {
           int i_n = ind[0], i_c = ind[1], i_k = ind[2], i_h = ind[3], i_w = ind[4], i_r = ind[5], i_s = ind[6];
 
+          DECL_VLA_PTR_PT    (T,     output,     [Kb][ofhp][ofwp][bk],   t_O);
           DECL_VLA_PTR_PT_EXT(T,     output_off, [Kb][ofhp][ofwp][bk],   t_O, (pad_h_out * ofwp * bk + pad_w_out * bk));
           DECL_VLA_PTR_PT    (T,     inp,        [Cb][ifhp][ifwp][bc],   t_I);
           DECL_VLA_PTR_PT    (T,     weight,     [Cb][R][S][bc][bk],     t_W);
@@ -612,6 +662,37 @@ printf("BS (vnni block size) = %d \n", BS);
 //#endif
 
           } /* for if-else cfg.avoid_fmas_in_rim == 0 */
+
+          if ((!has_W_parallelization || !avoid_racey_zeroing_in_rims) && cfg.zero_fwd_output_rim) {
+            //libxsmm_meltw_unary_param zero_param;
+            if (i_c == Cb - c_step && i_r == R - r_step && i_s == S - s_step) {
+              if (i_h == 0) {
+                //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, 0, 0, 0, Kb, ofhp, ofwp, bk);
+                //zero_hwpad_kernel( &zero_param );
+                zero_hwpad_tpp(output[i_n][i_k][0][0]);
+              }
+              if ( i_h == ofh - h_step) {
+                //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, pad_h_out + ofh, 0, 0, Kb, ofhp, ofwp, bk);
+                //zero_hwpad_kernel( &zero_param );
+                zero_hwpad_tpp(output[i_n][i_k][pad_h_out + ofh][0]);
+              }
+              if (i_w == 0) {
+                for (int _h = 0; _h < h_step; _h++) {
+                  //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, pad_h_out + i_h + _h, 0, 0, Kb, ofhp, ofwp, bk);
+                  //zero_wpad_kernel( &zero_param );
+                  zero_wpad_tpp(output[i_n][i_k][pad_h_out + i_h + _h][0]);
+                }
+              }
+              if (i_w == ofw - w_step) {
+                for (int _h = 0; _h < h_step; _h++) {
+                  //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, pad_h_out + i_h + _h, pad_w_out + ofw, 0, Kb, ofhp, ofwp, bk);
+                  //zero_wpad_kernel( &zero_param );
+                  zero_wpad_tpp(output[i_n][i_k][pad_h_out + i_h + _h][pad_w_out + ofw]);
+                }
+              }
+            }
+          } /* for if (zero_output_rims) = zeroing the output rims inside the main convolution's loop nest */
+
         },
         [&]() {
           if (sizeof(T) == 2)
@@ -631,6 +712,45 @@ printf("BS (vnni block size) = %d \n", BS);
                 brgemm_offset_tpp.release();
             }
         });
+
+      if (avoid_racey_zeroing_in_rims && has_W_parallelization && cfg.zero_fwd_output_rim) {
+        zero_output_rims_loop(
+          [&] (int * ind) {
+            int i_n = ind[0], i_k = ind[1], i_h = ind[2], i_w = ind[3];
+
+            //libxsmm_meltw_unary_param zero_param;
+            DECL_VLA_PTR_PT    (T,     output,     [Kb][ofhp][ofwp][bk],   t_O);
+
+            if (i_h == 0) {
+              //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, 0, 0, 0, Kb, ofhp, ofwp, bk);
+              //zero_hwpad_kernel( &zero_param );
+              zero_hwpad_tpp(output[i_n][i_k][0][0]);
+            }
+            if ( i_h == ofh - h_step) {
+              //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, pad_h_out + ofh, 0, 0, Kb, ofhp, ofwp, bk);
+              //zero_hwpad_kernel( &zero_param );
+              zero_hwpad_tpp(output[i_n][i_k][pad_h_out + ofh][0]);
+            }
+            if (i_w == 0) {
+              for (int _h = 0; _h < h_step; _h++) {
+                //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, pad_h_out + i_h + _h, 0, 0, Kb, ofhp, ofwp, bk);
+                //zero_wpad_kernel( &zero_param );
+                zero_wpad_tpp(output[i_n][i_k][pad_h_out + i_h + _h][0]);
+              }
+            }
+            if (i_w == ofw - w_step) {
+              for (int _h = 0; _h < h_step; _h++) {
+                //zero_param.out.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm, i_n, i_k, pad_h_out + i_h + _h, pad_w_out + ofw, 0, Kb, ofhp, ofwp, bk);
+                //zero_wpad_kernel( &zero_param );
+                zero_wpad_tpp(output[i_n][i_k][pad_h_out + i_h + _h][pad_w_out + ofw]);
+              }
+            }
+
+          },
+          [&]() {},
+          [&]() {});
+      } /* end of an extra loop nest for zeroing out output rims outside main convolution's loop nest */
+
     } /* end of the scope with recorded parallel for */
   } /* end of the conv_fwd_scale scope */
 
