@@ -32,6 +32,8 @@ parser.add_argument('--test-data-file', default='resnet50_conv_test_data_for_bot
 
 parser.add_argument('--basic-sizes', nargs="+", default=None, type=int, help='N H W inc outc stride R for the conv')
 
+parser.add_argument('--padding-vector', nargs="+", default=None, type=int, help='pad_h pad_w pad_h_in pad_w_in pad_h_out pad_w_out')
+
 parser.add_argument("--logical-padding", action="store_true", default=False, help='if true, runs with logical padding', dest='logical_padding')
 
 parser.add_argument('--niters', type=int, default=100, help='number of timed iterations')
@@ -50,6 +52,8 @@ parser.add_argument("--with-bias", action="store_true", default=False, help='if 
 
 parser.add_argument("--with-relu", action="store_true", default=False, help='if true, enables relu (as an argop) in the conv', dest='with_relu')
 
+parser.add_argument("--zeroing-output-rim", action="store_true", default=False, help='if true, checks that the conv zeroes out the output rim', dest='zeroing_output_rim')
+
 #import pdb
 
 global_counter = 0
@@ -58,17 +62,27 @@ global_counter = 0
 
 def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, has_relu, padding_mode, opt_dtype, ref_dtype,
                   with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, tuning_params, tuning_string, niters, niters_warmup, preallocated_output,
-                  logical_padding, use_hardcoded_tunings):
+                  logical_padding, use_hardcoded_tunings,
+                  padding_vector, zeroing_output_rims):
     time_start = time.time()
-    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias has_relu padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output logical_padding use_hardcoded_tunings",
+    print("debug: run_test_conv called with N H W inc outc bc bk R stride padding dilation groups has_bias has_relu padding_mode opt_dtype ref_dtype with_bwd perf_fwd perf_bwd_d perf_bwd_w test_module niters niters_warmup preallocated_output logical_padding use_hardcoded_tunings padding_vector zeroing_output_rims",
             N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, has_relu, padding_mode,
             opt_dtype, ref_dtype,
             with_bwd, perf_fwd, perf_bwd_d, perf_bwd_w, test_module, niters, niters_warmup,
-            preallocated_output, logical_padding, use_hardcoded_tunings)
+            preallocated_output, logical_padding, use_hardcoded_tunings,
+            padding_vector, zeroing_output_rims)
 
     global global_counter
 
     channel_block_sizes = [bc, bk]
+
+    if padding_vector and test_module != 'ext_tpp':
+        print("Error: Only ext_tpp module supports full (6-entry) padding vector but test_module = ", test_module)
+        exit()
+
+    if zeroing_output_rims and test_module != 'ext_tpp':
+        print("Error: Only ext_tpp module supports zeroing_output_rims = True but test_module = ", test_module)
+        exit()
 
     if has_relu and test_module != 'ext_tpp':
         print("Error: Only ext_tpp module supports relu (as an argop for conv) but test_module = ", test_module)
@@ -161,11 +175,11 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
                                           padding_mode=padding_mode, dtype=opt_dtype, bc=bc, bk=bk)
     elif test_module == 'ext_tpp':
         print("info: testing TPP module from extensions (tpp_pytorch_extension)")
-        print("caution: TPP module from extensions only works with physical padding")
         opt_conv = conv_py.TPPConv2dTPP(inc, outc, R, stride, padding, dilation, groups, bias=has_bias, relu=has_relu,
                                         padding_mode=padding_mode, dtype=opt_dtype, bc=bc, bk=bk,
-                                        logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings)
-        opt_has_physical_padding = (not logical_padding) and (padding != 0)
+                                        logical_padding=logical_padding, use_hardcoded_tunings=use_hardcoded_tunings,
+                                        padding_vector=padding_vector, zero_output_rims=zeroing_output_rims)
+        opt_has_physical_padding = (not logical_padding) and ((padding_vector is None and padding != 0) or (padding_vector is not None and sum(padding_vector[2:6]) > 0))
     elif test_module == 'handlebased':
         print("info: testing handle-based module")
         if opt_dtype != torch.float:
@@ -186,10 +200,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     time_start = time.time()
 
     if opt_has_physical_padding != False:
-        #input_hw_padding  = [opt_padding[0], opt_padding[0], opt_padding[1], opt_padding[1]]
-        #output_hw_padding = [opt_padding[2], opt_padding[2], opt_padding[3], opt_padding[3]]
-        input_hw_padding  = [padding, padding, padding, padding]
-        output_hw_padding = [padding, padding, padding, padding]
+        if padding_vector is None:
+            input_hw_padding  = [padding, padding, padding, padding]
+            output_hw_padding = [padding, padding, padding, padding]
+        else:
+            input_hw_padding  = [padding_vector[2], padding_vector[3], padding_vector[2],  padding_vector[3]]
+            output_hw_padding = [padding_vector[4], padding_vector[5], padding_vector[4],  padding_vector[5]]
         print("input_hw_padding = ",  input_hw_padding)
         print("output_hw_padding = ", output_hw_padding)
     else:
@@ -330,7 +346,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
     outH = nchw_shape[2] - output_hw_padding[0] - output_hw_padding[1]
     outW = nchw_shape[3] - output_hw_padding[2] - output_hw_padding[3]
 
-    if opt_has_physical_padding != False:
+    if opt_has_physical_padding != False and not zeroing_output_rims:
         print("debug: Zeroing the rim of the output tensor on the Python side")
         y1_zeroed_rim = torch.zeros_like(y1_unblocked)
         print("range = ", 'full', ' ', 'full', output_hw_padding[0], outH + output_hw_padding[0], output_hw_padding[2], outW + output_hw_padding[2])
@@ -362,7 +378,7 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         atol=1.0e-3
 
     # Output (fwd)
-    validation_check_fwd_failed = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", outW, output_hw_padding, zero_rim_for_opt = True, rtol=rtol, atol=atol)
+    validation_check_fwd_failed = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y", outW, output_hw_padding, zero_rim_for_opt = not zeroing_output_rims, rtol=rtol, atol=atol)
 
     time_end = time.time()
     print("Validating tensors for fwd took (s) ", time_end - time_start)
@@ -505,9 +521,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         [None, opt_conv.Cblock, None, None],
     )
 
-    if perf_fwd:
+    if perf_fwd and (niters_warmup > 0 or niters > 0):
 
-        inputs = [blocked_input, opt_conv.weight]
+        if has_bias:
+            inputs = [blocked_input, opt_conv.weight, opt_conv.bias]
+        else:
+            inputs = [blocked_input, opt_conv.weight]
 
         warmup_niter = niters_warmup
         #logging.info("warmup_niter = ", warmup_niter)
@@ -583,9 +602,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
 
         print("PERFDUMP,FP,na3," + str(N) + "," + str(N) + "," + str(inc) + "," + str(outc) + "," + str(H) + "," + str(W) + "," + str(R) + "," + str(R) + "," + str(stride) + "," + str(padding) + "," + str(padding) + "," + str(sum_timings / timed_niters) + "," + str(gflop/(sum_timings / timed_niters)))
 
-    if perf_bwd_d:
+    if perf_bwd_d and (niters_warmup > 0 or niters > 0):
 
-        inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
+        if has_bias:
+            inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight, opt_conv.bias]
+        else:
+            inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
 
         warmup_niter = niters_warmup
         #logging.info("warmup_niter = ", warmup_niter)
@@ -638,8 +660,12 @@ def run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, grou
         sum_timings = tuning_timings[2]
         print("timing diff vs conv_bwd_d_tmpl (abs and %) = ", (time_end - time_start - sum_timings), (time_end - time_start - sum_timings) / (time_end - time_start) * 100)
 
-    if perf_bwd_w:
-        inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
+    if perf_bwd_w and (niters_warmup > 0 or niters > 0):
+
+        if has_bias:
+            inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight, opt_conv.bias]
+        else:
+            inputs = [y1_grad_zeroed_rim, blocked_input, opt_conv.weight]
 
         warmup_niter = niters_warmup
         #logging.info("warmup_niter = ", warmup_niter)
@@ -724,7 +750,8 @@ def main():
         padding_mode='zeros'
         run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, args.with_relu, padding_mode, opt_dtype, ref_dtype,
                       args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
-                      args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings)
+                      args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings,
+                      args.padding_vector, args.zeroing_output_rim)
     else:
         with open(args.test_data_file) as f:
             contents = f.readlines()
@@ -737,7 +764,8 @@ def main():
                 [N, H, W, inc, outc, R, stride, padding, dilation, groups] = list(integer_map)
                 run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, args.with_bias, args.with_relu, padding_mode, opt_dtype, ref_dtype,
                               args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module,
-                              args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings)
+                              args.tuning_params, args.tuning_string, args.niters, args.niters_warmup, args.preallocated_output, args.logical_padding, args.use_hardcoded_tunings,
+                              args.padding_vector, args.zeroing_output_rim)
     exit()
 
     # Just a single size run
@@ -759,7 +787,7 @@ def main():
     W=224
 
     run_test_conv(N, H, W, inc, outc, bc, bk, R, stride, padding, dilation, groups, has_bias, has_relu, padding_mode, opt_dtype, ref_dtype,
-                  args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module)
+                  args.with_bwd, args.perf_fwd, args.perf_bwd_d, args.perf_bwd_w, args.test_module, args.padding_vector, args.zeroing_output_rim)
 
 if __name__ == "__main__":
     args = parser.parse_args()

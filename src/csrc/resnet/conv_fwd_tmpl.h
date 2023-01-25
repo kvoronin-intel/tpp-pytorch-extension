@@ -253,30 +253,19 @@ printf("BS (vnni block size) = %d \n", BS);
     brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     brgemm_1less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-    //brgemm_1less_tpp = SCOPEITGEMM_REF((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     brgemm_2less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-2, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     if (with_bias) {
-      //auto l_binary_shape = libxsmm_create_meltw_binary_shape(bk, w_gemm_pixels, bk, bk, bk, dtype, dtype, dtype, LIBXSMM_DATATYPE_F32);
-      //colbias_add_kernel = libxsmm_dispatch_meltw_binary_v2( LIBXSMM_MELTW_TYPE_BINARY_ADD, l_binary_shape, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_1);
       addbias_tpp = SCOPEIT(AddBiasConvTPP<T>(w_gemm_pixels, bk, bk), BIAS); /* gemm_n, bk because of the row-major for binary */
     }
     if (with_relu) {
       relu_tpp = SCOPEIT((ReLUFwdTPP<T,T>(w_gemm_pixels, bk, bk, bk, false /* bm */)), EW_UNARY); /* gemm_n, bk because of the row-major for unary */
-//#ifdef __x86_64__
-//      auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk, w_gemm_pixels, bk, bk, dtype, dtype, dtype);
-//#else
-//      auto l_unary_shape = libxsmm_create_meltw_unary_shape(bk, w_gemm_pixels, bk, bk, dtype, dtype, LIBXSMM_DATATYPE_F32); /* there is no bf16 compute relu on non-x86 */
-//#endif
-//      relu_kernel = libxsmm_dispatch_meltw_unary_v2( LIBXSMM_MELTW_TYPE_UNARY_RELU, l_unary_shape, LIBXSMM_MELTW_FLAG_UNARY_NONE);
     }
 
   } else if (R == 1 && S == 1) {
     if (with_bias || with_relu) {
       if (with_bias) {
-        //auto l_binary_shape = libxsmm_create_meltw_binary_shape(bk, w_gemm_pixels, bk, bk, bk, dtype, dtype, dtype, LIBXSMM_DATATYPE_F32);
-        //colbias_add_kernel = libxsmm_dispatch_meltw_binary_v2( LIBXSMM_MELTW_TYPE_BINARY_ADD, l_binary_shape, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_1);
         brgemm_addbias_tpp = AddBiasConvTPP<T>(w_gemm_pixels, bk, bk); /* gemm_n, bk because of the row-major for binary */
       }
       if (with_relu)
@@ -299,48 +288,8 @@ printf("BS (vnni block size) = %d \n", BS);
         brgemm_ext_tpp = SCOPEITGEMM((BrgemmExtConvTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/,
                                       NULL, NULL, (with_relu ? &brgemm_relu_tpp : NULL), (with_bias ? &brgemm_addbias_tpp : NULL))));
       }
-    }
-
-/*
-    if (with_bias || with_relu) {
-      libxsmm_gemm_ext_unary_argops l_argops;
-      memset( &l_argops, 0, sizeof(libxsmm_gemm_ext_unary_argops) );
-
-      libxsmm_gemm_ext_binary_postops l_postops;
-      memset( &l_postops, 0, sizeof(libxsmm_gemm_ext_binary_postops) );
-
-      if (with_bias)
-        l_postops = libxsmm_create_gemm_ext_binary_postops(bk, dtype, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_0);
-      if (with_relu) {
-        l_argops.cp_unary_type  = LIBXSMM_MELTW_TYPE_UNARY_RELU;
-        l_argops.ldcp           = l_shape.ldc;
-      }
-      brgemm_ext_kernel.gemm_ext  = libxsmm_dispatch_brgemm_ext_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig, l_argops, l_postops );
-    }
-*/
-#if 0
-  if ((R == 1 && S == 1) || (cfg.avoid_fmas_in_rim == 1)) {
-    if (pack_input == 0) {
-      brgemm_tpp  = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n  , gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-    } else {
-      if (cfg.avoid_fmas_in_rim) {
-        printf("Error: cfg.avoid_fmas_in_rim = %d is incompatible with pack_input = %d\n", cfg.avoid_fmas_in_rim, pack_input);
-        exit(-1);
-      }
-      if (R != 1 || S != 1) {
-        printf("Error: R = %d and S = %d are incompatible with pack_input = %d\n", R, S, pack_input);
-        exit(-1);
-      }
-      input_pack_tpp = SCOPEIT(CpyTPP<T>(w_gemm_pixels, bc, bc*stride_w, bc), EW_COPY); /* gemm_n, bc because of the row-major for unary */
-
-      brgemm_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*ofh*ofw, R*S*bc*bk, bc, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-    }
-
-    brgemm_1less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-    //brgemm_1less_tpp = SCOPEITGEMM_REF((BrgemmTPP<T,T>(gemm_n-1, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-    brgemm_2less_tpp = SCOPEITGEMM((BrgemmTPP<T,T>(gemm_n-2, gemm_m, gemm_k, bc*ifhp*ifwp, R*S*bc*bk, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
-#endif
-  } else {
+    } /* else-if for packed_input */
+  } else { /* for cfg.avoid_fmas_in_rim == 1 and 1x1 convolutions */
     brgemm_offset_tpp  = SCOPEITGEMM((BrgemmOffsetTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/)));//, BRGEMM);
 
     if (with_bias || with_relu) {
@@ -354,24 +303,6 @@ printf("BS (vnni block size) = %d \n", BS);
       brgemm_offset_ext_tpp = SCOPEITGEMM((BrgemmOffsetExtConvTPP<T,T>(gemm_n, gemm_m, gemm_k, bc*stride_w, bk, bk, beta, 0, 0 /* c_vnni*/, Cb_step * r_step * s_step /*brcount*/,
                                             NULL, NULL, (with_relu ? &brgemm_relu_tpp : NULL), (with_bias ? &brgemm_addbias_tpp : NULL))));
     }
-
-/*
-    if (with_bias || with_relu) {
-      libxsmm_gemm_ext_unary_argops l_argops;
-      memset( &l_argops, 0, sizeof(libxsmm_gemm_ext_unary_argops) );
-
-      libxsmm_gemm_ext_binary_postops l_postops;
-      memset( &l_postops, 0, sizeof(libxsmm_gemm_ext_binary_postops) );
-
-      if (with_bias)
-        l_postops = libxsmm_create_gemm_ext_binary_postops(bk, dtype, LIBXSMM_MELTW_TYPE_BINARY_ADD, LIBXSMM_MELTW_FLAG_BINARY_BCAST_COL_IN_0);
-      if (with_relu) {
-        l_argops.cp_unary_type  = LIBXSMM_MELTW_TYPE_UNARY_RELU;
-        l_argops.ldcp           = l_shape.ldc;
-      }
-      brgemm_ext_kernel.gemm_ext  = libxsmm_dispatch_brgemm_ext_v2( l_shape, l_flags, l_prefetch_flags, l_brconfig, l_argops, l_postops );
-    }
-*/
 
     A_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
     B_offsets = std::make_unique<unsigned long long[]>(Cb * R * S);
@@ -398,7 +329,7 @@ printf("BS (vnni block size) = %d \n", BS);
         }
       }
     } /* outer loop for filling the offsets */
-  }
+  } /* else-if-else for cfg.avoid_fmas_in_rim, 1x1 (strided) and non-1x1 convolutions (offset) */
 
   if ( (h_in_gemm > 1) && (w_block != 1) ) {
     printf("Invalid input GEMM config: When multiple H pixels are handled in the gemm, then the full ofw should be also used as gemm_n...\n");
@@ -445,6 +376,18 @@ printf("BS (vnni block size) = %d \n", BS);
           pad_h_in, pad_w_in, pad_h_out, pad_w_out,
           cfg.zero_fwd_output_rim,
           with_bias, with_relu);
+  printf("test_conv_ext fwd string: OMP_NUM_THREADS=%d USE_BF16=%d python -u test_conv_ext.py --test-module ext_tpp --use-bf16-opt --perf-fwd --bc %d --bk %d --niters 1000  --niters-warmup 100 %s --basic-sizes %d %d %d %d %d %d %d  %s --padding-vector %d %d %d %d %d %d  %s %s --tuning-params %d %d %d %d %d %d  --tuning-string %s  %s \n",
+          (int)N, (sizeof(T) == 2 ? 1 : 0),
+          bc, bk,
+          ((with_bias || with_relu) ? "" : "--with-bwd"),
+          (int)N, ifh, ifw, cfg.C, cfg.K, stride_h, R,
+          (logical_padding ? "--logical-padding" : ""),
+          pad_h, pad_w, pad_h_in, pad_w_in, pad_h_out, pad_w_out,
+          (with_bias ? "--with-bias" : ""),
+          (with_relu ? "--with-relu" : ""),
+          h_block, w_block, c_block, k_block, h_in_gemm, pack_input,
+          loop_specs_str,
+          (cfg.zero_fwd_output_rim != 0 ? "--zeroing-output-rim" : ""));
 #endif
 
   //return t_O;
@@ -522,7 +465,7 @@ printf("BS (vnni block size) = %d \n", BS);
               DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
               for (int _br = 0; _br < Cb; _br++) {
                 for (int _h = 0; _h < h_step; _h++) {
-                  input_pack_tpp(inp[i_n][_br][(i_h+_h)*stride_h][i_w * stride_w], packed_inp[i_n][_br][i_h+_h][i_w]);
+                  input_pack_tpp(inp[i_n][_br][pad_h_in - pad_h + (i_h+_h)*stride_h][pad_w_in - pad_w + i_w * stride_w], packed_inp[i_n][_br][i_h+_h][i_w]);
                 }
               }
             }
@@ -536,7 +479,7 @@ printf("BS (vnni block size) = %d \n", BS);
               if (input_padding_copy)
                 A = padded_inp [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s];
               else
-                A = inp        [i_n][i_c][i_h * stride_h + i_r][i_w * stride_w + i_s];
+                A = inp        [i_n][i_c][pad_h_in - pad_h + i_h * stride_h + i_r][pad_w_in - pad_w + i_w * stride_w + i_s];
             }
             else {
               DECL_VLA_PTR_PT(T, packed_inp, [Cb][ofh][ofw][bc], t_scratch_conv);
@@ -641,25 +584,14 @@ printf("BS (vnni block size) = %d \n", BS);
               }
             } /* if-else if for the filter size (7x7 and 3x3) */
 
-//#if 0
             if ((with_bias || with_relu) && i_r == R - r_step && i_s == S - s_step && i_c == Cb - c_step) {
               if (with_bias) {
-//                libxsmm_meltw_binary_param binary_param;
-//                binary_param.in0.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
-//                binary_param.in1.primary = (void*)LIBXSMM_ACCESS_RAW(2, sizeof(DType), bias_libxsmm, i_k, 0, bk);
-//                binary_param.out.primary = binary_param.in0.primary;
-//                colbias_add_kernel( &binary_param );
                 addbias_tpp(bias[i_k], output_off[i_n][i_k][i_h][i_w]);
               }
               if (with_relu) {
-//                libxsmm_meltw_unary_param unary_param;
-//                unary_param.in.primary = (void*)LIBXSMM_ACCESS_RAW(5, sizeof(DType), output_libxsmm_off, i_n, i_k, i_h, i_w, 0, Kb, ofhp, ofwp, bk);
-//                unary_param.out.primary = unary_param.in.primary;
-//                relu_kernel( &unary_param );
                 relu_tpp(output_off[i_n][i_k][i_h][i_w], output_off[i_n][i_k][i_h][i_w]);
               }
             } /* handling the fusion of bias/relu */
-//#endif
 
           } /* for if-else cfg.avoid_fmas_in_rim == 0 */
 

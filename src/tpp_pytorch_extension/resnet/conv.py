@@ -31,9 +31,6 @@ class TPPConvTPP(Function):
                 tuning_timings_fwd = np.zeros(16, dtype=np.float32)
             output = conv_cpp.conv_fwd_ext(param_struct, inputs, tuning_params_fwd, tuning_string_fwd, tuning_timings_fwd)
 
-        #print("dbg: in TPPConvTPP param_struct.fuse_type = ", param_struct.fuse_type)
-
-        #output = conv_cpp.conv_fwd(param_struct, inputs)
         #if param_struct.fuse_type == 1 or param_struct.fuse_type == 3: # Cannot easily extract fuse_type from conv config because it is an enum
         if len(inputs) == 3:
             (input, weight, bias) = inputs
@@ -176,7 +173,7 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
     r"""PCL Conv2d module for using libxsmm Conv TPP"""
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, relu=False, padding_mode='zeros', dtype=torch.float,
-                 bc=None, bk=None, logical_padding=None, use_hardcoded_tunings=None):
+                 bc=None, bk=None, logical_padding=None, use_hardcoded_tunings=None, padding_vector=None, zero_output_rims=False):
 
         if padding_mode != 'zeros':
             print("Error: the dummy argument padding_mode must be `zeros` in TPPConv2dTPP")
@@ -213,16 +210,18 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
         #self.stride       = _pair(stride)
         self.stride       = stride
         #self.padding      = _pair(padding)
-        self.pad_h        = padding
-        self.pad_w        = padding
         self.strides      = stride
         self.pads         = padding
         #self.dilation     = _pair(dilation)
+
+        self.padding_vector = padding_vector
 
         self.logical_padding = logical_padding if logical_padding is not None else False
         self.use_hardcoded_tunings = use_hardcoded_tunings
 
         self.relu = relu
+
+        self.zero_output_rims = zero_output_rims
 
         """
         # extra hack for the first convolution in resnet-50 which requires a logical padding and hardcoded block sizes
@@ -234,12 +233,26 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
 
         #print("dbg: for R = ", self.R, " S = ", self.S, " in the constructor of TPPConv2dTPP logical padding is set to ", self.logical_padding)
 
-        self.pad_h_in = 0 if self.logical_padding else self.pad_h
-        self.pad_w_in = 0 if self.logical_padding else self.pad_w
-        self.pad_h_out = 0 if self.logical_padding else self.pad_h
-        self.pad_w_out = 0 if self.logical_padding else self.pad_w
+        if self.padding_vector is None:
+            self.pad_h        = padding
+            self.pad_w        = padding
+            self.pad_h_in     = 0 if self.logical_padding else self.pad_h
+            self.pad_w_in     = 0 if self.logical_padding else self.pad_w
+            self.pad_h_out    = 0 if self.logical_padding else self.pad_h
+            self.pad_w_out    = 0 if self.logical_padding else self.pad_w
+        else:
+            self.pad_h        = self.padding_vector[0]
+            self.pad_w        = self.padding_vector[1]
+            self.pad_h_in     = self.padding_vector[2]
+            self.pad_w_in     = self.padding_vector[3]
+            self.pad_h_out    = self.padding_vector[4]
+            self.pad_w_out    = self.padding_vector[5]
 
-        print("C, C_pad, pad_h_in, pad_w_in, pad_h_out, pad_w_out = ", self.C, self.C_pad, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out)
+        if self.logical_padding and (self.pad_h_in != 0 or self.pad_w_in != 0 or self.pad_h_out != 0 or self.pad_w_out != 0):
+            print("Error: logical padding is True but input or output physical padding is nonzero!")
+            exit()
+
+        #print("dbg: C, C_pad, pad_h_in, pad_w_in, pad_h_out, pad_w_out = ", self.C, self.C_pad, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out)
 
         self.config       = None
 
@@ -268,8 +281,8 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
                 print("Error: TPPConv2dTPP constructor uses conv_get_feature_map_blocks() which only can produce 2 as VNNI blocking factor for bf16 and 1 for fp32")
                 exit()
 
-        print("debug: preset_blocksizes = ", self.preset_blocksizes)
-        print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
+        #print("debug: preset_blocksizes = ", self.preset_blocksizes)
+        #print("debug: Cblock, Kblock, lp_block = ", self.Cblock, self.Kblock, self.lp_block)
 
         if self.use_bf16:
             self.weight.set_blocking_param(
@@ -336,21 +349,12 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
         self.H = input.size(2) - 2 * self.pad_h_in
         self.W = input.size(3) - 2 * self.pad_w_in
 
-        #input = input.to(global_dtype).contiguous()
-        #weight = self.weight.to(global_dtype) #switched to self.weight below
-
-        #if self.C != self.C_pad:
         if input.shape[1] != self.C_pad: # NCHW format for the input assumed (C is the second dim at least)
           pad_shape = list(input.shape)
-          #pad_shape[-1] = 1
-          #pad_shape[1] = 1
           pad_shape[1] = self.C_pad - input.shape[1]
-          #print("debug: pad_shape = ", pad_shape)
           self.zero_pad = input.new_zeros(pad_shape)
 
-        #if self.C != self.C_pad:
         if input.shape[1] != self.C_pad:
-          #input = torch.cat((input, self.zero_pad), dim=-1)
           input = torch.cat((input, self.zero_pad), dim=1)
 
         if N != self.N:
@@ -375,6 +379,9 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
                                                   self.pad_h, self.pad_w, self.pad_h_in, self.pad_w_in, self.pad_h_out, self.pad_w_out,
                                                   self.stride, fuse_type, 0 if self.dtype == torch.float else 1)
 
+            if self.zero_output_rims:
+                self.config.zero_fwd_output_rim = 1
+
         if self.use_bf16 and self.bias is not None and self.bias.dtype != torch.bfloat16:
             self.bias.data = self.bias.data.to(torch.bfloat16)
 
@@ -383,8 +390,6 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
             self.blocked_input_signature,
             [None, self.Cblock, None, None],
         )
-
-        #output_size = pcl_cgbp_cpp.get_conv_tensor_layout(self.xsmm_handle.handle, "output");
 
         if self.bias is not None:
             inputs = [blocked_input, self.weight, self.bias]
@@ -399,7 +404,6 @@ class TPPConv2dTPP(BlockedModule, pytorch_conv2d):
 
         #for i in range(10):
         #    print("i blocked_output = ", i, blocked_output.unblocked_tensor().view(-1)[i].item())
-
 
         return blocked_output
 

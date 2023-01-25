@@ -483,6 +483,7 @@ REGISTER_SUBMODULE(_conv, m) {
       "Pcl CONV get_feature_map_blocks");
   py::class_<conv_config>(m, "conv_config")
   .def(py::init<>())
+  .def_readwrite("zero_fwd_output_rim",   &conv_config::zero_fwd_output_rim)
   .def_readwrite("pad_h",   &conv_config::pad_h);
   //.def_readwrite("initialized", &conv_config::initialized);
   m.def("conv_setup", &conv_setup, "Pcl CONV setup (with internally computed block sizes)");
