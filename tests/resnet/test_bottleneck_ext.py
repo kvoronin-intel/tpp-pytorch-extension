@@ -46,6 +46,8 @@ parser.add_argument('--channel-block-size', type=int, default=None, dest='channe
 parser.add_argument('--test-data-file', default='resnet50_bottleneck_test_data_56thr.data', type=str,
                     help='file to read test input data from', dest='test_data_file')
 
+parser.add_argument('--inference-mode', action="store_true", default=False, dest='inference_mode')
+
 #import pdb
 
 # When physical padding is on, rims can be nans
@@ -56,11 +58,72 @@ def gn_init(m, zero_init=False):
     m.weight.data.fill_(0. if zero_init else 1.)
     m.bias.data.zero_()
 
+def set_inference_mode(module):
+    print("dbg: folding: calling set_inference_mode() for the module = ", module, type(module))
+    #Given a model, set inference attribute to True in all bottleneck layers
+    if hasattr(module, "enable_inference_mode"):
+        print("dbg: folding: setting inference mode, module, type(module) = ", module,  type(module))
+        module.enable_inference_mode()
+    for name, child_module in module.named_children():
+        set_inference_mode(child_module)
+    return
+
+def replace_batchnorms_with_identities(module):
+    print("dbg: folding: calling replace_batchnorm_with_identities for the module = ", module, type(module))
+    #Given a model, replace all BatchNorm2d layers with Identity layers
+    if isinstance(module, torch.nn.BatchNorm2d) or isinstance(module, tpp_pytorch_extension.resnet.batchnorm.TPPBatchNormTPP):
+        print("dbg: folding: replacing batchnorm with identity, module, type(module) = ", module,  type(module))
+        return torch.nn.Identity()
+    for name, child_module in module.named_children():
+        child_module_mod = replace_batchnorms_with_identities(child_module)
+        setattr(module, name, child_module_mod)
+    return module
+
+def fold_batchnorm(model):
+    # Fold the batchnorm and reset BN params
+    model.eval()
+    conv = None
+    conv_name = ""
+    bn   = None
+    for name,module in model.named_modules():
+        print("dbg: folding: name, module, type(module) = ", name, module, type(module))
+        if type(module) in [torch.nn.Conv2d, tpp_pytorch_extension.resnet.conv.TPPConv2dTPP]:
+            conv = module
+            conv_name = name
+        if type(module) in [torch.nn.BatchNorm2d, tpp_pytorch_extension.resnet.batchnorm.TPPBatchNormTPP]:
+            bn = module.type(conv.weight.dtype)
+            # Fusing when batch norm layer is encountered
+            #print("dbg: conv bias before folding = ", conv.bias)
+            #print("dbg: conv weight dtype before folding = ", conv.weight.dtype)
+            fused_conv = torch.nn.utils.fusion.fuse_conv_bn_eval(conv,bn)
+            #print("dbg: conv bias after folding = ", fused_conv.bias)
+            #print("dbg: conv weight dtype after folding = ", fused_conv.weight.dtype)
+            #print("dbg: conv bias dtype after folding = ", fused_conv.bias.dtype)
+
+            # Copy weight and bias to conv
+            with torch.no_grad():
+                conv.weight.data.copy_(fused_conv.weight.data)
+                if conv.bias is not None:
+                    conv.bias.data.copy_(fused_conv.bias.data)
+                else:
+                    conv.bias = fused_conv.bias
+
+    #exit()
+
+    replace_batchnorms_with_identities(model)
+
+    set_inference_mode(model)
+
+    return model
+
+
 def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf,
                         test_module, ref_module,
-                        use_hardcoded_tunings, channel_block_size):
-    print("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf test_module ref_module use_hardcoded_tunings channel_block_size = ",
-            N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module, use_hardcoded_tunings, channel_block_size)
+                        use_hardcoded_tunings, channel_block_size,
+                        inference_mode=False):
+    print("debug: run_test_bottleneck called with N H W inc outc stride eps expansion has_downsample use_physical_3x3_padding use_groupnorm opt_dtype ref_dtype with_perf test_module ref_module use_hardcoded_tunings channel_block_size inference_mode = ",
+            N, H, W, inc, outc, stride, eps, expansion, has_downsample, use_physical_3x3_padding, use_groupnorm, opt_dtype, ref_dtype, with_perf, test_module, ref_module,
+            use_hardcoded_tunings, channel_block_size, inference_mode)
 
     pcl_cgbp.init_libxsmm()
 
@@ -143,6 +206,10 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
         print("ref_module not supported, ref_module = ", ref_module)
         exit()
 
+    if inference_mode:
+        print("Folding batchnorm in torch_bottleneck")
+        torch_bottleneck = fold_batchnorm(torch_bottleneck)
+
     print("Saving initialized PT-based bottleneck")
     torch.save(torch_bottleneck.state_dict(), 'checkpoint_ref_bottleneck.pth.tar')
 
@@ -162,6 +229,10 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
     else:
         print("test_module not supported, test_module = ", test_module)
         exit()
+
+    if inference_mode:
+        print("Folding batchnorm in opt_bottleneck")
+        opt_bottleneck = fold_batchnorm(opt_bottleneck)
 
     print("Loading initialized bottleneck from a checkpoint checkpoint_ref_bottleneck.pth.tar")
     checkpoint = torch.load('checkpoint_ref_bottleneck.pth.tar')
@@ -214,48 +285,52 @@ def run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsamp
 
     validation_check_failed1 = not compare_padded_tensors(y1.unblocked_tensor(), y2, "Y (Out)", rtol=rtol, atol=atol)
 
-    z1.backward(retain_graph=True)
-    z2.backward(retain_graph=True)
-    #exit()
-
-    # X gradient
-
-    validation_check_failed2 = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
-
-    # Weight gradients for batchnorms
-
-    validation_check_failed3 = not compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
-    validation_check_failed4 = not compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
-    validation_check_failed5 = not compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
-    if has_downsample:
-        validation_check_failed6 = not compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
+    if inference_mode:
+        validation_checks_failed = validation_check_failed1
     else:
-        validation_check_failed6 = False
+        z1.backward(retain_graph=True)
+        z2.backward(retain_graph=True)
+        #exit()
 
-    # Weight gradients for convs
+        # X gradient
 
-    validation_check_failed7 = not compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
-    validation_check_failed8 = not compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
-    validation_check_failed9 = not compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
-    if has_downsample:
-        validation_check_failed10 = not compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
-    else:
-        validation_check_failed10 = False
+        validation_check_failed2 = not compare_padded_tensors(x1.grad, x2.grad, "X Grad", rtol=rtol, atol=atol)
 
-    validation_checks_failed = validation_check_failed1 or validation_check_failed2 or validation_check_failed3 or validation_check_failed4 or validation_check_failed5 or validation_check_failed6 or validation_check_failed7 or validation_check_failed8 or validation_check_failed9 or validation_check_failed10
+        # Weight gradients for batchnorms
+
+        validation_check_failed3 = not compare_weight_grads( opt_bottleneck.bn3.weight.grad, torch_bottleneck.bn3.weight.grad, "bn3", rtol=rtol, atol=atol)
+        validation_check_failed4 = not compare_weight_grads( opt_bottleneck.bn2.weight.grad, torch_bottleneck.bn2.weight.grad, "bn2", rtol=rtol, atol=atol)
+        validation_check_failed5 = not compare_weight_grads( opt_bottleneck.bn1.weight.grad, torch_bottleneck.bn1.weight.grad, "bn1", rtol=rtol, atol=atol)
+        if has_downsample:
+            validation_check_failed6 = not compare_weight_grads( opt_bottleneck.downsample2.weight.grad, torch_bottleneck.downsample2.weight.grad, "bn4", rtol=rtol, atol=atol)
+        else:
+            validation_check_failed6 = False
+
+        # Weight gradients for convs
+
+        validation_check_failed7 = not compare_weight_grads( opt_bottleneck.conv3.weight.grad, torch_bottleneck.conv3.weight.grad, "conv3", rtol=rtol, atol=atol)
+        validation_check_failed8 = not compare_weight_grads( opt_bottleneck.conv2.weight.grad, torch_bottleneck.conv2.weight.grad, "conv2", rtol=rtol, atol=atol)
+        validation_check_failed9 = not compare_weight_grads( opt_bottleneck.conv1.weight.grad, torch_bottleneck.conv1.weight.grad, "conv1", rtol=rtol, atol=atol)
+        if has_downsample:
+            validation_check_failed10 = not compare_weight_grads( opt_bottleneck.downsample1.weight.grad, torch_bottleneck.downsample1.weight.grad, "conv4", rtol=rtol, atol=atol)
+        else:
+            validation_check_failed10 = False
+
+        validation_checks_failed = validation_check_failed1 or validation_check_failed2 or validation_check_failed3 or validation_check_failed4 or validation_check_failed5 or validation_check_failed6 or validation_check_failed7 or validation_check_failed8 or validation_check_failed9 or validation_check_failed10
     if validation_checks_failed:
         print("Validation FAILED")
         print("Details:")
         print("validation_check_failed1  = ", validation_check_failed1)
-        print("validation_check_failed2  = ", validation_check_failed2)
-        print("validation_check_failed3  = ", validation_check_failed3)
-        print("validation_check_failed4  = ", validation_check_failed4)
-        print("validation_check_failed5  = ", validation_check_failed5)
-        print("validation_check_failed6  = ", validation_check_failed6)
-        print("validation_check_failed7  = ", validation_check_failed7)
-        print("validation_check_failed8  = ", validation_check_failed8)
-        print("validation_check_failed9  = ", validation_check_failed9)
-        print("validation_check_failed10 = ", validation_check_failed10)
+        if not inference_mode:
+            print("validation_check_failed2  = ", validation_check_failed2)
+            print("validation_check_failed3  = ", validation_check_failed3)
+            print("validation_check_failed4  = ", validation_check_failed4)
+            print("validation_check_failed5  = ", validation_check_failed5)
+            print("validation_check_failed6  = ", validation_check_failed6)
+            print("validation_check_failed7  = ", validation_check_failed7)
+            print("validation_check_failed8  = ", validation_check_failed8)
+            print("validation_check_failed9  = ", validation_check_failed9)
+            print("validation_check_failed10 = ", validation_check_failed10)
     else:
         print("Validation PASSED")
 
@@ -306,7 +381,8 @@ def main():
             eps = float(eps)
             print("eps, type(eps) = ", eps, type(eps))
             run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm,
-                                opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module, args.use_hardcoded_tunings, args.channel_block_size)
+                                opt_dtype, ref_dtype, args.with_perf, args.test_module, args.ref_module,
+                                args.use_hardcoded_tunings, args.channel_block_size, args.inference_mode)
     exit()
 
     # Just a single size run
@@ -324,7 +400,7 @@ def main():
 
     run_test_bottleneck(N, H, W, inc, outc, stride, eps, expansion, has_downsample, args.use_physical_3x3_padding, args.use_groupnorm, opt_dtype, ref_dtype, args.with_perf,
                         args.test_module, args.ref_module,
-                        args.use_hardcoded_tunings, args.channel_block_size)
+                        args.use_hardcoded_tunings, args.channel_block_size, args.inference_mode)
 
 if __name__ == "__main__":
     args = parser.parse_args()
