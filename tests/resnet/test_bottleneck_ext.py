@@ -59,20 +59,20 @@ def gn_init(m, zero_init=False):
     m.bias.data.zero_()
 
 def set_inference_mode(module):
-    print("dbg: folding: calling set_inference_mode() for the module = ", module, type(module))
+    #print("dbg: folding: calling set_inference_mode() for the module = ", module, type(module))
     #Given a model, set inference attribute to True in all bottleneck layers
     if hasattr(module, "enable_inference_mode"):
-        print("dbg: folding: setting inference mode, module, type(module) = ", module,  type(module))
+        #print("dbg: folding: setting inference mode, module, type(module) = ", module,  type(module))
         module.enable_inference_mode()
     for name, child_module in module.named_children():
         set_inference_mode(child_module)
     return
 
 def replace_batchnorms_with_identities(module):
-    print("dbg: folding: calling replace_batchnorm_with_identities for the module = ", module, type(module))
+    #print("dbg: folding: calling replace_batchnorm_with_identities for the module = ", module, type(module))
     #Given a model, replace all BatchNorm2d layers with Identity layers
     if isinstance(module, torch.nn.BatchNorm2d) or isinstance(module, tpp_pytorch_extension.resnet.batchnorm.TPPBatchNormTPP):
-        print("dbg: folding: replacing batchnorm with identity, module, type(module) = ", module,  type(module))
+        #print("dbg: folding: replacing batchnorm with identity, module, type(module) = ", module,  type(module))
         return torch.nn.Identity()
     for name, child_module in module.named_children():
         child_module_mod = replace_batchnorms_with_identities(child_module)
@@ -86,7 +86,7 @@ def fold_batchnorm(model):
     conv_name = ""
     bn   = None
     for name,module in model.named_modules():
-        print("dbg: folding: name, module, type(module) = ", name, module, type(module))
+        #print("dbg: folding: name, module, type(module) = ", name, module, type(module))
         if type(module) in [torch.nn.Conv2d, tpp_pytorch_extension.resnet.conv.TPPConv2dTPP]:
             conv = module
             conv_name = name

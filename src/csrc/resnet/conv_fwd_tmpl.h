@@ -11,18 +11,11 @@ RECORD_FUNCTION("conv_fwd", std::vector<c10::IValue>());
 t_start = getTime();
 #endif
 
-// ( input, weight) = inputs
+// ( input, weight, bias, output) = inputs, with bias and output are optional
 
 #define VERBOSE
 
 #define NTIMES_CONV 1
-
-auto t_I  = inputs[0]; // [N][CP][H][W][bc]
-auto t_W  = inputs[1];
-std::vector<long> dummy_size{0};
-auto t_B  = (inputs.size() > 2 ? inputs[2] : at::zeros(dummy_size, t_I.options()));
-
-auto sizes = t_I.sizes();
 
 int R = cfg.R;
 int S = cfg.S;
@@ -39,6 +32,30 @@ int stride_h = cfg.u;
 int stride_w = cfg.v;
 int Cb = cfg.blocksifm;
 int Kb = cfg.blocksofm;
+
+auto t_I  = inputs[0]; // [N][CP][H][W][bc]
+auto t_W  = inputs[1];
+std::vector<long> dummy_size{0};
+auto t_B  = (inputs.size() > 2 ? inputs[2] : at::zeros(dummy_size, t_I.options()));
+
+const long N  = t_I.sizes()[0];
+std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
+
+at::Tensor t_O;
+int accumulate_on_given_output = 0;
+if (inputs.size() > 3) {
+  t_O = inputs[3];
+  accumulate_on_given_output = 1;
+} else {
+  //#ifndef PREALLOCATED_OUTPUT
+  t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
+  //#else
+  //printf("PREALLOCATED_OUTPUT is enabled\n");
+  //#endif
+  accumulate_on_given_output = 0;
+}
+
+//return std::vector<at::Tensor>({t_O});
 
 const int pad_h_in = cfg.pad_h_in;
 const int pad_w_in = cfg.pad_w_in;
@@ -57,29 +74,11 @@ long ifwp_physically_padded = ifw + 2 * pad_w;
 const int logical_padding = ((pad_h_in == 0 && pad_w_in == 0 && pad_h_out == 0 && pad_w_out == 0) && (pad_h != 0 || pad_w != 0) ? 1 : 0 );
 const int input_padding_copy = (logical_padding ? 1 : 0);
 
-const long N  = sizes[0];
-
-std::vector<long> output_size{N, Kb, ofhp, ofwp, bk};
-
-#ifndef PREALLOCATED_OUTPUT
-auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
-#else
-//printf("PREALLOCATED_OUTPUT is enabled\n");
-#endif
-//return std::vector<at::Tensor>({t_O});
-
-/* hardcoded here unlike the fused bottleneck where it is an external parameter */
-//long pack_input = 0;
-
-  //cfg.avoid_fmas_in_rim = 1;
-  long avoid_fmas_in_rim = 0;
   if (ofh <= 7 && ofw <= 7 && R == 3 && S == 3 && stride_w == 1 && stride_h == 1 && h_in_gemm == 1) {
-    avoid_fmas_in_rim = 1;
     cfg.avoid_fmas_in_rim = 1; //??? FIXME
   }
 
   if (logical_padding && !input_padding_copy && (pad_h != 0 || pad_w != 0)) {
-    avoid_fmas_in_rim = 1;
     cfg.avoid_fmas_in_rim = 1;
   }
 
@@ -117,9 +116,23 @@ auto t_O = at::empty(output_size, torch::TensorOptions().dtype(t_I.dtype()));
     exit(-1);
   }
 
+  if (pack_input == 0 && h_in_gemm > 1 && (pad_h_in != pad_h_out || pad_w_in != pad_w_out)) {
+    printf("Error: h_in_gemm = %d > 1 does not work with different inout/output paddings when input is not packed (%d != %d or %d != %d)\n", h_in_gemm, pad_h_in, pad_h_out, pad_w_in, pad_w_out);
+    exit(-1);
+  }
+
+  if ((pack_input == 1 && h_in_gemm > 1 && ((pad_h_in == 0 && pad_h_in != 0) || (pad_w_in == 0 && pad_w_out != 0)))) {
+    printf("Error: h_in_gemm = %d > 1 does not work with zero input and non-zero output paddings when input is packed (%d != %d or %d != %d)\n", h_in_gemm, pad_h_in, pad_h_out, pad_w_in, pad_w_out);
+    exit(-1);
+  }
 
 const int with_bias = (cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS || cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS_RELU ? 1 : 0);
 const int with_relu = (cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_RELU || cfg.fuse_type == LIBXSMM_DNN_CONV_ELTWISE_FUSE_BIAS_RELU ? 1 : 0);
+
+if (!with_bias && accumulate_on_given_output) {
+  printf("Error: current implementation supports accumulate_on_given_output != 0 only if bias is also enabled (mainly because of how inputs is parsed as std::vector of at::Tensor\n");
+  exit(-1);
+}
 
 //char loop_specs_str[256] = "Abcdefg";
 char loop_specs_str[256];
@@ -232,10 +245,14 @@ printf("BS (vnni block size) = %d \n", BS);
   SCOPEIT_DECL(ReLUFwdTPP<T,T>)   relu_tpp;        /* unlike brgemm_relu, this TPP is for standalone usage when avoid_fmas_in_rim = 1*/
 
   float beta;
-  if (Cb_step == Cb && r_step == R && s_step == S)
-    beta = 0.0;
-  else
+  if (Cb_step == Cb && r_step == R && s_step == S) {
+    if (!accumulate_on_given_output)
+      beta = 0.0;
+    else
+      beta = 1.0;
+  } else {
     beta = 1.0;
+  }
 
   zero_tpp = SCOPEIT(SetZeroTPP<T>(bk*gemm_n), EW_ZERO);
   zero_padded_hwbc_tpp = SCOPEIT(SetZeroTPP<T>(ifhp_physically_padded*ifwp_physically_padded*bc), EW_ZERO);
@@ -352,15 +369,12 @@ printf("BS (vnni block size) = %d \n", BS);
   std::cout << "h_in_gemm = " << h_in_gemm << std::endl;
   std::cout << "pack_input = " << pack_input << std::endl;
   std::cout << "cfg.avoid fmas in rim = " <<  cfg.avoid_fmas_in_rim << std::endl;
-  std::cout << "unused but internal avoid fmas in rim = " <<  avoid_fmas_in_rim << std::endl;
   std::cout << "logical_padding = " << logical_padding << std::endl;
   std::cout << "input_padding_copy = " << input_padding_copy << std::endl;
   std::cout << "zero_output_rims = " << cfg.zero_fwd_output_rim << std::endl;
   std::cout << "avoid_racey_zeroing_in_rims = " << avoid_racey_zeroing_in_rims << std::endl;
   std::cout << "has_W_parallelization = " << has_W_parallelization << std::endl;
-#endif
-
-#ifdef VERBOSE
+  std::cout << "accumulate_on_given_output = " << accumulate_on_given_output << std::endl;
   std::cout << "tuning_params = " << tuning_params << std::endl;
   std::cout << "loop_specs_str = " << loop_specs_str << std::endl;
 #endif
@@ -455,7 +469,7 @@ printf("BS (vnni block size) = %d \n", BS);
 
           if (cfg.avoid_fmas_in_rim == 0) {
 
-            if (Cb_step != Cb || r_step != R || s_step != S) {
+            if (!accumulate_on_given_output && (Cb_step != Cb || r_step != R || s_step != S)) {
               if (i_c == 0 && i_r == 0 && i_s == 0) {
                 zero_tpp(output_off[i_n][i_k][i_h][i_w]);
               }
@@ -508,7 +522,7 @@ printf("BS (vnni block size) = %d \n", BS);
               }
             } /* if-else for 1x1 vs non 1x1 convolutions (strided/offset based brgemm) */
           } else { /* else for if cfg.avoid_fmas_in_rim == 0 */
-            if (Cb_step != Cb || r_step != R || s_step != S) {
+            if (!accumulate_on_given_output && (Cb_step != Cb || r_step != R || s_step != S)) {
               if (i_c == 0 && i_r == 0 && i_s == 0) {
                 zero_tpp(output_off[i_n][i_k][i_h][i_w]);
               }

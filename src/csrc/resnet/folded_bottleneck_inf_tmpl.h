@@ -75,26 +75,6 @@ RECORD_FUNCTION("fused_bottleneck_bn_fwd", std::vector<c10::IValue>());
   std::cout << "input dtype = " << input.dtype() << std::endl;
 #endif
 
-/*
-at::Tensor conv_fwd_ext(
-    conv_config cfg,
-    const std::vector<at::Tensor>& inputs,
-    std::vector<int> tuning_params,
-    std::string tuning_string,
-    pybind11::array_t<float>& tuning_timings) {
-
-
-  const int h_block = tuning_params[0];
-  const int w_block = tuning_params[1];
-  const int c_block = tuning_params[2];
-  const int k_block = tuning_params[3];
-  const int h_in_gemm = tuning_params[4];
-        int pack_input = tuning_params[5];
-
-auto t_I  = inputs[0]; // [N][CP][H][W][bc]
-auto t_W  = inputs[1];
-*/
-
   auto conv1_out = conv_fwd_ext(cfg.conv1, {input, conv1_weight, conv1_bias}, {h1_block, w1_block, c1_block, k1_block, h1_in_gemm, pack_input_for_1x1_strided}, c1_string, c1_tuning_timings);
 
 #ifdef VERBOSE
@@ -107,18 +87,17 @@ auto t_W  = inputs[1];
   printf("running conv3 \n");
 #endif
 
-  auto conv3_out = conv_fwd_ext(cfg.conv3, {conv2_out, conv3_weight, conv3_bias}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm, pack_input_for_1x1_strided}, c3_string, c3_tuning_timings);
-
-  at::Tensor result;
+  at::Tensor residual;
   if (cfg.has_residual_conv) {
 #ifdef VERBOSE
     printf("running conv4 \n");
 #endif
-    auto conv4_out = conv_fwd_ext(cfg.conv4, {input, conv4_weight, conv4_bias}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm, pack_input_for_1x1_strided}, c4_string, c4_tuning_timings);
-    result = conv3_out + conv4_out;
+    residual = conv_fwd_ext(cfg.conv4, {input, conv4_weight, conv4_bias}, {h4_block, w4_block, c4_block, k4_block, h4_in_gemm, pack_input_for_1x1_strided}, c4_string, c4_tuning_timings);
   } else {
-    result = conv3_out;
+    residual = input;
   }
+
+  auto conv3_out = conv_fwd_ext(cfg.conv3, {conv2_out, conv3_weight, conv3_bias, residual}, {h3_block, w3_block, c3_block, k3_block, h3_in_gemm, pack_input_for_1x1_strided}, c3_string, c3_tuning_timings);
 
 #ifdef TIMING
   {
@@ -144,5 +123,5 @@ auto t_W  = inputs[1];
   }
 #endif
 
-  return result;
+  return conv3_out;
 

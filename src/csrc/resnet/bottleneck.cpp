@@ -622,13 +622,14 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
     }
   } else { /* for if batchnorms are folded */
 
-    int fuse_type_int = 3; /* 0 for no usion, 1 for bias, 2 for relu, 3 for relu + bias (relu without mask) */
+    int fuse_type_int; /* 0 for no fusion, 1 for bias, 2 for relu, 3 for relu + bias (relu without mask) */
 
     res.conv1_kernel_size = 1;
     res.conv1_stride      = 1;
     res.conv1_padding     = 0;
     res.conv1_padding_in  = 0;
     res.conv1_padding_out = 1;
+    fuse_type_int         = 3;
     res.conv1 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes, res.conv1_kernel_size, res.conv1_kernel_size,
                                res.conv1_padding, res.conv1_padding, res.conv1_padding_in, res.conv1_padding_in, res.conv1_padding_out, res.conv1_padding_out,
                                res.conv1_stride, fuse_type_int, res.dtype_int);
@@ -639,6 +640,7 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
     res.conv2_padding     = 1;
     res.conv2_padding_in  = 1;
     res.conv2_padding_out = 1;
+    fuse_type_int         = 3;
     if (res.padding_3x3_type == 0)
       res.conv2 = conv_setup(res.N, res.planes, res.H, res.W, res.planes, res.conv2_kernel_size, res.conv2_kernel_size,
                                  res.conv2_padding, res.conv2_padding, 0, 0, 0, 0,
@@ -664,6 +666,7 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
     res.conv3_padding     = 0;
     res.conv3_padding_in  = 1;
     res.conv3_padding_out = 0;
+    fuse_type_int         = 3;
     res.conv3 = conv_setup(res.N, res.planes, downsampled_H, downsampled_W, res.planes * res.expansion, res.conv3_kernel_size, res.conv3_kernel_size,
                                res.conv3_padding, res.conv3_padding, res.conv3_padding_in, res.conv3_padding_in, res.conv3_padding_out, res.conv3_padding_out,
                                res.conv3_stride, fuse_type_int, res.dtype_int);
@@ -674,12 +677,11 @@ bottleneck_bn_config bottleneck_bn_setup(libxsmm_blasint N, libxsmm_blasint inpl
       res.conv4_padding     = 0;
       res.conv4_padding_in  = 0;
       res.conv4_padding_out = 0;
+      fuse_type_int         = 1; /* Note: Since residual is combined with conv3 output with relu applied on the sum as a part of conv3, we only need bias for residual conv */
       res.conv4 = conv_setup(res.N, res.inplanes, res.H, res.W, res.planes * res.expansion, res.conv4_kernel_size, res.conv4_kernel_size,
                                  res.conv4_padding, res.conv4_padding, res.conv4_padding_in, res.conv4_padding_in, res.conv4_padding_out, res.conv4_padding_out,
                                  res.conv4_stride, fuse_type_int, res.dtype_int);
     }
-    //printf("Case res.batchnorms_are_folded = 1 has not been implemented in bottleneck_bn_setup()\n");
-    //exit(-1);
   } /* else-if for folded batchnorms (inference) vs training */
   return res;
 }
