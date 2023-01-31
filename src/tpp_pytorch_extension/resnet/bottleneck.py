@@ -1246,13 +1246,18 @@ class BottleneckTPP(BlockedModule, Bottleneck_base):
                     #self.tuning_strings_w = ['Aefbcd', 'Aefbcd', 'Aefbcd', 'Aefbcd']
                     self.tuning_strings_w = ['Abcdefg', 'Abcdefg', 'Abcdefg', 'Abcdefg']
 
+        #print("dbg: self.inference = ", self.inference)
+        #print("dbg: self.tuning_params_fwd (before) = ", self.tuning_params_fwd)
+
         print("dbg WARNING: using hardcoded tunings for training fwd as inf for debugging purposes adjusting then to avoid the known bad combinations")
         #exit()
-        self.tuning_params_inf  = self.tuning_params_fwd
-        self.tuning_strings_inf = self.tuning_strings_fwd
+        self.tuning_params_inf  = self.tuning_params_fwd.copy()
+        self.tuning_strings_inf = self.tuning_strings_fwd.copy()
         # Resetting h_in_gemm to 1 for conv1 and conv3 (which have asymmetric input padding and do not support h_in_gemm > 1 in the cpp implementation)
         self.tuning_params_inf[16] = 1
         self.tuning_params_inf[18] = 1
+
+        #print("dbg: self.tuning_params_fwd (after) = ", self.tuning_params_fwd)
 
     def enable_inference_mode(self):
         self.inference = True
