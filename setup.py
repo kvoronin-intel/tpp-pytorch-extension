@@ -19,6 +19,19 @@ xsmm_makefile = os.path.join(libxsmm_root, "Makefile")
 xsmm_include = "./libxsmm/include"
 xsmm_lib = os.path.join(libxsmm_root, "lib")
 
+#libxsmm_dnn_root = os.path.join(cwd, "libxsmm-dnn")
+if "LIBXSMM_DNN_ROOT" in os.environ:
+    libxsmm_dnn_root = os.getenv("LIBXSMM_DNN_ROOT")
+else:
+    #print("dbg setup: using libxsmm-dnn from the submodules")
+    raise Exception("LIBXSMM_DNN_ROOT must be defined in the environment prior to calling setup.py")
+    #os.putenv("LIBXSMMROOT",libxsmm_root)
+    #libxsmm_dnn_root = os.path.join(cwd, "submodules/libxsmm-dnn")
+
+xsmm_dnn_makefile = os.path.join(libxsmm_dnn_root, "Makefile")
+xsmm_dnn_include = os.path.join(libxsmm_dnn_root, "include")
+xsmm_dnn_lib = os.path.join(libxsmm_dnn_root, "lib")
+
 if os.getenv("USE_VTUNE") is not None:
     vtune_root = os.path.join(cwd, "vtune")
     if "VTUNE_ROOT" in os.environ:
@@ -146,14 +159,14 @@ setup(
     python_requires=">=3.6",
     # install_requires=["torch>=1.4.0"],
     scripts=["utils/run_dist.sh", "utils/run_dist_ht.sh"],
-    libraries=[("xsmm", xsmm_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"])],
+    libraries=[("xsmm", xsmm_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"]), ("xsmm_dnn", xsmm_dnn_makefile, ["CC=gcc", "CXX=g++", "AVX=2", "-j"])],
     ext_modules=[
         CppExtension(
             "tpp_pytorch_extension._C",
             sources,
             extra_compile_args=extra_compile_args, #["-fopenmp", "-g", "-march=native", "-O3" , vtune_compile_opts ],
-            include_dirs=[xsmm_include, "{}/src/csrc".format(cwd),vtune_include],
-            library_dirs=[xsmm_lib, vtune_lib],
+            include_dirs=[xsmm_include, "{}/src/csrc".format(cwd),xsmm_dnn_include, vtune_include],
+            library_dirs=[xsmm_lib, xsmm_dnn_lib, vtune_lib],
             extra_objects=[vtune_lib_name] if os.getenv("USE_VTUNE") is not None else [],
             # libraries=["xsmm"],
         )
