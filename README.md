@@ -36,3 +36,5 @@ $bash utils/install_torch_mpi.sh
 # Examples
 - [BERT SQuAD Fine-tuning](examples/bert/squad/README.txt)
 - [BERT MLPerf pre-training](examples/bert/pretrain_mlperf/README.txt)
+- [ResNet-50 v1.5 training](examples/resnet/README.txt)
+
