@@ -52,6 +52,9 @@ conda install -y h5py onnx tensorboardx -c anaconda -c conda-forge
 # for unbuffer
 #conda install -y -c eumetsat expect
 
+# for pybind11
+pip install pybind11
+
 if [ ${ARCH} == "x86_64" ] ; then
   # for development (code formatting)
   conda install -y black=22.6.0 clang-format=5.0.1 -c sarcasm -c conda-forge
