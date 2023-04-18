@@ -1,7 +1,9 @@
 #ifndef _BERT_TIMING_H_
 #define _BERT_TIMING_H_
 
+#ifdef __x86_64__
 #include <immintrin.h>
+#endif
 #include <omp.h>
 #include "utils.h"
 
@@ -81,7 +83,9 @@ class ScopedTimer {
  public:
   ScopedTimer(DebugTimer t, long f = 0) : type(t), flops(f), start(getTime()) {}
   ~ScopedTimer() {
+#ifdef __x86_64__
     _mm_sfence();
+#endif
     auto time = getTime() - start;
     int tid = omp_get_thread_num();
     auto& pass = get_pass_list()[globalPass];
